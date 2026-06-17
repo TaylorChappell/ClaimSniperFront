@@ -1,30 +1,24 @@
 import { createContext, useContext, useEffect, useMemo, useRef, useState } from 'react';
 import { api, getToken, setToken, type Wallet, type Snipe } from './api';
 
-/* ---------------- toast system ---------------- */
-type Toast = { id: number; text: string; kind: 'ok' | 'err' };
-const ToastCtx = createContext<(text: string, kind?: 'ok' | 'err') => void>(() => {});
-const useToast = () => useContext(ToastCtx);
+const BRAND_IMG = `${import.meta.env.BASE_URL}sniper.png`;
+const short = (s: string) => `${s.slice(0, 4)}…${s.slice(-4)}`;
 
-function Logo({ size = 18 }: { size?: number }) {
-  return (
-    <svg width={size} height={size} viewBox="0 0 24 24" fill="none">
-      <circle cx="12" cy="12" r="7" stroke="#062a13" strokeWidth="2" />
-      <circle cx="12" cy="12" r="1.6" fill="#062a13" />
-      <path d="M12 1v5M12 18v5M1 12h5M18 12h5" stroke="#062a13" strokeWidth="2" strokeLinecap="round" />
-    </svg>
-  );
-}
+/* ---------------- toast system ---------------- */
+type ToastKind = 'ok' | 'err' | 'fill';
+type Toast = { id: number; text: string; kind: ToastKind };
+const ToastCtx = createContext<(text: string, kind?: ToastKind) => void>(() => {});
+const useToast = () => useContext(ToastCtx);
 
 export default function App() {
   const [authed, setAuthed] = useState(!!getToken());
   const [username, setUsername] = useState(localStorage.getItem('username') ?? '');
   const [toasts, setToasts] = useState<Toast[]>([]);
 
-  const push = (text: string, kind: 'ok' | 'err' = 'ok') => {
+  const push = (text: string, kind: ToastKind = 'ok') => {
     const id = Date.now() + Math.random();
     setToasts((t) => [...t, { id, text, kind }]);
-    setTimeout(() => setToasts((t) => t.filter((x) => x.id !== id)), 3800);
+    setTimeout(() => setToasts((t) => t.filter((x) => x.id !== id)), kind === 'fill' ? 5000 : 3800);
   };
 
   return (
@@ -49,7 +43,7 @@ export default function App() {
       )}
       <div className="toasts">
         {toasts.map((t) => (
-          <div key={t.id} className={`toast ${t.kind === 'err' ? 'err' : ''}`}>
+          <div key={t.id} className={`toast ${t.kind === 'err' ? 'err' : t.kind === 'fill' ? 'fill' : ''}`}>
             {t.text}
           </div>
         ))}
@@ -84,9 +78,7 @@ function Auth({ onAuthed }: { onAuthed: (u: string) => void }) {
   return (
     <div className="wrap">
       <div className="auth rise">
-        <div className="auth-logo">
-          <Logo size={28} />
-        </div>
+        <img className="auth-logo-img" src={BRAND_IMG} alt="Claim Sniper" />
         <h1>Claim Sniper</h1>
         <p className="sub">
           {mode === 'login' ? 'Sign in to your account.' : 'Create an account to store wallets and arm snipes.'}
@@ -125,11 +117,33 @@ function Auth({ onAuthed }: { onAuthed: (u: string) => void }) {
 
 /* ---------------- dashboard ---------------- */
 function Dashboard({ username, onLogout }: { username: string; onLogout: () => void }) {
+  const toast = useToast();
   const [wallets, setWallets] = useState<Wallet[]>([]);
   const [snipes, setSnipes] = useState<Snipe[]>([]);
+  const prevStatus = useRef<Record<string, string>>({});
+  const initialized = useRef(false);
 
   const refreshWallets = async () => setWallets((await api.walletsWithBalances()).wallets);
-  const refreshSnipes = async () => setSnipes((await api.snipes()).snipes);
+
+  const refreshSnipes = async () => {
+    const { snipes } = await api.snipes();
+    // Notify on status transitions into FILLED / FAILED (skip the first load).
+    if (initialized.current) {
+      for (const s of snipes) {
+        const prev = prevStatus.current[s.id];
+        if (prev && prev !== 'FILLED' && s.status === 'FILLED') {
+          toast(`Order filled — ${s.amountSol} SOL of ${short(s.mint)}`, 'fill');
+        } else if (prev && prev !== 'FAILED' && s.status === 'FAILED') {
+          toast(`Snipe failed — ${short(s.mint)}`, 'err');
+        }
+      }
+    }
+    const map: Record<string, string> = {};
+    for (const s of snipes) map[s.id] = s.status;
+    prevStatus.current = map;
+    initialized.current = true;
+    setSnipes(snipes);
+  };
 
   useEffect(() => {
     refreshWallets().catch(() => {});
@@ -145,11 +159,8 @@ function Dashboard({ username, onLogout }: { username: string; onLogout: () => v
     <div className="wrap">
       <div className="topbar rise">
         <div className="brand">
-          <span className="logo">
-            <Logo />
-          </span>
+          <img className="logo-img" src={BRAND_IMG} alt="" />
           <b>Claim Sniper</b>
-          <span className="tag">live</span>
         </div>
         <div className="who">
           <span className="user">@{username}</span>
@@ -183,6 +194,7 @@ function Wallets({ wallets, onChange }: { wallets: Wallet[]; onChange: () => voi
   const [pk, setPk] = useState('');
   const [err, setErr] = useState('');
   const [busy, setBusy] = useState(false);
+  const [exiting, setExiting] = useState<Set<string>>(new Set());
 
   async function add() {
     setErr('');
@@ -200,28 +212,27 @@ function Wallets({ wallets, onChange }: { wallets: Wallet[]; onChange: () => voi
     }
   }
 
+  function remove(w: Wallet) {
+    if (!confirm(`Remove "${w.name}"? The encrypted key is deleted.`)) return;
+    setExiting((s) => new Set(s).add(w.id)); // play exit animation first
+    setTimeout(() => {
+      api.deleteWallet(w.id).then(onChange).catch((e) => toast(e.message, 'err'));
+    }, 330);
+  }
+
   return (
     <div className="card">
       <h2>Wallets</h2>
       {wallets.length === 0 && <div className="empty">No wallets yet. Add one below.</div>}
       {wallets.map((w) => (
-        <div className="wallet" key={w.id}>
+        <div className={`wallet ${exiting.has(w.id) ? 'exiting' : ''}`} key={w.id}>
           <div>
             <div className="name">{w.name}</div>
-            <div className="pk">
-              {w.publicKey.slice(0, 4)}…{w.publicKey.slice(-4)}
-            </div>
+            <div className="pk">{short(w.publicKey)}</div>
           </div>
           <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
             <div className="bal">{(w.balanceSol ?? 0).toFixed(4)} SOL</div>
-            <button
-              className="danger"
-              title="Remove wallet"
-              onClick={() => {
-                if (confirm(`Remove "${w.name}"? The encrypted key is deleted.`))
-                  api.deleteWallet(w.id).then(onChange).catch((e) => toast(e.message, 'err'));
-              }}
-            >
+            <button className="danger" title="Remove wallet" onClick={() => remove(w)}>
               ✕
             </button>
           </div>
@@ -386,6 +397,15 @@ function SnipeForm({ wallets, onCreated }: { wallets: Wallet[]; onCreated: () =>
 /* ---------------- snipe list ---------------- */
 function Snipes({ snipes, onChange }: { snipes: Snipe[]; onChange: () => void }) {
   const toast = useToast();
+  const [exiting, setExiting] = useState<Set<string>>(new Set());
+
+  function remove(id: string) {
+    setExiting((s) => new Set(s).add(id)); // animate out, then delete
+    setTimeout(() => {
+      api.cancelSnipe(id).then(onChange).catch((e) => toast(e.message, 'err'));
+    }, 330);
+  }
+
   return (
     <div className="card">
       <h2>Snipes</h2>
@@ -393,7 +413,7 @@ function Snipes({ snipes, onChange }: { snipes: Snipe[]; onChange: () => void })
         <div className="empty">No snipes yet. Arm one with a coin CA, a wallet, and a SOL amount.</div>
       )}
       {snipes.map((s) => (
-        <div className={`snipe ${s.status}`} key={s.id}>
+        <div className={`snipe ${s.status} ${exiting.has(s.id) ? 'exiting' : ''}`} key={s.id}>
           <div className="head">
             <span className="mint">{s.mint}</span>
             <span className={`badge ${s.status}`}>
@@ -413,23 +433,9 @@ function Snipes({ snipes, onChange }: { snipes: Snipe[]; onChange: () => void })
             )}
             {s.error && <span style={{ color: 'var(--red)' }}>{s.error}</span>}
           </div>
-          {s.status === 'ARMED' ? (
-            <button
-              className="ghost"
-              style={{ marginTop: 12 }}
-              onClick={() => api.cancelSnipe(s.id).then(onChange).catch((e) => toast(e.message, 'err'))}
-            >
-              Disarm
-            </button>
-          ) : (
-            <button
-              className="ghost"
-              style={{ marginTop: 12 }}
-              onClick={() => api.cancelSnipe(s.id).then(onChange).catch((e) => toast(e.message, 'err'))}
-            >
-              Remove
-            </button>
-          )}
+          <button className="ghost" style={{ marginTop: 12 }} onClick={() => remove(s.id)}>
+            {s.status === 'ARMED' ? 'Disarm' : 'Remove'}
+          </button>
         </div>
       ))}
     </div>
