@@ -413,13 +413,21 @@ function Snipes({ snipes, onChange }: { snipes: Snipe[]; onChange: () => void })
             )}
             {s.error && <span style={{ color: 'var(--red)' }}>{s.error}</span>}
           </div>
-          {s.status === 'ARMED' && (
+          {s.status === 'ARMED' ? (
             <button
               className="ghost"
               style={{ marginTop: 12 }}
               onClick={() => api.cancelSnipe(s.id).then(onChange).catch((e) => toast(e.message, 'err'))}
             >
               Disarm
+            </button>
+          ) : (
+            <button
+              className="ghost"
+              style={{ marginTop: 12 }}
+              onClick={() => api.cancelSnipe(s.id).then(onChange).catch((e) => toast(e.message, 'err'))}
+            >
+              Remove
             </button>
           )}
         </div>
