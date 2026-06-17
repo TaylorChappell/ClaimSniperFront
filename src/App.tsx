@@ -1,34 +1,64 @@
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { createContext, useContext, useEffect, useMemo, useRef, useState } from 'react';
 import { api, getToken, setToken, type Wallet, type Snipe } from './api';
+
+/* ---------------- toast system ---------------- */
+type Toast = { id: number; text: string; kind: 'ok' | 'err' };
+const ToastCtx = createContext<(text: string, kind?: 'ok' | 'err') => void>(() => {});
+const useToast = () => useContext(ToastCtx);
+
+function Logo({ size = 18 }: { size?: number }) {
+  return (
+    <svg width={size} height={size} viewBox="0 0 24 24" fill="none">
+      <circle cx="12" cy="12" r="7" stroke="#062a13" strokeWidth="2" />
+      <circle cx="12" cy="12" r="1.6" fill="#062a13" />
+      <path d="M12 1v5M12 18v5M1 12h5M18 12h5" stroke="#062a13" strokeWidth="2" strokeLinecap="round" />
+    </svg>
+  );
+}
 
 export default function App() {
   const [authed, setAuthed] = useState(!!getToken());
   const [username, setUsername] = useState(localStorage.getItem('username') ?? '');
+  const [toasts, setToasts] = useState<Toast[]>([]);
 
-  if (!authed) {
-    return (
-      <Auth
-        onAuthed={(u) => {
-          setUsername(u);
-          localStorage.setItem('username', u);
-          setAuthed(true);
-        }}
-      />
-    );
-  }
+  const push = (text: string, kind: 'ok' | 'err' = 'ok') => {
+    const id = Date.now() + Math.random();
+    setToasts((t) => [...t, { id, text, kind }]);
+    setTimeout(() => setToasts((t) => t.filter((x) => x.id !== id)), 3800);
+  };
+
   return (
-    <Dashboard
-      username={username}
-      onLogout={() => {
-        setToken(null);
-        localStorage.removeItem('username');
-        setAuthed(false);
-      }}
-    />
+    <ToastCtx.Provider value={push}>
+      {!authed ? (
+        <Auth
+          onAuthed={(u) => {
+            setUsername(u);
+            localStorage.setItem('username', u);
+            setAuthed(true);
+          }}
+        />
+      ) : (
+        <Dashboard
+          username={username}
+          onLogout={() => {
+            setToken(null);
+            localStorage.removeItem('username');
+            setAuthed(false);
+          }}
+        />
+      )}
+      <div className="toasts">
+        {toasts.map((t) => (
+          <div key={t.id} className={`toast ${t.kind === 'err' ? 'err' : ''}`}>
+            {t.text}
+          </div>
+        ))}
+      </div>
+    </ToastCtx.Provider>
   );
 }
 
-/* ------------------------- Auth ------------------------- */
+/* ---------------- auth ---------------- */
 function Auth({ onAuthed }: { onAuthed: (u: string) => void }) {
   const [mode, setMode] = useState<'login' | 'register'>('login');
   const [u, setU] = useState('');
@@ -53,28 +83,30 @@ function Auth({ onAuthed }: { onAuthed: (u: string) => void }) {
 
   return (
     <div className="wrap">
-      <div className="auth card">
-        <div className="brand" style={{ marginBottom: 6 }}>
-          <b>Snipe Desk</b>
-          <span className="tag">armed &amp; ready</span>
+      <div className="auth rise">
+        <div className="auth-logo">
+          <Logo size={28} />
         </div>
-        <p className="hint">
+        <h1>Claim Sniper</h1>
+        <p className="sub">
           {mode === 'login' ? 'Sign in to your account.' : 'Create an account to store wallets and arm snipes.'}
         </p>
-        <label>Username</label>
-        <input value={u} onChange={(e) => setU(e.target.value)} autoComplete="username" />
-        <label>Password</label>
-        <input
-          type="password"
-          value={p}
-          onChange={(e) => setP(e.target.value)}
-          onKeyDown={(e) => e.key === 'Enter' && submit()}
-          autoComplete={mode === 'login' ? 'current-password' : 'new-password'}
-        />
-        {err && <div className="err">{err}</div>}
-        <button className="primary" onClick={submit} disabled={busy || !u || !p}>
-          {busy ? '…' : mode === 'login' ? 'Sign in' : 'Create account'}
-        </button>
+        <div className="card">
+          <label>Username</label>
+          <input value={u} onChange={(e) => setU(e.target.value)} autoComplete="username" />
+          <label>Password</label>
+          <input
+            type="password"
+            value={p}
+            onChange={(e) => setP(e.target.value)}
+            onKeyDown={(e) => e.key === 'Enter' && submit()}
+            autoComplete={mode === 'login' ? 'current-password' : 'new-password'}
+          />
+          {err && <div className="err">{err}</div>}
+          <button className="primary" onClick={submit} disabled={busy || !u || !p}>
+            {busy ? <span className="spin" /> : mode === 'login' ? 'Sign in' : 'Create account'}
+          </button>
+        </div>
         <div className="toggle">
           {mode === 'login' ? (
             <span>
@@ -91,40 +123,36 @@ function Auth({ onAuthed }: { onAuthed: (u: string) => void }) {
   );
 }
 
-/* ------------------------- Dashboard ------------------------- */
+/* ---------------- dashboard ---------------- */
 function Dashboard({ username, onLogout }: { username: string; onLogout: () => void }) {
   const [wallets, setWallets] = useState<Wallet[]>([]);
   const [snipes, setSnipes] = useState<Snipe[]>([]);
 
-  async function refreshWallets() {
-    const { wallets } = await api.walletsWithBalances();
-    setWallets(wallets);
-  }
-  async function refreshSnipes() {
-    const { snipes } = await api.snipes();
-    setSnipes(snipes);
-  }
+  const refreshWallets = async () => setWallets((await api.walletsWithBalances()).wallets);
+  const refreshSnipes = async () => setSnipes((await api.snipes()).snipes);
 
   useEffect(() => {
     refreshWallets().catch(() => {});
     refreshSnipes().catch(() => {});
-    // Poll snipe + balance state so fills show up live.
     const t = setInterval(() => {
       refreshSnipes().catch(() => {});
       refreshWallets().catch(() => {});
-    }, 4000);
+    }, 5000);
     return () => clearInterval(t);
   }, []);
 
   return (
     <div className="wrap">
-      <div className="topbar">
+      <div className="topbar rise">
         <div className="brand">
-          <b>Snipe Desk</b>
-          <span className="tag">armed &amp; ready</span>
+          <span className="logo">
+            <Logo />
+          </span>
+          <b>Claim Sniper</b>
+          <span className="tag">live</span>
         </div>
         <div className="who">
-          <span>@{username}</span>
+          <span className="user">@{username}</span>
           <button className="ghost" onClick={onLogout}>
             Sign out
           </button>
@@ -132,18 +160,25 @@ function Dashboard({ username, onLogout }: { username: string; onLogout: () => v
       </div>
 
       <div className="grid">
-        <div style={{ display: 'flex', flexDirection: 'column', gap: 22 }}>
-          <Wallets wallets={wallets} onChange={refreshWallets} />
-          <SnipeForm wallets={wallets} onCreated={refreshSnipes} />
+        <div className="col">
+          <div className="rise d1">
+            <Wallets wallets={wallets} onChange={refreshWallets} />
+          </div>
+          <div className="rise d2">
+            <SnipeForm wallets={wallets} onCreated={refreshSnipes} />
+          </div>
         </div>
-        <Snipes snipes={snipes} onChange={refreshSnipes} />
+        <div className="rise d3">
+          <Snipes snipes={snipes} onChange={refreshSnipes} />
+        </div>
       </div>
     </div>
   );
 }
 
-/* ------------------------- Wallets ------------------------- */
+/* ---------------- wallets ---------------- */
 function Wallets({ wallets, onChange }: { wallets: Wallet[]; onChange: () => void }) {
+  const toast = useToast();
   const [name, setName] = useState('');
   const [pk, setPk] = useState('');
   const [err, setErr] = useState('');
@@ -154,6 +189,7 @@ function Wallets({ wallets, onChange }: { wallets: Wallet[]; onChange: () => voi
     setBusy(true);
     try {
       await api.addWallet(name.trim(), pk.trim());
+      toast(`Wallet "${name.trim()}" added`);
       setName('');
       setPk('');
       onChange();
@@ -176,14 +212,14 @@ function Wallets({ wallets, onChange }: { wallets: Wallet[]; onChange: () => voi
               {w.publicKey.slice(0, 4)}…{w.publicKey.slice(-4)}
             </div>
           </div>
-          <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
             <div className="bal">{(w.balanceSol ?? 0).toFixed(4)} SOL</div>
             <button
               className="danger"
               title="Remove wallet"
               onClick={() => {
                 if (confirm(`Remove "${w.name}"? The encrypted key is deleted.`))
-                  api.deleteWallet(w.id).then(onChange).catch((e) => alert(e.message));
+                  api.deleteWallet(w.id).then(onChange).catch((e) => toast(e.message, 'err'));
               }}
             >
               ✕
@@ -203,7 +239,7 @@ function Wallets({ wallets, onChange }: { wallets: Wallet[]; onChange: () => voi
       />
       {err && <div className="err">{err}</div>}
       <button className="primary" onClick={add} disabled={busy || !name || !pk}>
-        {busy ? '…' : 'Add wallet'}
+        {busy ? <span className="spin" /> : 'Add wallet'}
       </button>
       <div className="hint">
         Keys are encrypted (AES-256-GCM) before storage and only decrypted in memory at the moment a
@@ -213,7 +249,7 @@ function Wallets({ wallets, onChange }: { wallets: Wallet[]; onChange: () => voi
   );
 }
 
-/* --------------- searchable wallet select --------------- */
+/* ---------------- searchable wallet select ---------------- */
 function WalletSelect({
   wallets,
   value,
@@ -249,7 +285,7 @@ function WalletSelect({
   return (
     <div className="combo" ref={ref}>
       <input
-        value={open ? q : selected ? `${selected.name}` : ''}
+        value={open ? q : selected ? selected.name : ''}
         placeholder="Search wallets…"
         onFocus={() => {
           setOpen(true);
@@ -279,20 +315,19 @@ function WalletSelect({
   );
 }
 
-/* ------------------------- Snipe form ------------------------- */
+/* ---------------- snipe form ---------------- */
 function SnipeForm({ wallets, onCreated }: { wallets: Wallet[]; onCreated: () => void }) {
+  const toast = useToast();
   const [mint, setMint] = useState('');
   const [walletId, setWalletId] = useState('');
   const [amount, setAmount] = useState('');
   const [slippage, setSlippage] = useState('15');
   const [priority, setPriority] = useState('0.0005');
   const [err, setErr] = useState('');
-  const [ok, setOk] = useState('');
   const [busy, setBusy] = useState(false);
 
   async function arm() {
     setErr('');
-    setOk('');
     setBusy(true);
     try {
       await api.createSnipe({
@@ -302,7 +337,7 @@ function SnipeForm({ wallets, onCreated }: { wallets: Wallet[]; onCreated: () =>
         slippagePct: Number(slippage),
         priorityFee: Number(priority),
       });
-      setOk('Snipe armed. Watching for the fee claim.');
+      toast('Snipe armed — watching for the fee claim');
       setMint('');
       setAmount('');
       onCreated();
@@ -337,20 +372,20 @@ function SnipeForm({ wallets, onCreated }: { wallets: Wallet[]; onCreated: () =>
         </div>
       </div>
       {err && <div className="err">{err}</div>}
-      {ok && <div className="hint" style={{ color: 'var(--live)' }}>{ok}</div>}
       <button className="primary" onClick={arm} disabled={busy || !ready}>
-        {busy ? '…' : 'Confirm & arm snipe'}
+        {busy ? <span className="spin" /> : 'Confirm & arm snipe'}
       </button>
       <div className="hint">
-        Fires automatically the moment this coin's creator fees are claimed on-chain. Works pre- and
-        post-migration.
+        Fires automatically the moment this coin's creator fees are next claimed on-chain. Works pre-
+        and post-migration.
       </div>
     </div>
   );
 }
 
-/* ------------------------- Snipe list ------------------------- */
+/* ---------------- snipe list ---------------- */
 function Snipes({ snipes, onChange }: { snipes: Snipe[]; onChange: () => void }) {
+  const toast = useToast();
   return (
     <div className="card">
       <h2>Snipes</h2>
@@ -358,7 +393,7 @@ function Snipes({ snipes, onChange }: { snipes: Snipe[]; onChange: () => void })
         <div className="empty">No snipes yet. Arm one with a coin CA, a wallet, and a SOL amount.</div>
       )}
       {snipes.map((s) => (
-        <div className="snipe" key={s.id}>
+        <div className={`snipe ${s.status}`} key={s.id}>
           <div className="head">
             <span className="mint">{s.mint}</span>
             <span className={`badge ${s.status}`}>
@@ -367,22 +402,22 @@ function Snipes({ snipes, onChange }: { snipes: Snipe[]; onChange: () => void })
             </span>
           </div>
           <div className="meta">
-            <span>{s.amountSol} SOL</span>
+            <span><b>{s.amountSol}</b> SOL</span>
             <span>{s.wallet.name}</span>
             <span>slip {s.slippagePct}%</span>
             <span>prio {s.priorityFee}</span>
             {s.signature && (
               <a href={`https://solscan.io/tx/${s.signature}`} target="_blank" rel="noreferrer">
-                view tx
+                view tx ↗
               </a>
             )}
-            {s.error && <span style={{ color: 'var(--danger)' }}>{s.error}</span>}
+            {s.error && <span style={{ color: 'var(--red)' }}>{s.error}</span>}
           </div>
           {s.status === 'ARMED' && (
             <button
               className="ghost"
-              style={{ marginTop: 10 }}
-              onClick={() => api.cancelSnipe(s.id).then(onChange).catch((e) => alert(e.message))}
+              style={{ marginTop: 12 }}
+              onClick={() => api.cancelSnipe(s.id).then(onChange).catch((e) => toast(e.message, 'err'))}
             >
               Disarm
             </button>
