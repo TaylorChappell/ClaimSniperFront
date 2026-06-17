@@ -12,10 +12,13 @@ export function setToken(t: string | null) {
 }
 
 async function req<T>(path: string, opts: RequestInit = {}): Promise<T> {
+  const hasBody = opts.body != null;
   const res = await fetch(BASE + path, {
     ...opts,
     headers: {
-      'Content-Type': 'application/json',
+      // Only send a JSON content-type when there's actually a body. Sending it
+      // on an empty-body POST makes Fastify reject with 400 (empty JSON body).
+      ...(hasBody ? { 'Content-Type': 'application/json' } : {}),
       ...(token ? { Authorization: `Bearer ${token}` } : {}),
       ...(opts.headers ?? {}),
     },
