@@ -122,7 +122,6 @@ function PayScreen({ onPaid, onLogout }: { onPaid: () => void; onLogout: () => v
   const [addr, setAddr] = useState('');
   const [price, setPrice] = useState(2);
   const [received, setReceived] = useState(0);
-  const [message, setMessage] = useState<string | null>(null);
 
   useEffect(() => {
     let stop = false;
@@ -134,7 +133,6 @@ function PayScreen({ onPaid, onLogout }: { onPaid: () => void; onLogout: () => v
         setAddr(s.depositAddress ?? '');
         setPrice(s.priceSol ?? 2);
         setReceived(s.receivedSol ?? 0);
-        setMessage(s.message ?? null);
       } catch {
         /* keep polling */
       }
@@ -158,7 +156,7 @@ function PayScreen({ onPaid, onLogout }: { onPaid: () => void; onLogout: () => v
         <h1>Unlock Claim Sniper</h1>
         <p className="sub">One-time payment of {price} SOL unlocks the tool for good.</p>
         <div className="card">
-          <label>Send exactly {price} SOL — in a single transaction — to:</label>
+          <label>Send exactly {price} SOL in a single transaction to:</label>
           <div className="deposit">
             <code>{addr || '…'}</code>
             <button className="ghost" onClick={copy} disabled={!addr}>Copy</button>
@@ -166,12 +164,6 @@ function PayScreen({ onPaid, onLogout }: { onPaid: () => void; onLogout: () => v
           <div className="paystatus">
             <span className="spin dark" />
             <span>Waiting for payment… received {received.toFixed(3)} / {price} SOL</span>
-          </div>
-          {message && <div className="paymsg">{message}</div>}
-          <div className="hint">
-            Send the full {price} SOL in one transfer. Anything from 0.1 up to {price} SOL is
-            automatically refunded to the sending wallet, and you can try again. Funds above {price}{' '}
-            SOL unlock instantly.
           </div>
         </div>
         <div className="toggle"><a onClick={onLogout}>Sign out</a></div>
@@ -197,15 +189,15 @@ function Dashboard({ username, onLogout }: { username: string; onLogout: () => v
       for (const s of snipes) {
         const prev = prevStatus.current[s.id];
         if (prev && prev !== 'FILLED' && s.status === 'FILLED')
-          toast(`Order filled — ${s.amountSol} SOL of ${short(s.mint)}`, 'fill');
+          toast(`Order filled: ${s.amountSol} SOL of ${short(s.mint)}`, 'fill');
         else if (prev && prev !== 'FAILED' && s.status === 'FAILED')
-          toast(`Snipe failed — ${short(s.mint)}`, 'err');
+          toast(`Snipe failed: ${short(s.mint)}`, 'err');
       }
       for (const s of snipes) {
         const key = `tp:${s.id}`;
         const prevTp = prevStatus.current[key];
         if (prevTp && prevTp !== 'SOLD' && s.tpStatus === 'SOLD')
-          toast(`Take-profit hit — sold ${s.tpSellPct}% of ${short(s.mint)}`, 'fill');
+          toast(`Take-profit hit, sold ${s.tpSellPct}% of ${short(s.mint)}`, 'fill');
       }
     }
     const map: Record<string, string> = {};
@@ -418,7 +410,7 @@ function SnipeForm({ wallets, onCreated }: { wallets: Wallet[]; onCreated: () =>
         bribe: Number(bribe),
         takeProfit,
       });
-      toast('Snipe armed — watching for the fee claim');
+      toast('Snipe armed, watching for the fee claim');
       setMint('');
       setAmount('');
       onCreated();
