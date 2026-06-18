@@ -1,10 +1,9 @@
 import { createContext, useContext, useEffect, useMemo, useRef, useState } from 'react';
-import { api, getToken, setToken, type Wallet, type Snipe } from './api';
+import { api, getToken, setToken, type Wallet, type Snipe, type Stats, type TakeProfit } from './api';
 
 const BRAND_IMG = `${import.meta.env.BASE_URL}sniper.png`;
 const short = (s: string) => `${s.slice(0, 4)}…${s.slice(-4)}`;
 
-/* ---------------- toast system ---------------- */
 type ToastKind = 'ok' | 'err' | 'fill';
 type Toast = { id: number; text: string; kind: ToastKind };
 const ToastCtx = createContext<(text: string, kind?: ToastKind) => void>(() => {});
@@ -12,6 +11,7 @@ const useToast = () => useContext(ToastCtx);
 
 export default function App() {
   const [authed, setAuthed] = useState(!!getToken());
+  const [paid, setPaid] = useState(false);
   const [username, setUsername] = useState(localStorage.getItem('username') ?? '');
   const [toasts, setToasts] = useState<Toast[]>([]);
 
@@ -21,26 +21,34 @@ export default function App() {
     setTimeout(() => setToasts((t) => t.filter((x) => x.id !== id)), kind === 'fill' ? 5000 : 3800);
   };
 
+  function logout() {
+    setToken(null);
+    localStorage.removeItem('username');
+    setAuthed(false);
+    setPaid(false);
+  }
+
+  let screen;
+  if (!authed) {
+    screen = (
+      <Auth
+        onAuthed={(u, p) => {
+          setUsername(u);
+          localStorage.setItem('username', u);
+          setPaid(p);
+          setAuthed(true);
+        }}
+      />
+    );
+  } else if (!paid) {
+    screen = <PayScreen onPaid={() => setPaid(true)} onLogout={logout} />;
+  } else {
+    screen = <Dashboard username={username} onLogout={logout} />;
+  }
+
   return (
     <ToastCtx.Provider value={push}>
-      {!authed ? (
-        <Auth
-          onAuthed={(u) => {
-            setUsername(u);
-            localStorage.setItem('username', u);
-            setAuthed(true);
-          }}
-        />
-      ) : (
-        <Dashboard
-          username={username}
-          onLogout={() => {
-            setToken(null);
-            localStorage.removeItem('username');
-            setAuthed(false);
-          }}
-        />
-      )}
+      {screen}
       <div className="toasts">
         {toasts.map((t) => (
           <div key={t.id} className={`toast ${t.kind === 'err' ? 'err' : t.kind === 'fill' ? 'fill' : ''}`}>
@@ -53,7 +61,7 @@ export default function App() {
 }
 
 /* ---------------- auth ---------------- */
-function Auth({ onAuthed }: { onAuthed: (u: string) => void }) {
+function Auth({ onAuthed }: { onAuthed: (u: string, paid: boolean) => void }) {
   const [mode, setMode] = useState<'login' | 'register'>('login');
   const [u, setU] = useState('');
   const [p, setP] = useState('');
@@ -64,10 +72,9 @@ function Auth({ onAuthed }: { onAuthed: (u: string) => void }) {
     setErr('');
     setBusy(true);
     try {
-      const fn = mode === 'login' ? api.login : api.register;
-      const res = await fn(u, p);
+      const res = await (mode === 'login' ? api.login : api.register)(u, p);
       setToken(res.token);
-      onAuthed(res.username);
+      onAuthed(res.username, res.paid);
     } catch (e: any) {
       setErr(e.message);
     } finally {
@@ -80,9 +87,7 @@ function Auth({ onAuthed }: { onAuthed: (u: string) => void }) {
       <div className="auth rise">
         <img className="auth-logo-img" src={BRAND_IMG} alt="Claim Sniper" />
         <h1>Claim Sniper</h1>
-        <p className="sub">
-          {mode === 'login' ? 'Sign in to your account.' : 'Create an account to store wallets and arm snipes.'}
-        </p>
+        <p className="sub">{mode === 'login' ? 'Sign in to your account.' : 'Create an account to get started.'}</p>
         <div className="card">
           <label>Username</label>
           <input value={u} onChange={(e) => setU(e.target.value)} autoComplete="username" />
@@ -101,15 +106,75 @@ function Auth({ onAuthed }: { onAuthed: (u: string) => void }) {
         </div>
         <div className="toggle">
           {mode === 'login' ? (
-            <span>
-              No account? <a onClick={() => setMode('register')}>Create one</a>
-            </span>
+            <span>No account? <a onClick={() => setMode('register')}>Create one</a></span>
           ) : (
-            <span>
-              Have an account? <a onClick={() => setMode('login')}>Sign in</a>
-            </span>
+            <span>Have an account? <a onClick={() => setMode('login')}>Sign in</a></span>
           )}
         </div>
+      </div>
+    </div>
+  );
+}
+
+/* ---------------- paywall ---------------- */
+function PayScreen({ onPaid, onLogout }: { onPaid: () => void; onLogout: () => void }) {
+  const toast = useToast();
+  const [addr, setAddr] = useState('');
+  const [price, setPrice] = useState(2);
+  const [received, setReceived] = useState(0);
+  const [message, setMessage] = useState<string | null>(null);
+
+  useEffect(() => {
+    let stop = false;
+    const poll = async () => {
+      try {
+        const s = await api.billingStatus();
+        if (stop) return;
+        if (s.paid) return onPaid();
+        setAddr(s.depositAddress ?? '');
+        setPrice(s.priceSol ?? 2);
+        setReceived(s.receivedSol ?? 0);
+        setMessage(s.message ?? null);
+      } catch {
+        /* keep polling */
+      }
+    };
+    poll();
+    const t = setInterval(poll, 6000);
+    return () => {
+      stop = true;
+      clearInterval(t);
+    };
+  }, []);
+
+  function copy() {
+    navigator.clipboard.writeText(addr).then(() => toast('Address copied'));
+  }
+
+  return (
+    <div className="wrap">
+      <div className="auth rise">
+        <img className="auth-logo-img" src={BRAND_IMG} alt="Claim Sniper" />
+        <h1>Unlock Claim Sniper</h1>
+        <p className="sub">One-time payment of {price} SOL unlocks the tool for good.</p>
+        <div className="card">
+          <label>Send exactly {price} SOL — in a single transaction — to:</label>
+          <div className="deposit">
+            <code>{addr || '…'}</code>
+            <button className="ghost" onClick={copy} disabled={!addr}>Copy</button>
+          </div>
+          <div className="paystatus">
+            <span className="spin dark" />
+            <span>Waiting for payment… received {received.toFixed(3)} / {price} SOL</span>
+          </div>
+          {message && <div className="paymsg">{message}</div>}
+          <div className="hint">
+            Send the full {price} SOL in one transfer. Anything from 0.1 up to {price} SOL is
+            automatically refunded to the sending wallet, and you can try again. Funds above {price}{' '}
+            SOL unlock instantly.
+          </div>
+        </div>
+        <div className="toggle"><a onClick={onLogout}>Sign out</a></div>
       </div>
     </div>
   );
@@ -120,38 +185,47 @@ function Dashboard({ username, onLogout }: { username: string; onLogout: () => v
   const toast = useToast();
   const [wallets, setWallets] = useState<Wallet[]>([]);
   const [snipes, setSnipes] = useState<Snipe[]>([]);
+  const [stats, setStats] = useState<Stats | null>(null);
   const prevStatus = useRef<Record<string, string>>({});
   const initialized = useRef(false);
 
   const refreshWallets = async () => setWallets((await api.walletsWithBalances()).wallets);
-
+  const refreshStats = async () => setStats(await api.stats());
   const refreshSnipes = async () => {
     const { snipes } = await api.snipes();
-    // Notify on status transitions into FILLED / FAILED (skip the first load).
     if (initialized.current) {
       for (const s of snipes) {
         const prev = prevStatus.current[s.id];
-        if (prev && prev !== 'FILLED' && s.status === 'FILLED') {
+        if (prev && prev !== 'FILLED' && s.status === 'FILLED')
           toast(`Order filled — ${s.amountSol} SOL of ${short(s.mint)}`, 'fill');
-        } else if (prev && prev !== 'FAILED' && s.status === 'FAILED') {
+        else if (prev && prev !== 'FAILED' && s.status === 'FAILED')
           toast(`Snipe failed — ${short(s.mint)}`, 'err');
-        }
+      }
+      for (const s of snipes) {
+        const key = `tp:${s.id}`;
+        const prevTp = prevStatus.current[key];
+        if (prevTp && prevTp !== 'SOLD' && s.tpStatus === 'SOLD')
+          toast(`Take-profit hit — sold ${s.tpSellPct}% of ${short(s.mint)}`, 'fill');
       }
     }
     const map: Record<string, string> = {};
-    for (const s of snipes) map[s.id] = s.status;
+    for (const s of snipes) {
+      map[s.id] = s.status;
+      map[`tp:${s.id}`] = s.tpStatus;
+    }
     prevStatus.current = map;
     initialized.current = true;
     setSnipes(snipes);
   };
 
   useEffect(() => {
-    refreshWallets().catch(() => {});
-    refreshSnipes().catch(() => {});
-    const t = setInterval(() => {
-      refreshSnipes().catch(() => {});
+    const all = () => {
       refreshWallets().catch(() => {});
-    }, 5000);
+      refreshSnipes().catch(() => {});
+      refreshStats().catch(() => {});
+    };
+    all();
+    const t = setInterval(all, 5000);
     return () => clearInterval(t);
   }, []);
 
@@ -164,25 +238,48 @@ function Dashboard({ username, onLogout }: { username: string; onLogout: () => v
         </div>
         <div className="who">
           <span className="user">@{username}</span>
-          <button className="ghost" onClick={onLogout}>
-            Sign out
-          </button>
+          <button className="ghost" onClick={onLogout}>Sign out</button>
         </div>
       </div>
 
       <div className="grid">
         <div className="col">
-          <div className="rise d1">
-            <Wallets wallets={wallets} onChange={refreshWallets} />
-          </div>
-          <div className="rise d2">
-            <SnipeForm wallets={wallets} onCreated={refreshSnipes} />
-          </div>
+          <div className="rise d1"><Wallets wallets={wallets} onChange={refreshWallets} /></div>
+          <div className="rise d2"><SnipeForm wallets={wallets} onCreated={refreshSnipes} /></div>
         </div>
-        <div className="rise d3">
-          <Snipes snipes={snipes} onChange={refreshSnipes} />
+        <div className="col">
+          <div className="rise d2"><ProfitSection stats={stats} /></div>
+          <div className="rise d3"><Snipes snipes={snipes} onChange={refreshSnipes} /></div>
         </div>
       </div>
+    </div>
+  );
+}
+
+/* ---------------- profit ---------------- */
+function ProfitSection({ stats }: { stats: Stats | null }) {
+  const net = stats?.netSol ?? 0;
+  return (
+    <div className="card">
+      <h2>Profit</h2>
+      <div className="stats">
+        <Stat label="Spent" value={`${(stats?.spentSol ?? 0).toFixed(3)} SOL`} />
+        <Stat label="Made" value={`${(stats?.madeSol ?? 0).toFixed(3)} SOL`} accent="green" />
+        <Stat
+          label="Net"
+          value={`${net >= 0 ? '+' : ''}${net.toFixed(3)} SOL`}
+          accent={net >= 0 ? 'green' : 'red'}
+        />
+        <Stat label="Days active" value={`${stats?.daysActive ?? 0}`} />
+      </div>
+    </div>
+  );
+}
+function Stat({ label, value, accent }: { label: string; value: string; accent?: 'green' | 'red' }) {
+  return (
+    <div className="stat">
+      <div className="stat-label">{label}</div>
+      <div className={`stat-value ${accent ?? ''}`}>{value}</div>
     </div>
   );
 }
@@ -211,13 +308,10 @@ function Wallets({ wallets, onChange }: { wallets: Wallet[]; onChange: () => voi
       setBusy(false);
     }
   }
-
   function remove(w: Wallet) {
     if (!confirm(`Remove "${w.name}"? The encrypted key is deleted.`)) return;
-    setExiting((s) => new Set(s).add(w.id)); // play exit animation first
-    setTimeout(() => {
-      api.deleteWallet(w.id).then(onChange).catch((e) => toast(e.message, 'err'));
-    }, 330);
+    setExiting((s) => new Set(s).add(w.id));
+    setTimeout(() => api.deleteWallet(w.id).then(onChange).catch((e) => toast(e.message, 'err')), 330);
   }
 
   return (
@@ -232,44 +326,25 @@ function Wallets({ wallets, onChange }: { wallets: Wallet[]; onChange: () => voi
           </div>
           <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
             <div className="bal">{(w.balanceSol ?? 0).toFixed(4)} SOL</div>
-            <button className="danger" title="Remove wallet" onClick={() => remove(w)}>
-              ✕
-            </button>
+            <button className="danger" title="Remove wallet" onClick={() => remove(w)}>✕</button>
           </div>
         </div>
       ))}
-
       <label>Wallet name</label>
       <input value={name} onChange={(e) => setName(e.target.value)} placeholder="e.g. Main sniper" />
       <label>Private key</label>
-      <input
-        value={pk}
-        onChange={(e) => setPk(e.target.value)}
-        placeholder="base58 or [12,34,…] array"
-        type="password"
-      />
+      <input value={pk} onChange={(e) => setPk(e.target.value)} placeholder="base58 or [12,34,…] array" type="password" />
       {err && <div className="err">{err}</div>}
       <button className="primary" onClick={add} disabled={busy || !name || !pk}>
         {busy ? <span className="spin" /> : 'Add wallet'}
       </button>
-      <div className="hint">
-        Keys are encrypted (AES-256-GCM) before storage and only decrypted in memory at the moment a
-        snipe fires.
-      </div>
+      <div className="hint">Keys are encrypted (AES-256-GCM) and only decrypted in memory when a snipe fires.</div>
     </div>
   );
 }
 
-/* ---------------- searchable wallet select ---------------- */
-function WalletSelect({
-  wallets,
-  value,
-  onChange,
-}: {
-  wallets: Wallet[];
-  value: string;
-  onChange: (id: string) => void;
-}) {
+/* ---------------- wallet select ---------------- */
+function WalletSelect({ wallets, value, onChange }: { wallets: Wallet[]; value: string; onChange: (id: string) => void }) {
   const [open, setOpen] = useState(false);
   const [q, setQ] = useState('');
   const ref = useRef<HTMLDivElement>(null);
@@ -284,12 +359,7 @@ function WalletSelect({
   }, []);
 
   const filtered = useMemo(
-    () =>
-      wallets.filter(
-        (w) =>
-          w.name.toLowerCase().includes(q.toLowerCase()) ||
-          w.publicKey.toLowerCase().includes(q.toLowerCase()),
-      ),
+    () => wallets.filter((w) => w.name.toLowerCase().includes(q.toLowerCase()) || w.publicKey.toLowerCase().includes(q.toLowerCase())),
     [wallets, q],
   );
 
@@ -298,24 +368,14 @@ function WalletSelect({
       <input
         value={open ? q : selected ? selected.name : ''}
         placeholder="Search wallets…"
-        onFocus={() => {
-          setOpen(true);
-          setQ('');
-        }}
+        onFocus={() => { setOpen(true); setQ(''); }}
         onChange={(e) => setQ(e.target.value)}
       />
       {open && (
         <div className="menu">
           {filtered.length === 0 && <div className="opt">No matches</div>}
           {filtered.map((w) => (
-            <div
-              key={w.id}
-              className="opt"
-              onClick={() => {
-                onChange(w.id);
-                setOpen(false);
-              }}
-            >
+            <div key={w.id} className="opt" onClick={() => { onChange(w.id); setOpen(false); }}>
               <span>{w.name}</span>
               <span className="pk">{(w.balanceSol ?? 0).toFixed(3)} SOL</span>
             </div>
@@ -334,6 +394,11 @@ function SnipeForm({ wallets, onCreated }: { wallets: Wallet[]; onCreated: () =>
   const [amount, setAmount] = useState('');
   const [slippage, setSlippage] = useState('15');
   const [priority, setPriority] = useState('0.0005');
+  const [bribe, setBribe] = useState('0');
+  const [tpOn, setTpOn] = useState(false);
+  const [tpMult, setTpMult] = useState('2');
+  const [tpPct, setTpPct] = useState('100');
+  const [tpSlip, setTpSlip] = useState('20');
   const [err, setErr] = useState('');
   const [busy, setBusy] = useState(false);
 
@@ -341,12 +406,17 @@ function SnipeForm({ wallets, onCreated }: { wallets: Wallet[]; onCreated: () =>
     setErr('');
     setBusy(true);
     try {
+      const takeProfit: TakeProfit | undefined = tpOn
+        ? { tpEnabled: true, tpMultiplier: Number(tpMult), tpSellPct: Number(tpPct), tpSlippagePct: Number(tpSlip) }
+        : undefined;
       await api.createSnipe({
         mint: mint.trim(),
         walletId,
         amountSol: Number(amount),
         slippagePct: Number(slippage),
         priorityFee: Number(priority),
+        bribe: Number(bribe),
+        takeProfit,
       });
       toast('Snipe armed — watching for the fee claim');
       setMint('');
@@ -369,49 +439,117 @@ function SnipeForm({ wallets, onCreated }: { wallets: Wallet[]; onCreated: () =>
       <label>Buy with wallet</label>
       <WalletSelect wallets={wallets} value={walletId} onChange={setWalletId} />
       <div className="row">
-        <div>
-          <label>Amount (SOL)</label>
-          <input value={amount} onChange={(e) => setAmount(e.target.value)} placeholder="0.5" />
-        </div>
-        <div>
-          <label>Slippage %</label>
-          <input value={slippage} onChange={(e) => setSlippage(e.target.value)} />
-        </div>
-        <div>
-          <label>Priority (SOL)</label>
-          <input value={priority} onChange={(e) => setPriority(e.target.value)} />
-        </div>
+        <div><label>Amount (SOL)</label><input value={amount} onChange={(e) => setAmount(e.target.value)} placeholder="0.5" /></div>
+        <div><label>Slippage %</label><input value={slippage} onChange={(e) => setSlippage(e.target.value)} /></div>
       </div>
+      <div className="row">
+        <div><label>Priority (SOL)</label><input value={priority} onChange={(e) => setPriority(e.target.value)} /></div>
+        <div><label>Bribe (SOL)</label><input value={bribe} onChange={(e) => setBribe(e.target.value)} /></div>
+      </div>
+
+      <div className={`tp-box ${tpOn ? 'on' : ''}`}>
+        <label className="switch-row" onClick={() => setTpOn((v) => !v)}>
+          <span className={`switch ${tpOn ? 'on' : ''}`}><span className="knob" /></span>
+          Take profit
+        </label>
+        {tpOn && (
+          <div className="tp-fields">
+            <div className="row">
+              <div><label>Sell at MC ×</label><input value={tpMult} onChange={(e) => setTpMult(e.target.value)} placeholder="2" /></div>
+              <div><label>Sell %</label><input value={tpPct} onChange={(e) => setTpPct(e.target.value)} placeholder="100" /></div>
+              <div><label>Sell slippage %</label><input value={tpSlip} onChange={(e) => setTpSlip(e.target.value)} /></div>
+            </div>
+            <div className="hint">Auto-sells {tpPct || '?'}% when market cap reaches {tpMult || '?'}× your entry. Uses the same priority + bribe.</div>
+          </div>
+        )}
+      </div>
+
       {err && <div className="err">{err}</div>}
       <button className="primary" onClick={arm} disabled={busy || !ready}>
         {busy ? <span className="spin" /> : 'Confirm & arm snipe'}
       </button>
-      <div className="hint">
-        Fires automatically the moment this coin's creator fees are next claimed on-chain. Works pre-
-        and post-migration.
+      <div className="hint">Fires the moment this coin's creator fees are next claimed. Works pre- and post-migration.</div>
+    </div>
+  );
+}
+
+/* ---------------- take-profit modal ---------------- */
+function TpModal({ snipe, onClose, onChange }: { snipe: Snipe; onClose: () => void; onChange: () => void }) {
+  const toast = useToast();
+  const [mult, setMult] = useState(String(snipe.tpMultiplier ?? 2));
+  const [pct, setPct] = useState(String(snipe.tpSellPct ?? 100));
+  const [slip, setSlip] = useState(String(snipe.tpSlippagePct ?? 20));
+  const [busy, setBusy] = useState(false);
+
+  async function save() {
+    setBusy(true);
+    try {
+      await api.editTp(snipe.id, {
+        tpEnabled: true,
+        tpMultiplier: Number(mult),
+        tpSellPct: Number(pct),
+        tpSlippagePct: Number(slip),
+      });
+      toast('Take-profit saved');
+      onChange();
+      onClose();
+    } catch (e: any) {
+      toast(e.message, 'err');
+    } finally {
+      setBusy(false);
+    }
+  }
+  async function cancelTp() {
+    setBusy(true);
+    try {
+      await api.cancelTp(snipe.id);
+      toast('Take-profit cancelled');
+      onChange();
+      onClose();
+    } catch (e: any) {
+      toast(e.message, 'err');
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  return (
+    <div className="modal-overlay" onMouseDown={onClose}>
+      <div className="modal" onMouseDown={(e) => e.stopPropagation()}>
+        <h3>Take profit</h3>
+        <p className="modal-sub">{short(snipe.mint)} · status {snipe.tpStatus}</p>
+        <div className="row">
+          <div><label>Sell at MC ×</label><input value={mult} onChange={(e) => setMult(e.target.value)} /></div>
+          <div><label>Sell %</label><input value={pct} onChange={(e) => setPct(e.target.value)} /></div>
+          <div><label>Slippage %</label><input value={slip} onChange={(e) => setSlip(e.target.value)} /></div>
+        </div>
+        <div className="modal-actions">
+          <button className="ghost" onClick={onClose} disabled={busy}>Close</button>
+          <button className="danger-btn" onClick={cancelTp} disabled={busy}>Cancel take-profit</button>
+          <button className="primary inline" onClick={save} disabled={busy}>
+            {busy ? <span className="spin" /> : 'Save'}
+          </button>
+        </div>
       </div>
     </div>
   );
 }
 
-/* ---------------- snipe list ---------------- */
+/* ---------------- snipes ---------------- */
 function Snipes({ snipes, onChange }: { snipes: Snipe[]; onChange: () => void }) {
   const toast = useToast();
   const [exiting, setExiting] = useState<Set<string>>(new Set());
+  const [tpEdit, setTpEdit] = useState<Snipe | null>(null);
 
   function remove(id: string) {
-    setExiting((s) => new Set(s).add(id)); // animate out, then delete
-    setTimeout(() => {
-      api.cancelSnipe(id).then(onChange).catch((e) => toast(e.message, 'err'));
-    }, 330);
+    setExiting((s) => new Set(s).add(id));
+    setTimeout(() => api.cancelSnipe(id).then(onChange).catch((e) => toast(e.message, 'err')), 330);
   }
 
   return (
     <div className="card">
       <h2>Snipes</h2>
-      {snipes.length === 0 && (
-        <div className="empty">No snipes yet. Arm one with a coin CA, a wallet, and a SOL amount.</div>
-      )}
+      {snipes.length === 0 && <div className="empty">No snipes yet. Arm one with a coin CA, a wallet, and a SOL amount.</div>}
       {snipes.map((s) => (
         <div className={`snipe ${s.status} ${exiting.has(s.id) ? 'exiting' : ''}`} key={s.id}>
           <div className="head">
@@ -426,18 +564,24 @@ function Snipes({ snipes, onChange }: { snipes: Snipe[]; onChange: () => void })
             <span>{s.wallet.name}</span>
             <span>slip {s.slippagePct}%</span>
             <span>prio {s.priorityFee}</span>
+            {s.bribe > 0 && <span>bribe {s.bribe}</span>}
+            {s.tpEnabled && s.tpStatus !== 'CANCELLED' && (
+              <span className="tp-chip">TP {s.tpMultiplier}× · {s.tpSellPct}% · {s.tpStatus.toLowerCase()}</span>
+            )}
             {s.signature && (
-              <a href={`https://solscan.io/tx/${s.signature}`} target="_blank" rel="noreferrer">
-                view tx ↗
-              </a>
+              <a href={`https://solscan.io/tx/${s.signature}`} target="_blank" rel="noreferrer">view tx ↗</a>
             )}
             {s.error && <span style={{ color: 'var(--red)' }}>{s.error}</span>}
           </div>
-          <button className="ghost" style={{ marginTop: 12 }} onClick={() => remove(s.id)}>
-            {s.status === 'ARMED' ? 'Disarm' : 'Remove'}
-          </button>
+          <div className="snipe-actions">
+            <button className="ghost" onClick={() => setTpEdit(s)}>Take profit</button>
+            <button className="ghost" onClick={() => remove(s.id)}>
+              {s.status === 'ARMED' ? 'Disarm' : 'Remove'}
+            </button>
+          </div>
         </div>
       ))}
+      {tpEdit && <TpModal snipe={tpEdit} onClose={() => setTpEdit(null)} onChange={onChange} />}
     </div>
   );
 }
