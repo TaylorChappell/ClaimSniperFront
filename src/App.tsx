@@ -1,5 +1,6 @@
-import { createContext, useContext, useEffect, useMemo, useRef, useState } from 'react';
-import { api, getToken, setToken, type Wallet, type Snipe, type Stats, type TakeProfit } from './api';
+import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState } from 'react';
+import { api, getToken, setToken, type Wallet, type Snipe, type Stats, type TakeProfit, type DiscoverCoin } from './api';
+import { useLeaderPolling } from './sync';
 
 const BRAND_IMG = `${import.meta.env.BASE_URL}sniper.png`;
 const short = (s: string) => `${s.slice(0, 4)}…${s.slice(-4)}`;
@@ -175,51 +176,42 @@ function PayScreen({ onPaid, onLogout }: { onPaid: () => void; onLogout: () => v
 /* ---------------- dashboard ---------------- */
 function Dashboard({ username, onLogout }: { username: string; onLogout: () => void }) {
   const toast = useToast();
-  const [wallets, setWallets] = useState<Wallet[]>([]);
-  const [snipes, setSnipes] = useState<Snipe[]>([]);
-  const [stats, setStats] = useState<Stats | null>(null);
   const prevStatus = useRef<Record<string, string>>({});
   const initialized = useRef(false);
 
-  const refreshWallets = async () => setWallets((await api.walletsWithBalances()).wallets);
-  const refreshStats = async () => setStats(await api.stats());
-  const refreshSnipes = async () => {
-    const { snipes } = await api.snipes();
+  // Single combined fetch, run only by the leader tab (see useLeaderPolling).
+  // Fill/TP toasts fire here, so only the leader tab shows them (no duplicates).
+  const fetchAll = useCallback(async () => {
+    const [w, s, st] = await Promise.all([api.walletsWithBalances(), api.snipes(), api.stats()]);
+    const list = s.snipes;
     if (initialized.current) {
-      for (const s of snipes) {
-        const prev = prevStatus.current[s.id];
-        if (prev && prev !== 'FILLED' && s.status === 'FILLED')
-          toast(`Order filled: ${s.amountSol} SOL of ${short(s.mint)}`, 'fill');
-        else if (prev && prev !== 'FAILED' && s.status === 'FAILED')
-          toast(`Snipe failed: ${short(s.mint)}`, 'err');
-      }
-      for (const s of snipes) {
-        const key = `tp:${s.id}`;
-        const prevTp = prevStatus.current[key];
-        if (prevTp && prevTp !== 'SOLD' && s.tpStatus === 'SOLD')
-          toast(`Take-profit hit, sold ${s.tpSellPct}% of ${short(s.mint)}`, 'fill');
+      for (const sn of list) {
+        const prev = prevStatus.current[sn.id];
+        if (prev && prev !== 'FILLED' && sn.status === 'FILLED')
+          toast(`Order filled: ${sn.amountSol} SOL of ${short(sn.mint)}`, 'fill');
+        else if (prev && prev !== 'FAILED' && sn.status === 'FAILED')
+          toast(`Snipe failed: ${short(sn.mint)}`, 'err');
+        const prevTp = prevStatus.current[`tp:${sn.id}`];
+        if (prevTp && prevTp !== 'SOLD' && sn.tpStatus === 'SOLD')
+          toast(`Take-profit hit, sold ${sn.tpSellPct}% of ${short(sn.mint)}`, 'fill');
       }
     }
     const map: Record<string, string> = {};
-    for (const s of snipes) {
-      map[s.id] = s.status;
-      map[`tp:${s.id}`] = s.tpStatus;
+    for (const sn of list) {
+      map[sn.id] = sn.status;
+      map[`tp:${sn.id}`] = sn.tpStatus;
     }
     prevStatus.current = map;
     initialized.current = true;
-    setSnipes(snipes);
-  };
+    return { wallets: w.wallets, snipes: list, stats: st };
+  }, [toast]);
 
-  useEffect(() => {
-    const all = () => {
-      refreshWallets().catch(() => {});
-      refreshSnipes().catch(() => {});
-      refreshStats().catch(() => {});
-    };
-    all();
-    const t = setInterval(all, 5000);
-    return () => clearInterval(t);
-  }, []);
+  const { data, refresh } = useLeaderPolling('dash', fetchAll, 30000);
+  const wallets = data?.wallets ?? [];
+  const snipes = data?.snipes ?? [];
+  const stats = data?.stats ?? null;
+
+  const [view, setView] = useState<'dashboard' | 'discover'>('dashboard');
 
   return (
     <div className="wrap">
@@ -229,21 +221,28 @@ function Dashboard({ username, onLogout }: { username: string; onLogout: () => v
           <b>Claim Sniper</b>
         </div>
         <div className="who">
+          <button className={`nav-btn ${view === 'discover' ? 'on' : ''}`} onClick={() => setView(view === 'discover' ? 'dashboard' : 'discover')}>
+            {view === 'discover' ? '← Dashboard' : 'Recommended coins'}
+          </button>
           <span className="user">@{username}</span>
           <button className="ghost" onClick={onLogout}>Sign out</button>
         </div>
       </div>
 
-      <div className="grid">
-        <div className="col">
-          <div className="rise d1"><Wallets wallets={wallets} onChange={refreshWallets} /></div>
-          <div className="rise d2"><SnipeForm wallets={wallets} onCreated={refreshSnipes} /></div>
+      {view === 'discover' ? (
+        <Discover wallets={wallets} onSniped={() => { refresh(); setView('dashboard'); }} />
+      ) : (
+        <div className="grid">
+          <div className="col">
+            <div className="rise d1"><Wallets wallets={wallets} onChange={refresh} /></div>
+            <div className="rise d2"><SnipeForm wallets={wallets} onCreated={refresh} /></div>
+          </div>
+          <div className="col">
+            <div className="rise d2"><ProfitSection stats={stats} /></div>
+            <div className="rise d3"><Snipes snipes={snipes} onChange={refresh} /></div>
+          </div>
         </div>
-        <div className="col">
-          <div className="rise d2"><ProfitSection stats={stats} /></div>
-          <div className="rise d3"><Snipes snipes={snipes} onChange={refreshSnipes} /></div>
-        </div>
-      </div>
+      )}
     </div>
   );
 }
@@ -387,6 +386,8 @@ function SnipeForm({ wallets, onCreated }: { wallets: Wallet[]; onCreated: () =>
   const [slippage, setSlippage] = useState('15');
   const [priority, setPriority] = useState('0.0005');
   const [bribe, setBribe] = useState('0');
+  const [onlyRedirected, setOnlyRedirected] = useState(false);
+  const [watchWallet, setWatchWallet] = useState('');
   const [tpOn, setTpOn] = useState(false);
   const [tpMult, setTpMult] = useState('2');
   const [tpPct, setTpPct] = useState('100');
@@ -408,11 +409,14 @@ function SnipeForm({ wallets, onCreated }: { wallets: Wallet[]; onCreated: () =>
         slippagePct: Number(slippage),
         priorityFee: Number(priority),
         bribe: Number(bribe),
+        onlyRedirected,
+        watchWallet: onlyRedirected ? watchWallet.trim() : null,
         takeProfit,
       });
       toast('Snipe armed, watching for the fee claim');
       setMint('');
       setAmount('');
+      setWatchWallet('');
       onCreated();
     } catch (e: any) {
       setErr(e.message);
@@ -421,7 +425,7 @@ function SnipeForm({ wallets, onCreated }: { wallets: Wallet[]; onCreated: () =>
     }
   }
 
-  const ready = mint && walletId && Number(amount) > 0;
+  const ready = mint && walletId && Number(amount) > 0 && (!onlyRedirected || watchWallet.trim().length >= 32);
 
   return (
     <div className="card">
@@ -438,6 +442,18 @@ function SnipeForm({ wallets, onCreated }: { wallets: Wallet[]; onCreated: () =>
         <div><label>Priority (SOL)</label><input value={priority} onChange={(e) => setPriority(e.target.value)} /></div>
         <div><label>Bribe (SOL)</label><input value={bribe} onChange={(e) => setBribe(e.target.value)} /></div>
       </div>
+
+      <label className="switch-row" onClick={() => setOnlyRedirected((v) => !v)}>
+        <span className={`switch ${onlyRedirected ? 'on' : ''}`}><span className="knob" /></span>
+        Only a specific wallet's claims
+      </label>
+      {onlyRedirected && (
+        <div className="tp-fields">
+          <label>Wallet to watch</label>
+          <input value={watchWallet} onChange={(e) => setWatchWallet(e.target.value)} placeholder="claimer wallet address" />
+          <div className="hint">Fires only when this exact wallet claims fees for the coin. The deployer's own early claims are ignored — useful once fees are redirected to someone else.</div>
+        </div>
+      )}
 
       <div className={`tp-box ${tpOn ? 'on' : ''}`}>
         <label className="switch-row" onClick={() => setTpOn((v) => !v)}>
@@ -545,18 +561,23 @@ function Snipes({ snipes, onChange }: { snipes: Snipe[]; onChange: () => void })
       {snipes.map((s) => (
         <div className={`snipe ${s.status} ${exiting.has(s.id) ? 'exiting' : ''}`} key={s.id}>
           <div className="head">
-            <span className="mint">{s.mint}</span>
+            <span className="ticker">
+              {s.ticker ? `$${s.ticker}` : short(s.mint)}
+              {s.onlyRedirected && <span className="redir-tag" title="Only fires on redirected-fee claims">redirected</span>}
+            </span>
             <span className={`badge ${s.status}`}>
               {s.status === 'ARMED' && <span className="dot" />}
               {s.status}
             </span>
           </div>
+          <div className="mint-sub">{s.mint}</div>
           <div className="meta">
             <span><b>{s.amountSol}</b> SOL</span>
             <span>{s.wallet.name}</span>
             <span>slip {s.slippagePct}%</span>
             <span>prio {s.priorityFee}</span>
             {s.bribe > 0 && <span>bribe {s.bribe}</span>}
+            {s.watchWallet && <span className="tp-chip">watch {short(s.watchWallet)}</span>}
             {s.tpEnabled && s.tpStatus !== 'CANCELLED' && (
               <span className="tp-chip">TP {s.tpMultiplier}× · {s.tpSellPct}% · {s.tpStatus.toLowerCase()}</span>
             )}
@@ -574,6 +595,225 @@ function Snipes({ snipes, onChange }: { snipes: Snipe[]; onChange: () => void })
         </div>
       ))}
       {tpEdit && <TpModal snipe={tpEdit} onClose={() => setTpEdit(null)} onChange={onChange} />}
+    </div>
+  );
+}
+
+/* ---------------- discover / recommended coins ---------------- */
+function fmtUsd(n: number | null): string {
+  if (n == null) return '—';
+  if (n >= 1e9) return `$${(n / 1e9).toFixed(2)}B`;
+  if (n >= 1e6) return `$${(n / 1e6).toFixed(2)}M`;
+  if (n >= 1e3) return `$${(n / 1e3).toFixed(1)}K`;
+  return `$${n.toFixed(0)}`;
+}
+function fmtAge(min: number | null): string {
+  if (min == null) return '—';
+  if (min < 60) return `${min}m`;
+  if (min < 1440) return `${Math.floor(min / 60)}h`;
+  return `${Math.floor(min / 1440)}d`;
+}
+
+function Discover({ wallets, onSniped }: { wallets: Wallet[]; onSniped: () => void }) {
+  const [list, setList] = useState<'new' | 'almost_bonded' | 'migrated'>('new');
+  const [minMcap, setMinMcap] = useState('');
+  const [maxMcap, setMaxMcap] = useState('');
+  const [minVol, setMinVol] = useState('');
+  const [maxAge, setMaxAge] = useState('');
+  const [migration, setMigration] = useState<'any' | 'true' | 'false'>('any');
+  const [coins, setCoins] = useState<DiscoverCoin[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [message, setMessage] = useState<string | null>(null);
+  const [snipeCoin, setSnipeCoin] = useState<DiscoverCoin | null>(null);
+
+  const load = async () => {
+    setLoading(true);
+    try {
+      const params: Record<string, string> = { list };
+      if (minMcap) params.minMcap = minMcap;
+      if (maxMcap) params.maxMcap = maxMcap;
+      if (minVol) params.minVol = minVol;
+      if (maxAge) params.maxAgeMin = maxAge;
+      if (migration !== 'any') params.migrated = migration;
+      const res = await api.discover(params);
+      setCoins(res.coins);
+      setMessage(res.configured ? (res.coins.length ? null : res.message ?? 'No onboarding coins match your filters right now.') : (res.message ?? 'Data source not configured.'));
+    } catch (e: any) {
+      setMessage(e.message);
+      setCoins([]);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  useEffect(() => {
+    load();
+    const t = setInterval(load, 20000);
+    return () => clearInterval(t);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [list]);
+
+  return (
+    <div className="discover rise">
+      <div className="disc-head">
+        <h1>Recommended coins</h1>
+        <p className="sub">New onboarding coins — fees redirected to another wallet. Snipe fires on that wallet's claims.</p>
+      </div>
+
+      <div className="filters card">
+        <div className="seg">
+          {(['new', 'almost_bonded', 'migrated'] as const).map((l) => (
+            <button key={l} className={`seg-btn ${list === l ? 'on' : ''}`} onClick={() => setList(l)}>
+              {l === 'new' ? 'New' : l === 'almost_bonded' ? 'Almost bonded' : 'Migrated'}
+            </button>
+          ))}
+        </div>
+        <div className="filter-row">
+          <input placeholder="Min MC $" value={minMcap} onChange={(e) => setMinMcap(e.target.value)} />
+          <input placeholder="Max MC $" value={maxMcap} onChange={(e) => setMaxMcap(e.target.value)} />
+          <input placeholder="Min vol $" value={minVol} onChange={(e) => setMinVol(e.target.value)} />
+          <input placeholder="Max age (min)" value={maxAge} onChange={(e) => setMaxAge(e.target.value)} />
+          <select value={migration} onChange={(e) => setMigration(e.target.value as any)}>
+            <option value="any">Any</option>
+            <option value="false">Bonding only</option>
+            <option value="true">Migrated only</option>
+          </select>
+          <button className="primary inline" onClick={load}>Apply</button>
+        </div>
+      </div>
+
+      {loading && coins.length === 0 ? (
+        <div className="empty"><span className="spin dark" /> Loading…</div>
+      ) : message ? (
+        <div className="empty">{message}</div>
+      ) : (
+        <div className="coin-grid">
+          {coins.map((c) => <CoinCard key={c.mint} coin={c} onSnipe={() => setSnipeCoin(c)} />)}
+        </div>
+      )}
+
+      {snipeCoin && (
+        <SnipeConfigModal
+          coin={snipeCoin}
+          wallets={wallets}
+          onClose={() => setSnipeCoin(null)}
+          onSniped={() => { setSnipeCoin(null); onSniped(); }}
+        />
+      )}
+    </div>
+  );
+}
+
+function CoinCard({ coin, onSnipe }: { coin: DiscoverCoin; onSnipe: () => void }) {
+  const toast = useToast();
+  const copy = () => navigator.clipboard.writeText(coin.mint).then(() => toast('CA copied'));
+  return (
+    <div className="coin-card">
+      <div className="coin-top">
+        <div className="coin-ic">
+          {coin.image ? <img src={coin.image} alt="" /> : <span>{(coin.symbol ?? '?').slice(0, 2)}</span>}
+        </div>
+        <div className="coin-id">
+          <div className="coin-sym">${coin.symbol ?? '???'}{coin.migrated && <span className="mig-tag">migrated</span>}</div>
+          <div className="coin-name">{coin.name ?? '—'}</div>
+        </div>
+        <div className="coin-age">{fmtAge(coin.ageMinutes)}</div>
+      </div>
+
+      <div className="coin-stats">
+        <div><span>MC</span><b>{fmtUsd(coin.marketCapUsd)}</b></div>
+        <div><span>Vol</span><b>{fmtUsd(coin.volumeUsd)}</b></div>
+      </div>
+
+      <button className="ca-row" onClick={copy} title="Copy CA">
+        <code>{coin.mint.slice(0, 6)}…{coin.mint.slice(-6)}</code>
+        <span className="copy">copy CA</span>
+      </button>
+      <div className="recip">onboarded → {coin.recipient.slice(0, 4)}…{coin.recipient.slice(-4)}</div>
+
+      <button className="primary snipe-btn" onClick={onSnipe}>Snipe</button>
+    </div>
+  );
+}
+
+function SnipeConfigModal({ coin, wallets, onClose, onSniped }: { coin: DiscoverCoin; wallets: Wallet[]; onClose: () => void; onSniped: () => void }) {
+  const toast = useToast();
+  const [walletId, setWalletId] = useState('');
+  const [amount, setAmount] = useState('');
+  const [slippage, setSlippage] = useState('15');
+  const [priority, setPriority] = useState('0.0005');
+  const [bribe, setBribe] = useState('0');
+  const [tpOn, setTpOn] = useState(false);
+  const [tpMult, setTpMult] = useState('2');
+  const [tpPct, setTpPct] = useState('100');
+  const [tpSlip, setTpSlip] = useState('20');
+  const [busy, setBusy] = useState(false);
+
+  const ready = walletId && Number(amount) > 0;
+
+  async function confirm() {
+    setBusy(true);
+    try {
+      await api.createSnipe({
+        mint: coin.mint,
+        walletId,
+        amountSol: Number(amount),
+        slippagePct: Number(slippage),
+        priorityFee: Number(priority),
+        bribe: Number(bribe),
+        onlyRedirected: true,
+        watchWallet: coin.recipient,
+        takeProfit: tpOn ? { tpEnabled: true, tpMultiplier: Number(tpMult), tpSellPct: Number(tpPct), tpSlippagePct: Number(tpSlip) } : undefined,
+      });
+      toast(`Armed snipe on $${coin.symbol ?? coin.mint.slice(0, 4)}`, 'fill');
+      onSniped();
+    } catch (e: any) {
+      toast(e.message, 'err');
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  return (
+    <div className="modal-overlay" onMouseDown={onClose}>
+      <div className="modal" onMouseDown={(e) => e.stopPropagation()}>
+        <h3>Snipe ${coin.symbol ?? '???'}</h3>
+        <p className="modal-sub">{coin.mint.slice(0, 8)}… · fires when {coin.recipient.slice(0, 4)}…{coin.recipient.slice(-4)} claims</p>
+
+        <label>Buy with wallet</label>
+        <WalletSelect wallets={wallets} value={walletId} onChange={setWalletId} />
+        <div className="row">
+          <div><label>Amount (SOL)</label><input value={amount} onChange={(e) => setAmount(e.target.value)} placeholder="0.5" /></div>
+          <div><label>Slippage %</label><input value={slippage} onChange={(e) => setSlippage(e.target.value)} /></div>
+        </div>
+        <div className="row">
+          <div><label>Priority (SOL)</label><input value={priority} onChange={(e) => setPriority(e.target.value)} /></div>
+          <div><label>Bribe (SOL)</label><input value={bribe} onChange={(e) => setBribe(e.target.value)} /></div>
+        </div>
+
+        <div className={`tp-box ${tpOn ? 'on' : ''}`}>
+          <label className="switch-row" onClick={() => setTpOn((v) => !v)}>
+            <span className={`switch ${tpOn ? 'on' : ''}`}><span className="knob" /></span>
+            Take profit
+          </label>
+          {tpOn && (
+            <div className="tp-fields">
+              <div className="row">
+                <div><label>Sell at MC ×</label><input value={tpMult} onChange={(e) => setTpMult(e.target.value)} /></div>
+                <div><label>Sell %</label><input value={tpPct} onChange={(e) => setTpPct(e.target.value)} /></div>
+                <div><label>Slippage %</label><input value={tpSlip} onChange={(e) => setTpSlip(e.target.value)} /></div>
+              </div>
+            </div>
+          )}
+        </div>
+
+        <div className="modal-actions">
+          <button className="ghost" onClick={onClose} disabled={busy}>Cancel</button>
+          <button className="primary inline" onClick={confirm} disabled={busy || !ready}>
+            {busy ? <span className="spin" /> : 'Confirm & arm'}
+          </button>
+        </div>
+      </div>
     </div>
   );
 }
