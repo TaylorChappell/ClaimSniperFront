@@ -37,6 +37,9 @@ export interface Snipe {
   slippagePct: number;
   priorityFee: number;
   bribe: number;
+  ticker?: string | null;
+  onlyRedirected: boolean;
+  watchWallet?: string | null;
   status: 'ARMED' | 'TRIGGERED' | 'FILLED' | 'FAILED' | 'CANCELLED';
   signature?: string | null;
   error?: string | null;
@@ -59,6 +62,24 @@ export interface BillingStatus {
   message?: string | null;
 }
 export interface Stats { spentSol: number; madeSol: number; netSol: number; daysActive: number; }
+export interface DiscoverCoin {
+  mint: string;
+  name: string | null;
+  symbol: string | null;
+  image: string | null;
+  marketCapUsd: number | null;
+  volumeUsd: number | null;
+  priceUsd: number | null;
+  ageMinutes: number | null;
+  migrated: boolean;
+  recipient: string;
+}
+export interface DiscoverResult {
+  configured: boolean;
+  coins: DiscoverCoin[];
+  message?: string;
+  list?: string;
+}
 
 export const api = {
   register: (username: string, password: string) =>
@@ -78,6 +99,8 @@ export const api = {
   deleteWallet: (id: string) => req<{ ok: true }>(`/wallets/${id}`, { method: 'DELETE' }),
   snipes: () => req<{ snipes: Snipe[] }>('/snipes'),
   stats: () => req<Stats>('/snipes/stats'),
+  discover: (params: Record<string, string>) =>
+    req<DiscoverResult>(`/discover?${new URLSearchParams(params).toString()}`),
   createSnipe: (b: {
     mint: string;
     walletId: string;
@@ -85,6 +108,8 @@ export const api = {
     slippagePct?: number;
     priorityFee?: number;
     bribe?: number;
+    onlyRedirected?: boolean;
+    watchWallet?: string | null;
     takeProfit?: TakeProfit;
   }) => req<{ snipe: Snipe }>('/snipes', { method: 'POST', body: JSON.stringify(b) }),
   editTp: (id: string, tp: TakeProfit) =>
