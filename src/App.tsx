@@ -17,6 +17,21 @@ export default function App() {
   const [username, setUsername] = useState(localStorage.getItem('username') ?? '');
   const [toasts, setToasts] = useState<Toast[]>([]);
 
+  // Unlock audio on the first user gesture so buy/fail chimes can play later.
+  useEffect(() => {
+    const unlock = () => {
+      unlockAudio();
+      window.removeEventListener('pointerdown', unlock);
+      window.removeEventListener('keydown', unlock);
+    };
+    window.addEventListener('pointerdown', unlock);
+    window.addEventListener('keydown', unlock);
+    return () => {
+      window.removeEventListener('pointerdown', unlock);
+      window.removeEventListener('keydown', unlock);
+    };
+  }, []);
+
   // On load with a stored token, learn paid/admin/username immediately
   // (avoids a pay-screen flash on reload and surfaces admin access).
   useEffect(() => {
@@ -884,15 +899,30 @@ function SnipeConfigModal({ coin, wallets, onClose, onSniped }: { coin: Discover
 
 /* ---------------- notification sound ---------------- */
 let _audioCtx: AudioContext | null = null;
-function playChime(kind: 'fill' | 'fail') {
+function ensureCtx(): AudioContext | null {
   try {
     const Ctx = window.AudioContext || (window as any).webkitAudioContext;
-    if (!Ctx) return;
+    if (!Ctx) return null;
     _audioCtx = _audioCtx || new Ctx();
-    const ctx = _audioCtx;
-    if (ctx.state === 'suspended') void ctx.resume();
+    if (_audioCtx.state === 'suspended') void _audioCtx.resume();
+    return _audioCtx;
+  } catch {
+    return null;
+  }
+}
+
+// Browsers block audio until the user interacts with the page. Call this once
+// from a real user gesture so later buy/fail chimes are allowed to play.
+export function unlockAudio() {
+  ensureCtx();
+}
+
+function playChime(kind: 'fill' | 'fail') {
+  try {
+    const ctx = ensureCtx();
+    if (!ctx) return;
     const now = ctx.currentTime;
-    // fill = rising bright two-note; fail = descending low two-note.
+    // fill (a buy landed) = rising bright two-note; fail = descending low two-note.
     const notes = kind === 'fill' ? [660, 990] : [300, 160];
     notes.forEach((f, i) => {
       const osc = ctx.createOscillator();
