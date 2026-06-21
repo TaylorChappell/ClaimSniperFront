@@ -68,7 +68,7 @@ export interface DiscoverCoin {
   symbol: string | null;
   image: string | null;
   marketCapUsd: number | null;
-  volumeUsd: number | null;
+  liquidityUsd: number | null;
   priceUsd: number | null;
   ageMinutes: number | null;
   migrated: boolean;
@@ -80,18 +80,30 @@ export interface DiscoverResult {
   message?: string;
   list?: string;
 }
+export interface AdminSnipe extends Snipe {
+  user: { username: string };
+}
+export interface AdminUser {
+  id: string;
+  username: string;
+  paid: boolean;
+  createdAt: string;
+  snipeCount: number;
+  walletCount: number;
+}
 
 export const api = {
   register: (username: string, password: string) =>
-    req<{ token: string; username: string; paid: boolean }>('/auth/register', {
+    req<{ token: string; username: string; paid: boolean; admin: boolean }>('/auth/register', {
       method: 'POST',
       body: JSON.stringify({ username, password }),
     }),
   login: (username: string, password: string) =>
-    req<{ token: string; username: string; paid: boolean }>('/auth/login', {
+    req<{ token: string; username: string; paid: boolean; admin: boolean }>('/auth/login', {
       method: 'POST',
       body: JSON.stringify({ username, password }),
     }),
+  me: () => req<{ username: string; paid: boolean; admin: boolean }>('/auth/me'),
   billingStatus: () => req<BillingStatus>('/billing/status'),
   walletsWithBalances: () => req<{ wallets: Wallet[] }>('/wallets/balances'),
   addWallet: (name: string, privateKey: string) =>
@@ -112,8 +124,17 @@ export const api = {
     watchWallet?: string | null;
     takeProfit?: TakeProfit;
   }) => req<{ snipe: Snipe }>('/snipes', { method: 'POST', body: JSON.stringify(b) }),
-  editTp: (id: string, tp: TakeProfit) =>
-    req<{ snipe: Snipe }>(`/snipes/${id}/tp`, { method: 'PUT', body: JSON.stringify(tp) }),
-  cancelTp: (id: string) => req<{ snipe: Snipe }>(`/snipes/${id}/tp/cancel`, { method: 'POST' }),
+  editSnipe: (id: string, body: {
+    amountSol?: number;
+    slippagePct?: number;
+    priorityFee?: number;
+    bribe?: number;
+    onlyRedirected?: boolean;
+    watchWallet?: string | null;
+    takeProfit?: TakeProfit;
+  }) => req<{ snipe: Snipe }>(`/snipes/${id}`, { method: 'PUT', body: JSON.stringify(body) }),
+  adminArmed: () => req<{ snipes: AdminSnipe[] }>('/admin/armed'),
+  adminUsers: () => req<{ users: AdminUser[] }>('/admin/users'),
+  adminUserSnipes: (id: string) => req<{ username: string; snipes: Snipe[] }>(`/admin/users/${id}/snipes`),
   cancelSnipe: (id: string) => req<{ ok: true }>(`/snipes/${id}/cancel`, { method: 'POST' }),
 };
