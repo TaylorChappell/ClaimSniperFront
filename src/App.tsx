@@ -260,7 +260,7 @@ function Dashboard({ username, admin, onLogout }: { username: string; admin: boo
         </div>
         <div className="who">
           <button className={`nav-btn ${view === 'dashboard' ? 'on' : ''}`} onClick={() => setView('dashboard')}>Dashboard</button>
-          <button className={`nav-btn ${view === 'discover' ? 'on' : ''}`} onClick={() => setView('discover')}>Recommended</button>
+          <button className={`nav-btn ${view === 'discover' ? 'on' : ''}`} onClick={() => setView('discover')}>Discover</button>
           <button className={`nav-btn ${view === 'history' ? 'on' : ''}`} onClick={() => setView('history')}>History</button>
           {admin && <button className={`nav-btn admin ${view === 'admin' ? 'on' : ''}`} onClick={() => setView('admin')}>Admin</button>}
           <span className="user">@{username}</span>
@@ -649,7 +649,7 @@ function Snipes({ snipes, onChange }: { snipes: Snipe[]; wallets: Wallet[]; onCh
               {s.status}
             </span>
           </div>
-          <div className="mint-sub">{s.mint}</div>
+          <CopyCA mint={s.mint} className="mint-sub" />
           <div className="meta">
             <span><b>{s.amountSol}</b> SOL</span>
             <span>{s.wallet.name}</span>
@@ -735,7 +735,7 @@ function Discover({ wallets, onSniped }: { wallets: Wallet[]; onSniped: () => vo
   return (
     <div className="discover rise">
       <div className="disc-head">
-        <h1>Recommended coins</h1>
+        <h1>Discover</h1>
         <p className="sub">New onboarding coins — fees redirected to another wallet. Snipe fires on that wallet's claims.</p>
       </div>
 
@@ -957,7 +957,7 @@ function History({ snipes }: { snipes: Snipe[] }) {
           {snipes.map((s) => (
             <div className="hist-row" key={s.id}>
               <span className="hist-tk">{s.ticker ? `$${s.ticker}` : short(s.mint)}</span>
-              <span className="hist-mint">{short(s.mint)}</span>
+              <CopyCA mint={s.mint} />
               <span className="hist-amt">{s.amountSol} SOL</span>
               {s.soldSol > 0 && <span className="hist-sold">+{s.soldSol.toFixed(3)} SOL</span>}
               <span className="hist-date">{new Date(s.createdAt).toLocaleString()}</span>
@@ -1022,7 +1022,7 @@ function AdminPanel() {
                 <span>{s.wallet.name}</span>
                 {s.watchWallet && <span className="tp-chip">watch {short(s.watchWallet)}</span>}
                 {s.tpEnabled && <span className="tp-chip">TP {s.tpMultiplier}×</span>}
-                <span className="hist-mint">{short(s.mint)}</span>
+                <CopyCA mint={s.mint} />
               </div>
             ))}
           </div>
@@ -1053,7 +1053,7 @@ function AdminPanel() {
                   <span className={`badge ${s.status}`}>{s.status}</span>
                   <span>{s.amountSol} SOL</span>
                   {s.tpEnabled && <span className="tp-chip">TP {s.tpMultiplier}×</span>}
-                  <span className="hist-mint">{short(s.mint)}</span>
+                  <CopyCA mint={s.mint} />
                 </div>
               ))}
             </div>
@@ -1064,5 +1064,24 @@ function AdminPanel() {
         </div>
       )}
     </div>
+  );
+}
+
+/* ---------------- copyable CA ---------------- */
+function CopyCA({ mint, className }: { mint: string; className?: string }) {
+  const toast = useToast();
+  return (
+    <button
+      type="button"
+      className={`ca-copy ${className ?? ''}`}
+      title="Copy contract address"
+      onClick={(e) => {
+        e.stopPropagation();
+        navigator.clipboard.writeText(mint).then(() => toast('CA copied'));
+      }}
+    >
+      <code>{short(mint)}</code>
+      <span className="copy">copy CA</span>
+    </button>
   );
 }
