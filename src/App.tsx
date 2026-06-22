@@ -975,11 +975,25 @@ function History({ snipes }: { snipes: Snipe[] }) {
 /* ---------------- admin panel (MrKnowBody / Rich) ---------------- */
 function AdminPanel() {
   const toast = useToast();
-  const [tab, setTab] = useState<'armed' | 'users'>('armed');
+  const [tab, setTab] = useState<'armed' | 'users' | 'debug'>('armed');
   const [armed, setArmed] = useState<AdminSnipe[]>([]);
   const [users, setUsers] = useState<AdminUser[]>([]);
   const [sel, setSel] = useState<{ username: string; snipes: Snipe[] } | null>(null);
   const [loading, setLoading] = useState(true);
+  const [dbgMint, setDbgMint] = useState('');
+  const [dbg, setDbg] = useState<any>(null);
+  const [dbgBusy, setDbgBusy] = useState(false);
+
+  async function runDebug() {
+    setDbgBusy(true);
+    try {
+      setDbg(await api.discoverDebug(dbgMint.trim() || undefined));
+    } catch (e: any) {
+      toast(e.message, 'err');
+    } finally {
+      setDbgBusy(false);
+    }
+  }
 
   useEffect(() => {
     Promise.all([api.adminArmed(), api.adminUsers()])
@@ -1007,6 +1021,7 @@ function AdminPanel() {
       <div className="seg" style={{ marginBottom: 16 }}>
         <button className={`seg-btn ${tab === 'armed' ? 'on' : ''}`} onClick={() => setTab('armed')}>Armed ({armed.length})</button>
         <button className={`seg-btn ${tab === 'users' ? 'on' : ''}`} onClick={() => setTab('users')}>Users ({users.length})</button>
+        <button className={`seg-btn ${tab === 'debug' ? 'on' : ''}`} onClick={() => setTab('debug')}>Debug</button>
       </div>
 
       {loading ? (
@@ -1027,7 +1042,7 @@ function AdminPanel() {
             ))}
           </div>
         )
-      ) : (
+      ) : tab === 'users' ? (
         <div className="admin-list">
           {users.map((u) => (
             <div className="admin-row clickable" key={u.id} onClick={() => openUser(u)}>
@@ -1038,6 +1053,17 @@ function AdminPanel() {
               <span className="hist-date">{new Date(u.createdAt).toLocaleDateString()}</span>
             </div>
           ))}
+        </div>
+      ) : (
+        <div className="debug-panel">
+          <p className="sub">Diagnose the Discover feed. Optionally paste a CA you KNOW has redirected fees to test detection against it.</p>
+          <div className="filter-row">
+            <input placeholder="known redirected CA (optional)" value={dbgMint} onChange={(e) => setDbgMint(e.target.value)} />
+            <button className="primary inline" onClick={runDebug} disabled={dbgBusy}>
+              {dbgBusy ? <span className="spin" /> : 'Run debug'}
+            </button>
+          </div>
+          {dbg && <pre className="debug-out">{JSON.stringify(dbg, null, 2)}</pre>}
         </div>
       )}
 
