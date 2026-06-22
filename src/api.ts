@@ -136,5 +136,7 @@ export const api = {
   adminArmed: () => req<{ snipes: AdminSnipe[] }>('/admin/armed'),
   adminUsers: () => req<{ users: AdminUser[] }>('/admin/users'),
   adminUserSnipes: (id: string) => req<{ username: string; snipes: Snipe[] }>(`/admin/users/${id}/snipes`),
+  discoverDebug: (mint?: string) =>
+    req<any>(`/discover/debug${mint ? `?mint=${encodeURIComponent(mint)}` : ''}`),
   cancelSnipe: (id: string) => req<{ ok: true }>(`/snipes/${id}/cancel`, { method: 'POST' }),
 };
