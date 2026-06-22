@@ -445,3 +445,11 @@ button.danger:hover { border-color: var(--red); }
 /* dashboard variant sits under the ticker like the old mint line */
 .ca-copy.mint-sub { margin: 2px 0 10px; padding: 6px 10px; }
 .ca-copy.mint-sub code { font-size: 11px; }
+
+/* ============ admin debug ============ */
+.debug-panel { display: flex; flex-direction: column; gap: 12px; }
+.debug-out {
+  background: #0a0f0c; border: 1px solid var(--line); border-radius: var(--radius-sm);
+  padding: 14px; font-family: var(--mono); font-size: 11px; line-height: 1.5;
+  color: var(--text); overflow-x: auto; max-height: 70vh; white-space: pre-wrap; word-break: break-all;
+}
