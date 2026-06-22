@@ -1,5 +1,5 @@
 import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState } from 'react';
-import { api, getToken, setToken, type Wallet, type Snipe, type Stats, type TakeProfit, type DiscoverCoin, type AdminSnipe, type AdminUser } from './api';
+import { api, getToken, setToken, type Wallet, type Snipe, type Stats, type DiscoverCoin, type AdminSnipe, type AdminUser } from './api';
 import { useLeaderPolling } from './sync';
 
 const BRAND_IMG = `${import.meta.env.BASE_URL}sniper.png`;
@@ -427,14 +427,12 @@ function SnipeForm({ wallets, onCreated }: { wallets: Wallet[]; onCreated: () =>
   const [walletId, setWalletId] = useState('');
   const [amount, setAmount] = useState('');
   const [slippage, setSlippage] = useState('15');
-  const [priority, setPriority] = useState('0.0005');
-  const [bribe, setBribe] = useState('0');
+  // Priority + bribe default to the last values used (saved locally).
+  const [priority, setPriority] = useState(() => localStorage.getItem('cs.priority') ?? '0.0005');
+  const [bribe, setBribe] = useState(() => localStorage.getItem('cs.bribe') ?? '0');
   const [onlyRedirected, setOnlyRedirected] = useState(false);
   const [watchWallet, setWatchWallet] = useState('');
-  const [tpOn, setTpOn] = useState(false);
-  const [tpMult, setTpMult] = useState('2');
-  const [tpPct, setTpPct] = useState('100');
-  const [tpSlip, setTpSlip] = useState('20');
+  const ex = useExit();
   const [err, setErr] = useState('');
   const [busy, setBusy] = useState(false);
 
@@ -442,9 +440,8 @@ function SnipeForm({ wallets, onCreated }: { wallets: Wallet[]; onCreated: () =>
     setErr('');
     setBusy(true);
     try {
-      const takeProfit: TakeProfit | undefined = tpOn
-        ? { tpEnabled: true, tpMultiplier: Number(tpMult), tpSellPct: Number(tpPct), tpSlippagePct: Number(tpSlip) }
-        : undefined;
+      localStorage.setItem('cs.priority', priority);
+      localStorage.setItem('cs.bribe', bribe);
       await api.createSnipe({
         mint: mint.trim(),
         walletId,
@@ -454,7 +451,7 @@ function SnipeForm({ wallets, onCreated }: { wallets: Wallet[]; onCreated: () =>
         bribe: Number(bribe),
         onlyRedirected,
         watchWallet: onlyRedirected ? watchWallet.trim() : null,
-        takeProfit,
+        exit: ex.build(),
       });
       toast('Snipe armed, watching for the fee claim');
       setMint('');
@@ -498,22 +495,7 @@ function SnipeForm({ wallets, onCreated }: { wallets: Wallet[]; onCreated: () =>
         </div>
       )}
 
-      <div className={`tp-box ${tpOn ? 'on' : ''}`}>
-        <label className="switch-row" onClick={() => setTpOn((v) => !v)}>
-          <span className={`switch ${tpOn ? 'on' : ''}`}><span className="knob" /></span>
-          Take profit
-        </label>
-        {tpOn && (
-          <div className="tp-fields">
-            <div className="row">
-              <div><label>Sell at MC ×</label><input value={tpMult} onChange={(e) => setTpMult(e.target.value)} placeholder="2" /></div>
-              <div><label>Sell %</label><input value={tpPct} onChange={(e) => setTpPct(e.target.value)} placeholder="100" /></div>
-              <div><label>Sell slippage %</label><input value={tpSlip} onChange={(e) => setTpSlip(e.target.value)} /></div>
-            </div>
-            <div className="hint">Auto-sells {tpPct || '?'}% when market cap reaches {tpMult || '?'}× your entry. Uses the same priority + bribe.</div>
-          </div>
-        )}
-      </div>
+      <ExitFields ex={ex} />
 
       {err && <div className="err">{err}</div>}
       <button className="primary" onClick={arm} disabled={busy || !ready}>
@@ -534,10 +516,7 @@ function EditSnipeModal({ snipe, onClose, onChange }: { snipe: Snipe; onClose: (
   const [bribe, setBribe] = useState(String(snipe.bribe));
   const [redir, setRedir] = useState(snipe.onlyRedirected);
   const [watchWallet, setWatchWallet] = useState(snipe.watchWallet ?? '');
-  const [tpOn, setTpOn] = useState(snipe.tpEnabled && snipe.tpStatus !== 'CANCELLED');
-  const [mult, setMult] = useState(String(snipe.tpMultiplier ?? 2));
-  const [pct, setPct] = useState(String(snipe.tpSellPct ?? 100));
-  const [slip, setSlip] = useState(String(snipe.tpSlippagePct ?? 20));
+  const ex = useExit(snipe);
   const [busy, setBusy] = useState(false);
 
   const ready = Number(amount) > 0 && (!redir || watchWallet.trim().length >= 32);
@@ -552,7 +531,7 @@ function EditSnipeModal({ snipe, onClose, onChange }: { snipe: Snipe; onClose: (
         bribe: Number(bribe),
         onlyRedirected: redir,
         watchWallet: redir ? watchWallet.trim() : null,
-        takeProfit: { tpEnabled: tpOn, tpMultiplier: Number(mult), tpSellPct: Number(pct), tpSlippagePct: Number(slip) },
+        exit: ex.build(),
       });
       toast(armed ? 'Snipe updated & re-armed' : 'Snipe updated');
       onChange();
@@ -592,24 +571,10 @@ function EditSnipeModal({ snipe, onClose, onChange }: { snipe: Snipe; onClose: (
             )}
           </>
         ) : (
-          <p className="modal-sub" style={{ marginTop: -4 }}>This snipe already filled. Only take-profit can be changed.</p>
+          <p className="modal-sub" style={{ marginTop: -4 }}>This snipe already filled. Only the exit strategy can be changed.</p>
         )}
 
-        <div className={`tp-box ${tpOn ? 'on' : ''}`}>
-          <label className="switch-row" onClick={() => setTpOn((v) => !v)}>
-            <span className={`switch ${tpOn ? 'on' : ''}`}><span className="knob" /></span>
-            Take profit
-          </label>
-          {tpOn && (
-            <div className="tp-fields">
-              <div className="row">
-                <div><label>Sell at MC ×</label><input value={mult} onChange={(e) => setMult(e.target.value)} /></div>
-                <div><label>Sell %</label><input value={pct} onChange={(e) => setPct(e.target.value)} /></div>
-                <div><label>Slippage %</label><input value={slip} onChange={(e) => setSlip(e.target.value)} /></div>
-              </div>
-            </div>
-          )}
-        </div>
+        <ExitFields ex={ex} />
 
         <div className="modal-actions">
           <button className="ghost" onClick={onClose} disabled={busy}>Close</button>
@@ -658,7 +623,10 @@ function Snipes({ snipes, onChange }: { snipes: Snipe[]; wallets: Wallet[]; onCh
             {s.bribe > 0 && <span>bribe {s.bribe}</span>}
             {s.watchWallet && <span className="tp-chip">watch {short(s.watchWallet)}</span>}
             {s.tpEnabled && s.tpStatus !== 'CANCELLED' && (
-              <span className="tp-chip">TP {s.tpMultiplier}× · {s.tpSellPct}% · {s.tpStatus.toLowerCase()}</span>
+              <span className="tp-chip">TP{s.tpTrailing ? ' trail' : ''} {s.tpMultiplier}× · {s.tpSellPct}% · {s.tpStatus.toLowerCase()}</span>
+            )}
+            {s.slEnabled && s.tpStatus !== 'CANCELLED' && (
+              <span className="tp-chip">SL{s.slTrailing ? ` trail -${s.slTrailPct}%` : ` -${s.slPct}%`}</span>
             )}
             {s.signature && (
               <a href={`https://solscan.io/tx/${s.signature}`} target="_blank" rel="noreferrer">view tx ↗</a>
@@ -808,7 +776,7 @@ function CoinCard({ coin, onSnipe }: { coin: DiscoverCoin; onSnipe: () => void }
         <code>{coin.mint.slice(0, 6)}…{coin.mint.slice(-6)}</code>
         <span className="copy">copy CA</span>
       </button>
-      <div className="recip">onboarded → {coin.recipient.slice(0, 4)}…{coin.recipient.slice(-4)}</div>
+      <div className="recip">fees → {coin.recipient.slice(0, 4)}…{coin.recipient.slice(-4)}</div>
 
       <button className="primary snipe-btn" onClick={onSnipe}>Snipe</button>
     </div>
@@ -820,12 +788,9 @@ function SnipeConfigModal({ coin, wallets, onClose, onSniped }: { coin: Discover
   const [walletId, setWalletId] = useState('');
   const [amount, setAmount] = useState('');
   const [slippage, setSlippage] = useState('15');
-  const [priority, setPriority] = useState('0.0005');
-  const [bribe, setBribe] = useState('0');
-  const [tpOn, setTpOn] = useState(false);
-  const [tpMult, setTpMult] = useState('2');
-  const [tpPct, setTpPct] = useState('100');
-  const [tpSlip, setTpSlip] = useState('20');
+  const [priority, setPriority] = useState(() => localStorage.getItem('cs.priority') ?? '0.0005');
+  const [bribe, setBribe] = useState(() => localStorage.getItem('cs.bribe') ?? '0');
+  const ex = useExit();
   const [busy, setBusy] = useState(false);
 
   const ready = walletId && Number(amount) > 0;
@@ -833,6 +798,8 @@ function SnipeConfigModal({ coin, wallets, onClose, onSniped }: { coin: Discover
   async function confirm() {
     setBusy(true);
     try {
+      localStorage.setItem('cs.priority', priority);
+      localStorage.setItem('cs.bribe', bribe);
       await api.createSnipe({
         mint: coin.mint,
         walletId,
@@ -842,7 +809,7 @@ function SnipeConfigModal({ coin, wallets, onClose, onSniped }: { coin: Discover
         bribe: Number(bribe),
         onlyRedirected: true,
         watchWallet: coin.recipient,
-        takeProfit: tpOn ? { tpEnabled: true, tpMultiplier: Number(tpMult), tpSellPct: Number(tpPct), tpSlippagePct: Number(tpSlip) } : undefined,
+        exit: ex.build(),
       });
       toast(`Armed snipe on $${coin.symbol ?? coin.mint.slice(0, 4)}`, 'fill');
       onSniped();
@@ -870,21 +837,7 @@ function SnipeConfigModal({ coin, wallets, onClose, onSniped }: { coin: Discover
           <div><label>Bribe (SOL)</label><input value={bribe} onChange={(e) => setBribe(e.target.value)} /></div>
         </div>
 
-        <div className={`tp-box ${tpOn ? 'on' : ''}`}>
-          <label className="switch-row" onClick={() => setTpOn((v) => !v)}>
-            <span className={`switch ${tpOn ? 'on' : ''}`}><span className="knob" /></span>
-            Take profit
-          </label>
-          {tpOn && (
-            <div className="tp-fields">
-              <div className="row">
-                <div><label>Sell at MC ×</label><input value={tpMult} onChange={(e) => setTpMult(e.target.value)} /></div>
-                <div><label>Sell %</label><input value={tpPct} onChange={(e) => setTpPct(e.target.value)} /></div>
-                <div><label>Slippage %</label><input value={tpSlip} onChange={(e) => setTpSlip(e.target.value)} /></div>
-              </div>
-            </div>
-          )}
-        </div>
+        <ExitFields ex={ex} />
 
         <div className="modal-actions">
           <button className="ghost" onClick={onClose} disabled={busy}>Cancel</button>
@@ -1036,7 +989,8 @@ function AdminPanel() {
                 <span>{s.amountSol} SOL</span>
                 <span>{s.wallet.name}</span>
                 {s.watchWallet && <span className="tp-chip">watch {short(s.watchWallet)}</span>}
-                {s.tpEnabled && <span className="tp-chip">TP {s.tpMultiplier}×</span>}
+                {s.tpEnabled && <span className="tp-chip">TP{s.tpTrailing ? " trail" : ""} {s.tpMultiplier}×</span>}
+                {s.slEnabled && <span className="tp-chip">SL{s.slTrailing ? " trail" : ""}</span>}
                 <CopyCA mint={s.mint} />
               </div>
             ))}
@@ -1078,7 +1032,8 @@ function AdminPanel() {
                   <span className="hist-tk">{s.ticker ? `$${s.ticker}` : short(s.mint)}</span>
                   <span className={`badge ${s.status}`}>{s.status}</span>
                   <span>{s.amountSol} SOL</span>
-                  {s.tpEnabled && <span className="tp-chip">TP {s.tpMultiplier}×</span>}
+                  {s.tpEnabled && <span className="tp-chip">TP{s.tpTrailing ? " trail" : ""} {s.tpMultiplier}×</span>}
+                {s.slEnabled && <span className="tp-chip">SL{s.slTrailing ? " trail" : ""}</span>}
                   <CopyCA mint={s.mint} />
                 </div>
               ))}
@@ -1109,5 +1064,97 @@ function CopyCA({ mint, className }: { mint: string; className?: string }) {
       <code>{short(mint)}</code>
       <span className="copy">copy CA</span>
     </button>
+  );
+}
+
+/* ---------------- shared exit strategy (TP + stop loss) ---------------- */
+function useExit(initial?: Partial<Snipe>) {
+  const [tpOn, setTpOn] = useState(initial ? !!initial.tpEnabled && initial.tpStatus !== 'CANCELLED' : false);
+  const [tpTrail, setTpTrail] = useState(!!initial?.tpTrailing);
+  const [tpMult, setTpMult] = useState(String(initial?.tpMultiplier ?? 2));
+  const [tpPct, setTpPct] = useState(String(initial?.tpSellPct ?? 100));
+  const [tpTrailPct, setTpTrailPct] = useState(String(initial?.tpTrailPct ?? 20));
+  const [tpSlip, setTpSlip] = useState(String(initial?.tpSlippagePct ?? 20));
+  const [slOn, setSlOn] = useState(!!initial?.slEnabled);
+  const [slTrail, setSlTrail] = useState(!!initial?.slTrailing);
+  const [slPct, setSlPct] = useState(String(initial?.slPct ?? 30));
+  const [slTrailPct, setSlTrailPct] = useState(String(initial?.slTrailPct ?? 20));
+  const [slSlip, setSlSlip] = useState(String(initial?.slSlippagePct ?? 25));
+
+  const build = () => ({
+    tpEnabled: tpOn,
+    tpMultiplier: Number(tpMult),
+    tpSellPct: Number(tpPct),
+    tpSlippagePct: Number(tpSlip),
+    tpTrailing: tpTrail,
+    tpTrailPct: Number(tpTrailPct),
+    slEnabled: slOn,
+    slPct: Number(slPct),
+    slTrailing: slTrail,
+    slTrailPct: Number(slTrailPct),
+    slSlippagePct: Number(slSlip),
+  });
+
+  return {
+    tpOn, setTpOn, tpTrail, setTpTrail, tpMult, setTpMult, tpPct, setTpPct, tpTrailPct, setTpTrailPct, tpSlip, setTpSlip,
+    slOn, setSlOn, slTrail, setSlTrail, slPct, setSlPct, slTrailPct, setSlTrailPct, slSlip, setSlSlip, build,
+  };
+}
+
+function ExitFields({ ex }: { ex: ReturnType<typeof useExit> }) {
+  return (
+    <>
+      <div className={`tp-box ${ex.tpOn ? 'on' : ''}`}>
+        <label className="switch-row" onClick={() => ex.setTpOn((v) => !v)}>
+          <span className={`switch ${ex.tpOn ? 'on' : ''}`}><span className="knob" /></span>
+          Take profit
+        </label>
+        {ex.tpOn && (
+          <div className="tp-fields">
+            <label className="switch-row sub" onClick={() => ex.setTpTrail((v) => !v)}>
+              <span className={`switch ${ex.tpTrail ? 'on' : ''}`}><span className="knob" /></span>
+              Trailing
+            </label>
+            <div className="row">
+              <div><label>{ex.tpTrail ? 'Activate at MC ×' : 'Sell at MC ×'}</label><input value={ex.tpMult} onChange={(e) => ex.setTpMult(e.target.value)} placeholder="2" /></div>
+              <div><label>Sell %</label><input value={ex.tpPct} onChange={(e) => ex.setTpPct(e.target.value)} placeholder="100" /></div>
+              {ex.tpTrail && <div><label>Trail drop %</label><input value={ex.tpTrailPct} onChange={(e) => ex.setTpTrailPct(e.target.value)} /></div>}
+              <div><label>Slippage %</label><input value={ex.tpSlip} onChange={(e) => ex.setTpSlip(e.target.value)} /></div>
+            </div>
+            <div className="hint">
+              {ex.tpTrail
+                ? `After MC hits ${ex.tpMult || '?'}× entry, tracks the peak and sells ${ex.tpPct || '?'}% when it drops ${ex.tpTrailPct || '?'}% from that peak. Locks in more upside than a fixed sell.`
+                : `Sells ${ex.tpPct || '?'}% when market cap reaches ${ex.tpMult || '?'}× your entry.`}
+            </div>
+          </div>
+        )}
+      </div>
+
+      <div className={`tp-box ${ex.slOn ? 'on' : ''}`}>
+        <label className="switch-row" onClick={() => ex.setSlOn((v) => !v)}>
+          <span className={`switch ${ex.slOn ? 'on' : ''}`}><span className="knob" /></span>
+          Stop loss
+        </label>
+        {ex.slOn && (
+          <div className="tp-fields">
+            <label className="switch-row sub" onClick={() => ex.setSlTrail((v) => !v)}>
+              <span className={`switch ${ex.slTrail ? 'on' : ''}`}><span className="knob" /></span>
+              Trailing
+            </label>
+            <div className="row">
+              {ex.slTrail
+                ? <div><label>Trail drop %</label><input value={ex.slTrailPct} onChange={(e) => ex.setSlTrailPct(e.target.value)} /></div>
+                : <div><label>Stop if down %</label><input value={ex.slPct} onChange={(e) => ex.setSlPct(e.target.value)} /></div>}
+              <div><label>Slippage %</label><input value={ex.slSlip} onChange={(e) => ex.setSlSlip(e.target.value)} /></div>
+            </div>
+            <div className="hint">
+              {ex.slTrail
+                ? `Sells everything if market cap drops ${ex.slTrailPct || '?'}% from its peak since entry.`
+                : `Sells everything if market cap falls ${ex.slPct || '?'}% below your entry.`}
+            </div>
+          </div>
+        )}
+      </div>
+    </>
   );
 }
