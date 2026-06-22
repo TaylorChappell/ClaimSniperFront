@@ -285,6 +285,12 @@ button.danger:hover { border-color: var(--red); }
   display: flex; align-items: center; gap: 11px; cursor: pointer;
   font-weight: 600; color: var(--text); user-select: none; margin: 0;
 }
+.switch-row.sub {
+  font-weight: 500; font-size: 13px; color: var(--text-dim); gap: 8px; margin-bottom: 9px;
+}
+.switch-row.sub .switch { width: 34px; height: 20px; }
+.switch-row.sub .switch .knob { width: 14px; height: 14px; }
+.switch-row.sub .switch.on .knob { transform: translateX(14px); }
 .switch {
   width: 42px; height: 24px; border-radius: 999px; background: var(--surface-3);
   border: 1px solid var(--line); position: relative; transition: background 0.2s ease, border-color 0.2s ease;
