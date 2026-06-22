@@ -24,11 +24,18 @@ async function req<T>(path: string, opts: RequestInit = {}): Promise<T> {
 }
 
 export interface Wallet { id: string; name: string; publicKey: string; balanceSol?: number; }
-export interface TakeProfit {
-  tpEnabled: boolean;
+export interface ExitCfg {
+  tpEnabled?: boolean;
   tpMultiplier?: number;
   tpSellPct?: number;
   tpSlippagePct?: number;
+  tpTrailing?: boolean;
+  tpTrailPct?: number;
+  slEnabled?: boolean;
+  slPct?: number;
+  slTrailing?: boolean;
+  slTrailPct?: number;
+  slSlippagePct?: number;
 }
 export interface Snipe {
   id: string;
@@ -49,9 +56,17 @@ export interface Snipe {
   tpMultiplier?: number | null;
   tpSellPct?: number | null;
   tpSlippagePct?: number | null;
+  tpTrailing?: boolean;
+  tpTrailPct?: number | null;
+  slEnabled?: boolean;
+  slPct?: number | null;
+  slTrailing?: boolean;
+  slTrailPct?: number | null;
+  slSlippagePct?: number | null;
   tpStatus: string;
   tpSignature?: string | null;
   entryMcSol?: number | null;
+  peakMcSol?: number | null;
   soldSol: number;
 }
 export interface BillingStatus {
@@ -122,7 +137,7 @@ export const api = {
     bribe?: number;
     onlyRedirected?: boolean;
     watchWallet?: string | null;
-    takeProfit?: TakeProfit;
+    exit?: ExitCfg;
   }) => req<{ snipe: Snipe }>('/snipes', { method: 'POST', body: JSON.stringify(b) }),
   editSnipe: (id: string, body: {
     amountSol?: number;
@@ -131,7 +146,7 @@ export const api = {
     bribe?: number;
     onlyRedirected?: boolean;
     watchWallet?: string | null;
-    takeProfit?: TakeProfit;
+    exit?: ExitCfg;
   }) => req<{ snipe: Snipe }>(`/snipes/${id}`, { method: 'PUT', body: JSON.stringify(body) }),
   adminArmed: () => req<{ snipes: AdminSnipe[] }>('/admin/armed'),
   adminUsers: () => req<{ users: AdminUser[] }>('/admin/users'),
