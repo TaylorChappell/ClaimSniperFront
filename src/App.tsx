@@ -494,7 +494,7 @@ function SnipeForm({ wallets, onCreated }: { wallets: Wallet[]; onCreated: () =>
         <div className="tp-fields">
           <label>Wallet to watch</label>
           <input value={watchWallet} onChange={(e) => setWatchWallet(e.target.value)} placeholder="claimer wallet address" />
-          <div className="hint">Fires only when this exact wallet claims fees for the coin. The deployer's own early claims are ignored — useful once fees are redirected to someone else.</div>
+          <div className="hint">Fires only when this exact wallet claims fees for the coin. The deployer's own early claims are ignored. Useful once fees are redirected to someone else.</div>
         </div>
       )}
 
@@ -592,7 +592,7 @@ function EditSnipeModal({ snipe, onClose, onChange }: { snipe: Snipe; onClose: (
             )}
           </>
         ) : (
-          <p className="modal-sub" style={{ marginTop: -4 }}>This snipe already filled — only take-profit can be changed.</p>
+          <p className="modal-sub" style={{ marginTop: -4 }}>This snipe already filled. Only take-profit can be changed.</p>
         )}
 
         <div className={`tp-box ${tpOn ? 'on' : ''}`}>
@@ -680,14 +680,14 @@ function Snipes({ snipes, onChange }: { snipes: Snipe[]; wallets: Wallet[]; onCh
 
 /* ---------------- discover / recommended coins ---------------- */
 function fmtUsd(n: number | null): string {
-  if (n == null) return '—';
+  if (n == null) return '-';
   if (n >= 1e9) return `$${(n / 1e9).toFixed(2)}B`;
   if (n >= 1e6) return `$${(n / 1e6).toFixed(2)}M`;
   if (n >= 1e3) return `$${(n / 1e3).toFixed(1)}K`;
   return `$${n.toFixed(0)}`;
 }
 function fmtAge(min: number | null): string {
-  if (min == null) return '—';
+  if (min == null) return '-';
   if (min < 60) return `${min}m`;
   if (min < 1440) return `${Math.floor(min / 60)}h`;
   return `${Math.floor(min / 1440)}d`;
@@ -736,7 +736,7 @@ function Discover({ wallets, onSniped }: { wallets: Wallet[]; onSniped: () => vo
     <div className="discover rise">
       <div className="disc-head">
         <h1>Discover</h1>
-        <p className="sub">New onboarding coins — fees redirected to another wallet. Snipe fires on that wallet's claims.</p>
+        <p className="sub">New onboarding coins with fees redirected to another wallet. Snipe fires on that wallet's claims.</p>
       </div>
 
       <div className="filters card">
@@ -794,7 +794,7 @@ function CoinCard({ coin, onSnipe }: { coin: DiscoverCoin; onSnipe: () => void }
         </div>
         <div className="coin-id">
           <div className="coin-sym">${coin.symbol ?? '???'}{coin.migrated && <span className="mig-tag">migrated</span>}</div>
-          <div className="coin-name">{coin.name ?? '—'}</div>
+          <div className="coin-name">{coin.name ?? '-'}</div>
         </div>
         <div className="coin-age">{fmtAge(coin.ageMinutes)}</div>
       </div>
