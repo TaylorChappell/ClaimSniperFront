@@ -1,5 +1,5 @@
 import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState } from 'react';
-import { api, getToken, setToken, type Wallet, type Snipe, type Stats, type AdminSnipe, type AdminUser } from './api';
+import { api, getToken, setToken, type Wallet, type Snipe, type Stats, type AdminSnipe, type AdminUser, type SocialUser, type PublicSnipe, type TrendingCoin, type ChatMessage, type AdminLog } from './api';
 import { useLeaderPolling } from './sync';
 
 const BRAND_IMG = `${import.meta.env.BASE_URL}sniper.png`;
@@ -248,7 +248,7 @@ function Dashboard({ username, admin, onLogout }: { username: string; admin: boo
   const snipes = data?.snipes ?? [];
   const stats = data?.stats ?? null;
 
-  const [view, setView] = useState<'dashboard' | 'history' | 'admin'>('dashboard');
+  const [view, setView] = useState<'dashboard' | 'history' | 'social' | 'admin'>('dashboard');
   const filled = useMemo(() => snipes.filter((s) => s.status === 'FILLED'), [snipes]);
 
   return (
@@ -261,6 +261,7 @@ function Dashboard({ username, admin, onLogout }: { username: string; admin: boo
         <div className="who">
           <button className={`nav-btn ${view === 'dashboard' ? 'on' : ''}`} onClick={() => setView('dashboard')}>Dashboard</button>
           <button className={`nav-btn ${view === 'history' ? 'on' : ''}`} onClick={() => setView('history')}>History</button>
+          <button className={`nav-btn ${view === 'social' ? 'on' : ''}`} onClick={() => setView('social')}>Social</button>
           {admin && <button className={`nav-btn admin ${view === 'admin' ? 'on' : ''}`} onClick={() => setView('admin')}>Admin</button>}
           <span className="user">@{username}</span>
           <button className="ghost" onClick={onLogout}>Sign out</button>
@@ -269,6 +270,8 @@ function Dashboard({ username, admin, onLogout }: { username: string; admin: boo
 
       {view === 'history' ? (
         <History snipes={filled} />
+      ) : view === 'social' ? (
+        <Social wallets={wallets} onCopied={() => { refresh(); setView('dashboard'); }} />
       ) : view === 'admin' ? (
         <AdminPanel wallets={wallets} />
       ) : (
@@ -493,7 +496,7 @@ function SnipeForm({ wallets, onCreated }: { wallets: Wallet[]; onCreated: () =>
       {onlyRedirected ? (
         <div className="tp-fields">
           <label>{triggerMode === 'REDIRECT' ? 'Wallet fees get redirected to' : 'Wallet to watch'}</label>
-          <input value={watchWallet} onChange={(e) => setWatchWallet(e.target.value)} placeholder={triggerMode === 'REDIRECT' ? 'target wallet address' : 'claimer wallet address'} />
+          <input value={watchWallet} onChange={(e) => setWatchWallet(e.target.value)} placeholder={triggerMode === 'REDIRECT' ? 'any wallet address' : 'claimer wallet address'} />
           <div className="hint">
             {triggerMode === 'REDIRECT'
               ? "Fires when this coin's fee owner is changed to this exact wallet."
@@ -510,7 +513,7 @@ function SnipeForm({ wallets, onCreated }: { wallets: Wallet[]; onCreated: () =>
       <button className="primary" onClick={arm} disabled={busy || !ready}>
         {busy ? <span className="spin" /> : 'Confirm & arm snipe'}
       </button>
-      <div className="hint">Fires the moment this coin's creator fees are next claimed. Works pre- and post-migration.</div>
+      <div className="hint">{triggerMode === 'REDIRECT' ? "Fires when this coin's fee owner is changed to any new wallet." : "Fires the moment this coin's creator fees are next claimed. Works pre- and post-migration."}</div>
     </div>
   );
 }
@@ -581,7 +584,7 @@ function EditSnipeModal({ snipe, onClose, onChange }: { snipe: Snipe; onClose: (
             {redir ? (
               <div className="tp-fields">
                 <label>{triggerMode === 'REDIRECT' ? 'Wallet fees get redirected to' : 'Wallet to watch'}</label>
-                <input value={watchWallet} onChange={(e) => setWatchWallet(e.target.value)} placeholder={triggerMode === 'REDIRECT' ? 'target wallet address' : 'claimer wallet address'} />
+                <input value={watchWallet} onChange={(e) => setWatchWallet(e.target.value)} placeholder={triggerMode === 'REDIRECT' ? 'any wallet address' : 'claimer wallet address'} />
               </div>
             ) : triggerMode === 'REDIRECT' ? (
               <div className="hint">Fires when this coin's fee owner is changed to any new wallet.</div>
@@ -742,15 +745,20 @@ function History({ snipes }: { snipes: Snipe[] }) {
 /* ---------------- admin panel (MrKnowBody / Rich) ---------------- */
 function AdminPanel({ wallets }: { wallets: Wallet[] }) {
   const toast = useToast();
-  const [tab, setTab] = useState<'armed' | 'users'>('armed');
+  const [tab, setTab] = useState<'armed' | 'users' | 'logs'>('armed');
   const [armed, setArmed] = useState<AdminSnipe[]>([]);
   const [users, setUsers] = useState<AdminUser[]>([]);
   const [sel, setSel] = useState<{ username: string; snipes: Snipe[] } | null>(null);
   const [loading, setLoading] = useState(true);
   const [copyFrom, setCopyFrom] = useState<AdminSnipe | null>(null);
+  const [logs, setLogs] = useState<AdminLog[]>([]);
+  const [logUser, setLogUser] = useState('');
 
   function reloadArmed() {
     api.adminArmed().then((a) => setArmed(a.snipes)).catch((e) => toast(e.message, 'err'));
+  }
+  function loadLogs(uid: string) {
+    api.adminLogs(uid || undefined).then((r) => setLogs(r.logs)).catch((e) => toast(e.message, 'err'));
   }
 
   useEffect(() => {
@@ -760,6 +768,11 @@ function AdminPanel({ wallets }: { wallets: Wallet[] }) {
       .finally(() => setLoading(false));
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
+
+  useEffect(() => {
+    if (tab === 'logs') loadLogs(logUser);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [tab, logUser]);
 
   async function openUser(u: AdminUser) {
     try {
@@ -779,6 +792,7 @@ function AdminPanel({ wallets }: { wallets: Wallet[] }) {
       <div className="seg" style={{ marginBottom: 16 }}>
         <button className={`seg-btn ${tab === 'armed' ? 'on' : ''}`} onClick={() => setTab('armed')}>Armed ({armed.length})</button>
         <button className={`seg-btn ${tab === 'users' ? 'on' : ''}`} onClick={() => setTab('users')}>Users ({users.length})</button>
+        <button className={`seg-btn ${tab === 'logs' ? 'on' : ''}`} onClick={() => setTab('logs')}>Logs</button>
       </div>
 
       {loading ? (
@@ -803,7 +817,7 @@ function AdminPanel({ wallets }: { wallets: Wallet[] }) {
             ))}
           </div>
         )
-      ) : (
+      ) : tab === 'users' ? (
         <div className="admin-list">
           {users.length > 0 && (
             <div className="admin-row total">
@@ -823,6 +837,26 @@ function AdminPanel({ wallets }: { wallets: Wallet[] }) {
               <span className="dim">made {u.madeSol.toFixed(3)}</span>
               <Pnl net={u.netSol} />
               <span className="hist-date">{new Date(u.createdAt).toLocaleDateString()}</span>
+            </div>
+          ))}
+        </div>
+      ) : (
+        <div className="admin-list">
+          <div className="filter-row">
+            <select value={logUser} onChange={(e) => setLogUser(e.target.value)}>
+              <option value="">All users</option>
+              {users.map((u) => (
+                <option key={u.id} value={u.id}>@{u.username}</option>
+              ))}
+            </select>
+            <button className="ghost mini" onClick={() => loadLogs(logUser)}>Refresh</button>
+          </div>
+          {logs.length === 0 && <p className="sub">No logs yet.</p>}
+          {logs.map((l) => (
+            <div className={`log-row ${l.level}`} key={l.id}>
+              <span className="hist-date">{new Date(l.createdAt).toLocaleString()}</span>
+              <span className="admin-user">@{l.username}</span>
+              <span className="log-msg">{l.message}</span>
             </div>
           ))}
         </div>
@@ -865,7 +899,7 @@ function AdminPanel({ wallets }: { wallets: Wallet[] }) {
 }
 
 /* ---------------- copyable CA ---------------- */
-function CopyCA({ mint, className }: { mint: string; className?: string }) {
+function CopyCA({ mint, ticker, className }: { mint: string; ticker?: string | null; className?: string }) {
   const toast = useToast();
   return (
     <button
@@ -877,6 +911,7 @@ function CopyCA({ mint, className }: { mint: string; className?: string }) {
         navigator.clipboard.writeText(mint).then(() => toast('CA copied'));
       }}
     >
+      {ticker ? <strong className="ca-ticker">${ticker}</strong> : null}
       <code>{short(mint)}</code>
       <span className="copy">copy CA</span>
     </button>
@@ -1049,10 +1084,274 @@ function TriggerModeSelect({ value, onChange }: { value: 'CLAIM' | 'REDIRECT'; o
         <button className={value === 'CLAIM' ? 'on' : ''} onClick={() => onChange('CLAIM')}>On fee claim</button>
         <button className={value === 'REDIRECT' ? 'on' : ''} onClick={() => onChange('REDIRECT')}>On fee redirect</button>
       </div>
-      <div className="hint">
-        {value === 'CLAIM'
-          ? 'Snipes when the coin\u2019s creator fees are claimed (optionally only when a specific wallet claims).'
-          : 'Snipes the moment the coin\u2019s fee owner is changed to the target wallet below. Watches the bonding curve for the redirect.'}
+      {value === 'CLAIM' && (
+        <div className="hint">Snipes when the coin&rsquo;s creator fees are claimed (optionally only when a specific wallet claims).</div>
+      )}
+    </div>
+  );
+}
+
+/* ---------------- social ---------------- */
+function Social({ wallets, onCopied }: { wallets: Wallet[]; onCopied: () => void }) {
+  const toast = useToast();
+  const [users, setUsers] = useState<SocialUser[]>([]);
+  const [trending, setTrending] = useState<TrendingCoin[]>([]);
+  const [openUserId, setOpenUserId] = useState<string | null>(null);
+  const [copy, setCopy] = useState<{ mint: string; ticker?: string | null; triggerMode: 'CLAIM' | 'REDIRECT' } | null>(null);
+
+  function load() {
+    api.socialUsers().then((r) => setUsers(r.users)).catch(() => {});
+    api.socialTrending().then((r) => setTrending(r.coins)).catch(() => {});
+  }
+  useEffect(() => {
+    load();
+    const t = setInterval(load, 30000);
+    return () => clearInterval(t);
+  }, []);
+
+  return (
+    <div className="social">
+      <div className="grid">
+        <div className="col">
+          <div className="card rise d1">
+            <h3>Most sniped coins</h3>
+            {trending.length === 0 && <p className="sub">No active snipes across the platform right now.</p>}
+            <div className="admin-list">
+              {trending.map((c) => (
+                <div className="admin-row" key={c.mint}>
+                  <CopyCA mint={c.mint} ticker={c.ticker} />
+                  <span className="tp-chip">{c.userCount} {c.userCount === 1 ? 'user' : 'users'}</span>
+                  <span className="dim">{c.snipeCount} snipes</span>
+                  {c.redirectCount > 0 && <span className="tp-chip">{c.redirectCount} redirect</span>}
+                  <button
+                    className="ghost mini"
+                    onClick={() => setCopy({ mint: c.mint, ticker: c.ticker, triggerMode: c.redirectCount > c.snipeCount - c.redirectCount ? 'REDIRECT' : 'CLAIM' })}
+                  >
+                    Copy
+                  </button>
+                </div>
+              ))}
+            </div>
+          </div>
+
+          <div className="card rise d2">
+            <h3>Traders</h3>
+            <div className="admin-list">
+              {users.map((u) => (
+                <div className="admin-row clickable" key={u.id} onClick={() => setOpenUserId(u.id)}>
+                  <span className="admin-user">@{u.username}</span>
+                  <span className="dim">{u.filledCount} filled</span>
+                  <span className="dim">spent {u.spentSol.toFixed(3)}</span>
+                  <Pnl net={u.netSol} />
+                </div>
+              ))}
+            </div>
+          </div>
+        </div>
+
+        <div className="col">
+          <ChatBox />
+        </div>
+      </div>
+
+      {openUserId && (
+        <UserSnipesModal
+          userId={openUserId}
+          onClose={() => setOpenUserId(null)}
+          onCopy={(s) => setCopy({ mint: s.mint, ticker: s.ticker, triggerMode: s.triggerMode === 'REDIRECT' ? 'REDIRECT' : 'CLAIM' })}
+        />
+      )}
+      {copy && (
+        <CopyPublicModal
+          mint={copy.mint}
+          ticker={copy.ticker}
+          triggerMode={copy.triggerMode}
+          wallets={wallets}
+          onClose={() => setCopy(null)}
+          onCopied={() => { setCopy(null); toast('Snipe armed from copied coin'); onCopied(); }}
+        />
+      )}
+    </div>
+  );
+}
+
+function ChatBox() {
+  const [messages, setMessages] = useState<ChatMessage[]>([]);
+  const [text, setText] = useState('');
+  const [busy, setBusy] = useState(false);
+  const lastRef = useRef<string | undefined>(undefined);
+
+  function poll() {
+    api.socialChat(lastRef.current).then((r) => {
+      if (r.messages.length) {
+        lastRef.current = r.messages[r.messages.length - 1].createdAt;
+        setMessages((prev) => (lastRef.current && prev.length ? [...prev, ...r.messages] : r.messages).slice(-200));
+      }
+    }).catch(() => {});
+  }
+  useEffect(() => {
+    poll();
+    const t = setInterval(poll, 5000);
+    return () => clearInterval(t);
+  }, []);
+
+  async function send() {
+    const t = text.trim();
+    if (!t) return;
+    setBusy(true);
+    try {
+      await api.socialSend(t);
+      setText('');
+      poll();
+    } catch {
+      /* ignore */
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  return (
+    <div className="card rise d1 chat">
+      <h3>Chat</h3>
+      <div className="chat-feed">
+        {messages.length === 0 && <p className="sub">No messages yet. Say hi.</p>}
+        {messages.map((m) => (
+          <div className="chat-msg" key={m.id}>
+            <span className="chat-user">@{m.username}</span>
+            <span className="chat-text">{m.text}</span>
+          </div>
+        ))}
+      </div>
+      <div className="chat-input">
+        <input
+          value={text}
+          maxLength={500}
+          placeholder="Message the traders..."
+          onChange={(e) => setText(e.target.value)}
+          onKeyDown={(e) => e.key === 'Enter' && send()}
+        />
+        <button className="primary inline" onClick={send} disabled={busy || !text.trim()}>Send</button>
+      </div>
+    </div>
+  );
+}
+
+function UserSnipesModal({ userId, onClose, onCopy }: { userId: string; onClose: () => void; onCopy: (s: PublicSnipe) => void }) {
+  const [data, setData] = useState<{ username: string; active: PublicSnipe[]; filled: PublicSnipe[] } | null>(null);
+  const [tab, setTab] = useState<'active' | 'filled'>('active');
+
+  useEffect(() => {
+    api.socialUserSnipes(userId).then(setData).catch(() => {});
+  }, [userId]);
+
+  const rows = data ? (tab === 'active' ? data.active : data.filled) : [];
+  return (
+    <div className="modal-overlay" onMouseDown={onClose}>
+      <div className="modal wide" onMouseDown={(e) => e.stopPropagation()}>
+        <h3>@{data?.username ?? '...'}</h3>
+        <div className="seg">
+          <button className={`seg-btn ${tab === 'active' ? 'on' : ''}`} onClick={() => setTab('active')}>Active ({data?.active.length ?? 0})</button>
+          <button className={`seg-btn ${tab === 'filled' ? 'on' : ''}`} onClick={() => setTab('filled')}>Filled ({data?.filled.length ?? 0})</button>
+        </div>
+        <div className="admin-list">
+          {rows.length === 0 && <p className="sub">Nothing here.</p>}
+          {rows.map((s) => (
+            <div className="admin-row" key={s.id}>
+              <CopyCA mint={s.mint} ticker={s.ticker} />
+              <span className="dim">{s.amountSol} SOL</span>
+              {s.triggerMode === 'REDIRECT' && <span className="tp-chip">redirect</span>}
+              {tab === 'filled' && <Pnl net={s.soldSol - s.amountSol} />}
+              <button className="ghost mini" onClick={() => onCopy(s)}>Copy</button>
+            </div>
+          ))}
+        </div>
+        <div className="modal-actions">
+          <button className="ghost" onClick={onClose}>Close</button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function CopyPublicModal({
+  mint, ticker, triggerMode, wallets, onClose, onCopied,
+}: { mint: string; ticker?: string | null; triggerMode: 'CLAIM' | 'REDIRECT'; wallets: Wallet[]; onClose: () => void; onCopied: () => void }) {
+  const toast = useToast();
+  const [walletId, setWalletId] = useState('');
+  const [amount, setAmount] = useState('');
+  const [slippage, setSlippage] = useState('15');
+  const [priority, setPriority] = useState(() => localStorage.getItem('cs.priority') ?? '0.0005');
+  const [bribe, setBribe] = useState(() => localStorage.getItem('cs.bribe') ?? '0');
+  const [execMode, setExecMode] = useState<'PUMPPORTAL' | 'LOCAL'>('PUMPPORTAL');
+  const [onlyWallet, setOnlyWallet] = useState(false);
+  const [watchWallet, setWatchWallet] = useState('');
+  const ex = useExit();
+  const [busy, setBusy] = useState(false);
+
+  const ready = walletId && Number(amount) > 0 && (!onlyWallet || watchWallet.trim().length >= 32);
+
+  async function go() {
+    setBusy(true);
+    try {
+      localStorage.setItem('cs.priority', priority);
+      localStorage.setItem('cs.bribe', bribe);
+      await api.createSnipe({
+        mint,
+        walletId,
+        amountSol: Number(amount),
+        slippagePct: Number(slippage),
+        priorityFee: Number(priority),
+        bribe: Number(bribe),
+        execMode,
+        triggerMode,
+        onlyRedirected: onlyWallet,
+        watchWallet: onlyWallet ? watchWallet.trim() : null,
+        exit: ex.build(),
+      });
+      onCopied();
+    } catch (e: any) {
+      toast(e.message, 'err');
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  return (
+    <div className="modal-overlay" onMouseDown={onClose}>
+      <div className="modal" onMouseDown={(e) => e.stopPropagation()}>
+        <h3>Copy {ticker ? `$${ticker}` : 'coin'}</h3>
+        <div className="copy-locked">
+          <div><label>Coin (locked)</label><CopyCA mint={mint} ticker={ticker} /></div>
+          <span className="tp-chip">{triggerMode === 'REDIRECT' ? 'redirect snipe' : 'claim snipe'}</span>
+        </div>
+        <label>Buy with wallet</label>
+        <WalletSelect wallets={wallets} value={walletId} onChange={setWalletId} />
+        <div className="row">
+          <div><label>Amount (SOL)</label><input value={amount} onChange={(e) => setAmount(e.target.value)} placeholder="0.5" /></div>
+          <div><label>Slippage %</label><input value={slippage} onChange={(e) => setSlippage(e.target.value)} /></div>
+        </div>
+        <div className="row">
+          <div><label>Priority (SOL)</label><input value={priority} onChange={(e) => setPriority(e.target.value)} /></div>
+          <div><label>Bribe (SOL)</label><input value={bribe} onChange={(e) => setBribe(e.target.value)} /></div>
+        </div>
+        <ExecModeSelect value={execMode} onChange={setExecMode} />
+        <label className="switch-row" onClick={() => setOnlyWallet((v) => !v)}>
+          <span className={`switch ${onlyWallet ? 'on' : ''}`}><span className="knob" /></span>
+          {triggerMode === 'REDIRECT' ? 'Only a specific wallet' : "Only a specific wallet's claims"}
+        </label>
+        {onlyWallet && (
+          <div className="tp-fields">
+            <label>{triggerMode === 'REDIRECT' ? 'Wallet fees get redirected to' : 'Wallet to watch'}</label>
+            <input value={watchWallet} onChange={(e) => setWatchWallet(e.target.value)} placeholder={triggerMode === 'REDIRECT' ? 'any wallet address' : 'claimer wallet address'} />
+          </div>
+        )}
+        <ExitFields ex={ex} />
+        <div className="modal-actions">
+          <button className="ghost" onClick={onClose} disabled={busy}>Cancel</button>
+          <button className="primary inline" onClick={go} disabled={busy || !ready}>
+            {busy ? <span className="spin" /> : 'Arm snipe'}
+          </button>
+        </div>
       </div>
     </div>
   );
