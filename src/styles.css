@@ -459,3 +459,26 @@ button.danger:hover { border-color: var(--red); }
   padding: 14px; font-family: var(--mono); font-size: 11px; line-height: 1.5;
   color: var(--text); overflow-x: auto; max-height: 70vh; white-space: pre-wrap; word-break: break-all;
 }
+
+/* execution mode selector */
+.exec-mode { margin: 12px 0; }
+.exec-mode > label { display: block; font-size: 12px; font-weight: 600; color: var(--muted); margin-bottom: 6px; }
+.exec-mode .seg { display: flex; gap: 4px; margin-bottom: 0; width: 100%; }
+.exec-mode .seg button {
+  flex: 1; background: none; border: none; color: var(--muted); padding: 8px 12px;
+  border-radius: 8px; cursor: pointer; font-weight: 600; font-size: 13px; font-family: var(--sans);
+  transition: background 0.15s ease, color 0.15s ease;
+}
+.exec-mode .seg button.on { background: var(--green); color: #04110b; }
+.exec-mode .hint { margin-top: 7px; }
+
+/* small ghost button (admin copy) */
+button.ghost.mini { padding: 5px 10px; font-size: 11px; border: 1px solid var(--line); border-radius: 8px; }
+
+/* admin pnl */
+.pnl { font-weight: 700; font-size: 13px; font-variant-numeric: tabular-nums; }
+.pnl.pos { color: var(--green); }
+.pnl.neg { color: #ff5c5c; }
+.pnl.flat { color: var(--muted); }
+.admin-row .dim { color: var(--muted); font-size: 12px; font-variant-numeric: tabular-nums; }
+.admin-row.total { background: var(--surface-2); border: 1px solid var(--line); font-weight: 600; }
