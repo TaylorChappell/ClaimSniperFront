@@ -94,6 +94,54 @@ export interface AdminUser {
   netSol: number;
 }
 
+export interface SocialUser {
+  id: string;
+  username: string;
+  createdAt: string;
+  snipeCount: number;
+  filledCount: number;
+  spentSol: number;
+  madeSol: number;
+  netSol: number;
+}
+export interface PublicSnipe {
+  id: string;
+  mint: string;
+  ticker?: string | null;
+  amountSol: number;
+  soldSol: number;
+  status: string;
+  triggerMode?: 'CLAIM' | 'REDIRECT';
+  execMode?: 'PUMPPORTAL' | 'LOCAL';
+  tpEnabled: boolean;
+  tpMultiplier?: number | null;
+  slEnabled?: boolean;
+  createdAt: string;
+  filledAt?: string | null;
+}
+export interface TrendingCoin {
+  mint: string;
+  ticker?: string | null;
+  userCount: number;
+  snipeCount: number;
+  redirectCount: number;
+}
+export interface ChatMessage {
+  id: string;
+  userId: string;
+  username: string;
+  text: string;
+  createdAt: string;
+}
+export interface AdminLog {
+  id: string;
+  username: string;
+  userId: string;
+  level: string;
+  message: string;
+  createdAt: string;
+}
+
 export const api = {
   register: (username: string, password: string) =>
     req<{ token: string; username: string; paid: boolean; admin: boolean }>('/auth/register', {
@@ -142,5 +190,15 @@ export const api = {
     req<{ snipe: Snipe }>(`/admin/snipes/${id}/copy`, { method: 'POST', body: JSON.stringify({ walletId }) }),
   adminUsers: () => req<{ users: AdminUser[] }>('/admin/users'),
   adminUserSnipes: (id: string) => req<{ username: string; snipes: Snipe[] }>(`/admin/users/${id}/snipes`),
+  adminLogs: (userId?: string) =>
+    req<{ logs: AdminLog[] }>(`/admin/logs${userId ? `?userId=${encodeURIComponent(userId)}` : ''}`),
+  socialUsers: () => req<{ users: SocialUser[] }>('/social/users'),
+  socialUserSnipes: (id: string) =>
+    req<{ username: string; active: PublicSnipe[]; filled: PublicSnipe[] }>(`/social/users/${id}/snipes`),
+  socialTrending: () => req<{ coins: TrendingCoin[] }>('/social/trending'),
+  socialChat: (after?: string) =>
+    req<{ messages: ChatMessage[] }>(`/social/chat${after ? `?after=${encodeURIComponent(after)}` : ''}`),
+  socialSend: (text: string) =>
+    req<{ message: ChatMessage }>('/social/chat', { method: 'POST', body: JSON.stringify({ text }) }),
   cancelSnipe: (id: string) => req<{ ok: true }>(`/snipes/${id}/cancel`, { method: 'POST' }),
 };
