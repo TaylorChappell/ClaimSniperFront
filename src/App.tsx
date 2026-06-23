@@ -1,5 +1,5 @@
 import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState } from 'react';
-import { api, getToken, setToken, type Wallet, type Snipe, type Stats, type DiscoverCoin, type AdminSnipe, type AdminUser } from './api';
+import { api, getToken, setToken, type Wallet, type Snipe, type Stats, type AdminSnipe, type AdminUser } from './api';
 import { useLeaderPolling } from './sync';
 
 const BRAND_IMG = `${import.meta.env.BASE_URL}sniper.png`;
@@ -248,7 +248,7 @@ function Dashboard({ username, admin, onLogout }: { username: string; admin: boo
   const snipes = data?.snipes ?? [];
   const stats = data?.stats ?? null;
 
-  const [view, setView] = useState<'dashboard' | 'discover' | 'history' | 'admin'>('dashboard');
+  const [view, setView] = useState<'dashboard' | 'history' | 'admin'>('dashboard');
   const filled = useMemo(() => snipes.filter((s) => s.status === 'FILLED'), [snipes]);
 
   return (
@@ -260,7 +260,6 @@ function Dashboard({ username, admin, onLogout }: { username: string; admin: boo
         </div>
         <div className="who">
           <button className={`nav-btn ${view === 'dashboard' ? 'on' : ''}`} onClick={() => setView('dashboard')}>Dashboard</button>
-          <button className={`nav-btn ${view === 'discover' ? 'on' : ''}`} onClick={() => setView('discover')}>Discover</button>
           <button className={`nav-btn ${view === 'history' ? 'on' : ''}`} onClick={() => setView('history')}>History</button>
           {admin && <button className={`nav-btn admin ${view === 'admin' ? 'on' : ''}`} onClick={() => setView('admin')}>Admin</button>}
           <span className="user">@{username}</span>
@@ -268,12 +267,10 @@ function Dashboard({ username, admin, onLogout }: { username: string; admin: boo
         </div>
       </div>
 
-      {view === 'discover' ? (
-        <Discover wallets={wallets} onSniped={() => { refresh(); setView('dashboard'); }} />
-      ) : view === 'history' ? (
+      {view === 'history' ? (
         <History snipes={filled} />
       ) : view === 'admin' ? (
-        <AdminPanel />
+        <AdminPanel wallets={wallets} />
       ) : (
         <div className="grid">
           <div className="col">
@@ -432,6 +429,7 @@ function SnipeForm({ wallets, onCreated }: { wallets: Wallet[]; onCreated: () =>
   const [bribe, setBribe] = useState(() => localStorage.getItem('cs.bribe') ?? '0');
   const [onlyRedirected, setOnlyRedirected] = useState(false);
   const [watchWallet, setWatchWallet] = useState('');
+  const [execMode, setExecMode] = useState<'PUMPPORTAL' | 'LOCAL'>('PUMPPORTAL');
   const ex = useExit();
   const [err, setErr] = useState('');
   const [busy, setBusy] = useState(false);
@@ -449,6 +447,7 @@ function SnipeForm({ wallets, onCreated }: { wallets: Wallet[]; onCreated: () =>
         slippagePct: Number(slippage),
         priorityFee: Number(priority),
         bribe: Number(bribe),
+        execMode,
         onlyRedirected,
         watchWallet: onlyRedirected ? watchWallet.trim() : null,
         exit: ex.build(),
@@ -482,6 +481,7 @@ function SnipeForm({ wallets, onCreated }: { wallets: Wallet[]; onCreated: () =>
         <div><label>Priority (SOL)</label><input value={priority} onChange={(e) => setPriority(e.target.value)} /></div>
         <div><label>Bribe (SOL)</label><input value={bribe} onChange={(e) => setBribe(e.target.value)} /></div>
       </div>
+      <ExecModeSelect value={execMode} onChange={setExecMode} />
 
       <label className="switch-row" onClick={() => setOnlyRedirected((v) => !v)}>
         <span className={`switch ${onlyRedirected ? 'on' : ''}`}><span className="knob" /></span>
@@ -516,6 +516,7 @@ function EditSnipeModal({ snipe, onClose, onChange }: { snipe: Snipe; onClose: (
   const [bribe, setBribe] = useState(String(snipe.bribe));
   const [redir, setRedir] = useState(snipe.onlyRedirected);
   const [watchWallet, setWatchWallet] = useState(snipe.watchWallet ?? '');
+  const [execMode, setExecMode] = useState<'PUMPPORTAL' | 'LOCAL'>(snipe.execMode === 'LOCAL' ? 'LOCAL' : 'PUMPPORTAL');
   const ex = useExit(snipe);
   const [busy, setBusy] = useState(false);
 
@@ -531,6 +532,7 @@ function EditSnipeModal({ snipe, onClose, onChange }: { snipe: Snipe; onClose: (
         bribe: Number(bribe),
         onlyRedirected: redir,
         watchWallet: redir ? watchWallet.trim() : null,
+        execMode,
         exit: ex.build(),
       });
       toast(armed ? 'Snipe updated & re-armed' : 'Snipe updated');
@@ -569,6 +571,7 @@ function EditSnipeModal({ snipe, onClose, onChange }: { snipe: Snipe; onClose: (
                 <input value={watchWallet} onChange={(e) => setWatchWallet(e.target.value)} placeholder="claimer wallet address" />
               </div>
             )}
+            <ExecModeSelect value={execMode} onChange={setExecMode} />
           </>
         ) : (
           <p className="modal-sub" style={{ marginTop: -4 }}>This snipe already filled. Only the exit strategy can be changed.</p>
@@ -642,210 +645,6 @@ function Snipes({ snipes, onChange }: { snipes: Snipe[]; wallets: Wallet[]; onCh
         </div>
       ))}
       {edit && <EditSnipeModal snipe={edit} onClose={() => setEdit(null)} onChange={onChange} />}
-    </div>
-  );
-}
-
-/* ---------------- discover / recommended coins ---------------- */
-function fmtUsd(n: number | null): string {
-  if (n == null) return '-';
-  if (n >= 1e9) return `$${(n / 1e9).toFixed(2)}B`;
-  if (n >= 1e6) return `$${(n / 1e6).toFixed(2)}M`;
-  if (n >= 1e3) return `$${(n / 1e3).toFixed(1)}K`;
-  return `$${n.toFixed(0)}`;
-}
-function fmtAge(min: number | null): string {
-  if (min == null) return '-';
-  if (min < 60) return `${min}m`;
-  if (min < 1440) return `${Math.floor(min / 60)}h`;
-  return `${Math.floor(min / 1440)}d`;
-}
-
-function Discover({ wallets, onSniped }: { wallets: Wallet[]; onSniped: () => void }) {
-  const [list, setList] = useState<'new' | 'almost_bonded' | 'migrated'>('new');
-  const [minMcap, setMinMcap] = useState('');
-  const [maxMcap, setMaxMcap] = useState('');
-  const [minLiq, setMinLiq] = useState('');
-  const [maxAge, setMaxAge] = useState('');
-  const [migration, setMigration] = useState<'any' | 'true' | 'false'>('any');
-  const [coins, setCoins] = useState<DiscoverCoin[]>([]);
-  const [loading, setLoading] = useState(true);
-  const [message, setMessage] = useState<string | null>(null);
-  const [snipeCoin, setSnipeCoin] = useState<DiscoverCoin | null>(null);
-
-  const load = async () => {
-    setLoading(true);
-    try {
-      const params: Record<string, string> = { list };
-      if (minMcap) params.minMcap = minMcap;
-      if (maxMcap) params.maxMcap = maxMcap;
-      if (minLiq) params.minLiq = minLiq;
-      if (maxAge) params.maxAgeMin = maxAge;
-      if (migration !== 'any') params.migrated = migration;
-      const res = await api.discover(params);
-      setCoins(res.coins);
-      setMessage(res.configured ? (res.coins.length ? null : res.message ?? 'No onboarding coins match your filters right now.') : (res.message ?? 'Data source not configured.'));
-    } catch (e: any) {
-      setMessage(e.message);
-      setCoins([]);
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  useEffect(() => {
-    load();
-    const t = setInterval(load, 20000);
-    return () => clearInterval(t);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [list]);
-
-  return (
-    <div className="discover rise">
-      <div className="disc-head">
-        <h1>Discover</h1>
-        <p className="sub">New onboarding coins with fees redirected to another wallet. Snipe fires on that wallet's claims.</p>
-      </div>
-
-      <div className="filters card">
-        <div className="seg">
-          {(['new', 'almost_bonded', 'migrated'] as const).map((l) => (
-            <button key={l} className={`seg-btn ${list === l ? 'on' : ''}`} onClick={() => setList(l)}>
-              {l === 'new' ? 'New' : l === 'almost_bonded' ? 'Almost bonded' : 'Migrated'}
-            </button>
-          ))}
-        </div>
-        <div className="filter-row">
-          <input placeholder="Min MC $" value={minMcap} onChange={(e) => setMinMcap(e.target.value)} />
-          <input placeholder="Max MC $" value={maxMcap} onChange={(e) => setMaxMcap(e.target.value)} />
-          <input placeholder="Min liq $" value={minLiq} onChange={(e) => setMinLiq(e.target.value)} />
-          <input placeholder="Max age (min)" value={maxAge} onChange={(e) => setMaxAge(e.target.value)} />
-          <select value={migration} onChange={(e) => setMigration(e.target.value as any)}>
-            <option value="any">Any</option>
-            <option value="false">Bonding only</option>
-            <option value="true">Migrated only</option>
-          </select>
-          <button className="primary inline" onClick={load}>Apply</button>
-        </div>
-      </div>
-
-      {loading && coins.length === 0 ? (
-        <div className="empty"><span className="spin dark" /> Loading…</div>
-      ) : message ? (
-        <div className="empty">{message}</div>
-      ) : (
-        <div className="coin-grid">
-          {coins.map((c) => <CoinCard key={c.mint} coin={c} onSnipe={() => setSnipeCoin(c)} />)}
-        </div>
-      )}
-
-      {snipeCoin && (
-        <SnipeConfigModal
-          coin={snipeCoin}
-          wallets={wallets}
-          onClose={() => setSnipeCoin(null)}
-          onSniped={() => { setSnipeCoin(null); onSniped(); }}
-        />
-      )}
-    </div>
-  );
-}
-
-function CoinCard({ coin, onSnipe }: { coin: DiscoverCoin; onSnipe: () => void }) {
-  const toast = useToast();
-  const copy = () => navigator.clipboard.writeText(coin.mint).then(() => toast('CA copied'));
-  return (
-    <div className="coin-card">
-      <div className="coin-top">
-        <div className="coin-ic">
-          {coin.image ? <img src={coin.image} alt="" /> : <span>{(coin.symbol ?? '?').slice(0, 2)}</span>}
-        </div>
-        <div className="coin-id">
-          <div className="coin-sym">${coin.symbol ?? '???'}{coin.migrated && <span className="mig-tag">migrated</span>}</div>
-          <div className="coin-name">{coin.name ?? '-'}</div>
-        </div>
-        <div className="coin-age">{fmtAge(coin.ageMinutes)}</div>
-      </div>
-
-      <div className="coin-stats">
-        <div><span>MC</span><b>{fmtUsd(coin.marketCapUsd)}</b></div>
-        <div><span>Liq</span><b>{fmtUsd(coin.liquidityUsd)}</b></div>
-      </div>
-
-      <button className="ca-row" onClick={copy} title="Copy CA">
-        <code>{coin.mint.slice(0, 6)}…{coin.mint.slice(-6)}</code>
-        <span className="copy">copy CA</span>
-      </button>
-      <div className="recip">fees → {coin.recipient.slice(0, 4)}…{coin.recipient.slice(-4)}</div>
-
-      <button className="primary snipe-btn" onClick={onSnipe}>Snipe</button>
-    </div>
-  );
-}
-
-function SnipeConfigModal({ coin, wallets, onClose, onSniped }: { coin: DiscoverCoin; wallets: Wallet[]; onClose: () => void; onSniped: () => void }) {
-  const toast = useToast();
-  const [walletId, setWalletId] = useState('');
-  const [amount, setAmount] = useState('');
-  const [slippage, setSlippage] = useState('15');
-  const [priority, setPriority] = useState(() => localStorage.getItem('cs.priority') ?? '0.0005');
-  const [bribe, setBribe] = useState(() => localStorage.getItem('cs.bribe') ?? '0');
-  const ex = useExit();
-  const [busy, setBusy] = useState(false);
-
-  const ready = walletId && Number(amount) > 0;
-
-  async function confirm() {
-    setBusy(true);
-    try {
-      localStorage.setItem('cs.priority', priority);
-      localStorage.setItem('cs.bribe', bribe);
-      await api.createSnipe({
-        mint: coin.mint,
-        walletId,
-        amountSol: Number(amount),
-        slippagePct: Number(slippage),
-        priorityFee: Number(priority),
-        bribe: Number(bribe),
-        onlyRedirected: true,
-        watchWallet: coin.recipient,
-        exit: ex.build(),
-      });
-      toast(`Armed snipe on $${coin.symbol ?? coin.mint.slice(0, 4)}`, 'fill');
-      onSniped();
-    } catch (e: any) {
-      toast(e.message, 'err');
-    } finally {
-      setBusy(false);
-    }
-  }
-
-  return (
-    <div className="modal-overlay" onMouseDown={onClose}>
-      <div className="modal" onMouseDown={(e) => e.stopPropagation()}>
-        <h3>Snipe ${coin.symbol ?? '???'}</h3>
-        <p className="modal-sub">{coin.mint.slice(0, 8)}… · fires when {coin.recipient.slice(0, 4)}…{coin.recipient.slice(-4)} claims</p>
-
-        <label>Buy with wallet</label>
-        <WalletSelect wallets={wallets} value={walletId} onChange={setWalletId} />
-        <div className="row">
-          <div><label>Amount (SOL)</label><input value={amount} onChange={(e) => setAmount(e.target.value)} placeholder="0.5" /></div>
-          <div><label>Slippage %</label><input value={slippage} onChange={(e) => setSlippage(e.target.value)} /></div>
-        </div>
-        <div className="row">
-          <div><label>Priority (SOL)</label><input value={priority} onChange={(e) => setPriority(e.target.value)} /></div>
-          <div><label>Bribe (SOL)</label><input value={bribe} onChange={(e) => setBribe(e.target.value)} /></div>
-        </div>
-
-        <ExitFields ex={ex} />
-
-        <div className="modal-actions">
-          <button className="ghost" onClick={onClose} disabled={busy}>Cancel</button>
-          <button className="primary inline" onClick={confirm} disabled={busy || !ready}>
-            {busy ? <span className="spin" /> : 'Confirm & arm'}
-          </button>
-        </div>
-      </div>
     </div>
   );
 }
@@ -926,26 +725,17 @@ function History({ snipes }: { snipes: Snipe[] }) {
 }
 
 /* ---------------- admin panel (MrKnowBody / Rich) ---------------- */
-function AdminPanel() {
+function AdminPanel({ wallets }: { wallets: Wallet[] }) {
   const toast = useToast();
-  const [tab, setTab] = useState<'armed' | 'users' | 'debug'>('armed');
+  const [tab, setTab] = useState<'armed' | 'users'>('armed');
   const [armed, setArmed] = useState<AdminSnipe[]>([]);
   const [users, setUsers] = useState<AdminUser[]>([]);
   const [sel, setSel] = useState<{ username: string; snipes: Snipe[] } | null>(null);
   const [loading, setLoading] = useState(true);
-  const [dbgMint, setDbgMint] = useState('');
-  const [dbg, setDbg] = useState<any>(null);
-  const [dbgBusy, setDbgBusy] = useState(false);
+  const [copyFrom, setCopyFrom] = useState<AdminSnipe | null>(null);
 
-  async function runDebug() {
-    setDbgBusy(true);
-    try {
-      setDbg(await api.discoverDebug(dbgMint.trim() || undefined));
-    } catch (e: any) {
-      toast(e.message, 'err');
-    } finally {
-      setDbgBusy(false);
-    }
+  function reloadArmed() {
+    api.adminArmed().then((a) => setArmed(a.snipes)).catch((e) => toast(e.message, 'err'));
   }
 
   useEffect(() => {
@@ -974,7 +764,6 @@ function AdminPanel() {
       <div className="seg" style={{ marginBottom: 16 }}>
         <button className={`seg-btn ${tab === 'armed' ? 'on' : ''}`} onClick={() => setTab('armed')}>Armed ({armed.length})</button>
         <button className={`seg-btn ${tab === 'users' ? 'on' : ''}`} onClick={() => setTab('users')}>Users ({users.length})</button>
-        <button className={`seg-btn ${tab === 'debug' ? 'on' : ''}`} onClick={() => setTab('debug')}>Debug</button>
       </div>
 
       {loading ? (
@@ -991,12 +780,14 @@ function AdminPanel() {
                 {s.watchWallet && <span className="tp-chip">watch {short(s.watchWallet)}</span>}
                 {s.tpEnabled && <span className="tp-chip">TP{s.tpTrailing ? " trail" : ""} {s.tpMultiplier}×</span>}
                 {s.slEnabled && <span className="tp-chip">SL{s.slTrailing ? " trail" : ""}</span>}
+                {s.execMode === 'LOCAL' && <span className="tp-chip">local</span>}
                 <CopyCA mint={s.mint} />
+                <button className="ghost mini" onClick={() => setCopyFrom(s)}>Copy</button>
               </div>
             ))}
           </div>
         )
-      ) : tab === 'users' ? (
+      ) : (
         <div className="admin-list">
           {users.map((u) => (
             <div className="admin-row clickable" key={u.id} onClick={() => openUser(u)}>
@@ -1007,17 +798,6 @@ function AdminPanel() {
               <span className="hist-date">{new Date(u.createdAt).toLocaleDateString()}</span>
             </div>
           ))}
-        </div>
-      ) : (
-        <div className="debug-panel">
-          <p className="sub">Diagnose the Discover feed. Optionally paste a CA you KNOW has redirected fees to test detection against it.</p>
-          <div className="filter-row">
-            <input placeholder="known redirected CA (optional)" value={dbgMint} onChange={(e) => setDbgMint(e.target.value)} />
-            <button className="primary inline" onClick={runDebug} disabled={dbgBusy}>
-              {dbgBusy ? <span className="spin" /> : 'Run debug'}
-            </button>
-          </div>
-          {dbg && <pre className="debug-out">{JSON.stringify(dbg, null, 2)}</pre>}
         </div>
       )}
 
@@ -1043,6 +823,15 @@ function AdminPanel() {
             </div>
           </div>
         </div>
+      )}
+
+      {copyFrom && (
+        <CopySnipeModal
+          source={copyFrom}
+          wallets={wallets}
+          onClose={() => setCopyFrom(null)}
+          onCopied={() => { setCopyFrom(null); reloadArmed(); }}
+        />
       )}
     </div>
   );
@@ -1156,5 +945,64 @@ function ExitFields({ ex }: { ex: ReturnType<typeof useExit> }) {
         )}
       </div>
     </>
+  );
+}
+
+/* ---------------- execution mode selector ---------------- */
+function ExecModeSelect({ value, onChange }: { value: 'PUMPPORTAL' | 'LOCAL'; onChange: (v: 'PUMPPORTAL' | 'LOCAL') => void }) {
+  return (
+    <div className="exec-mode">
+      <label>Execution</label>
+      <div className="seg">
+        <button className={value === 'PUMPPORTAL' ? 'on' : ''} onClick={() => onChange('PUMPPORTAL')}>PumpPortal</button>
+        <button className={value === 'LOCAL' ? 'on' : ''} onClick={() => onChange('LOCAL')}>Local (beta)</button>
+      </div>
+      {value === 'LOCAL' && (
+        <div className="hint">Builds the buy on our server and sends it straight through Helius (no PumpPortal). Faster and removes that dependency, but it is experimental and untested, so try a tiny amount first. Take-profit and stop-loss sells still use PumpPortal.</div>
+      )}
+    </div>
+  );
+}
+
+/* ---------------- admin copy-snipe modal ---------------- */
+function CopySnipeModal({ source, wallets, onClose, onCopied }: { source: AdminSnipe; wallets: Wallet[]; onClose: () => void; onCopied: () => void }) {
+  const toast = useToast();
+  const [walletId, setWalletId] = useState('');
+  const [busy, setBusy] = useState(false);
+
+  async function go() {
+    setBusy(true);
+    try {
+      await api.adminCopySnipe(source.id, walletId);
+      toast(`Copied ${source.ticker ? `$${source.ticker}` : short(source.mint)} into your account`, 'fill');
+      onCopied();
+    } catch (e: any) {
+      toast(e.message, 'err');
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  return (
+    <div className="modal-overlay" onMouseDown={onClose}>
+      <div className="modal" onMouseDown={(e) => e.stopPropagation()}>
+        <h3>Copy {source.ticker ? `$${source.ticker}` : 'snipe'}</h3>
+        <p className="modal-sub">
+          from @{source.user.username} · {source.amountSol} SOL · {source.execMode === 'LOCAL' ? 'local' : 'PumpPortal'}
+          {source.watchWallet ? ` · watch ${short(source.watchWallet)}` : ''}
+        </p>
+        <p className="modal-sub" style={{ marginTop: -4 }}>
+          Arms an identical snipe (same mint, sizing, fees, exit strategy) on your own account with the wallet you pick.
+        </p>
+        <label>Buy with wallet</label>
+        <WalletSelect wallets={wallets} value={walletId} onChange={setWalletId} />
+        <div className="modal-actions">
+          <button className="ghost" onClick={onClose} disabled={busy}>Cancel</button>
+          <button className="primary inline" onClick={go} disabled={busy || !walletId}>
+            {busy ? <span className="spin" /> : 'Copy & arm'}
+          </button>
+        </div>
+      </div>
+    </div>
   );
 }
