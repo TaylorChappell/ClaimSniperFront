@@ -1006,4 +1006,3 @@ function CopySnipeModal({ source, wallets, onClose, onCopied }: { source: AdminS
     </div>
   );
 }
-
