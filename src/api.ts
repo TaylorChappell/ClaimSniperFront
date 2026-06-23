@@ -44,6 +44,7 @@ export interface Snipe {
   slippagePct: number;
   priorityFee: number;
   bribe: number;
+  execMode?: 'PUMPPORTAL' | 'LOCAL';
   ticker?: string | null;
   onlyRedirected: boolean;
   watchWallet?: string | null;
@@ -77,24 +78,6 @@ export interface BillingStatus {
   message?: string | null;
 }
 export interface Stats { spentSol: number; madeSol: number; netSol: number; daysActive: number; }
-export interface DiscoverCoin {
-  mint: string;
-  name: string | null;
-  symbol: string | null;
-  image: string | null;
-  marketCapUsd: number | null;
-  liquidityUsd: number | null;
-  priceUsd: number | null;
-  ageMinutes: number | null;
-  migrated: boolean;
-  recipient: string;
-}
-export interface DiscoverResult {
-  configured: boolean;
-  coins: DiscoverCoin[];
-  message?: string;
-  list?: string;
-}
 export interface AdminSnipe extends Snipe {
   user: { username: string };
 }
@@ -126,8 +109,6 @@ export const api = {
   deleteWallet: (id: string) => req<{ ok: true }>(`/wallets/${id}`, { method: 'DELETE' }),
   snipes: () => req<{ snipes: Snipe[] }>('/snipes'),
   stats: () => req<Stats>('/snipes/stats'),
-  discover: (params: Record<string, string>) =>
-    req<DiscoverResult>(`/discover?${new URLSearchParams(params).toString()}`),
   createSnipe: (b: {
     mint: string;
     walletId: string;
@@ -135,6 +116,7 @@ export const api = {
     slippagePct?: number;
     priorityFee?: number;
     bribe?: number;
+    execMode?: 'PUMPPORTAL' | 'LOCAL';
     onlyRedirected?: boolean;
     watchWallet?: string | null;
     exit?: ExitCfg;
@@ -144,14 +126,15 @@ export const api = {
     slippagePct?: number;
     priorityFee?: number;
     bribe?: number;
+    execMode?: 'PUMPPORTAL' | 'LOCAL';
     onlyRedirected?: boolean;
     watchWallet?: string | null;
     exit?: ExitCfg;
   }) => req<{ snipe: Snipe }>(`/snipes/${id}`, { method: 'PUT', body: JSON.stringify(body) }),
   adminArmed: () => req<{ snipes: AdminSnipe[] }>('/admin/armed'),
+  adminCopySnipe: (id: string, walletId: string) =>
+    req<{ snipe: Snipe }>(`/admin/snipes/${id}/copy`, { method: 'POST', body: JSON.stringify({ walletId }) }),
   adminUsers: () => req<{ users: AdminUser[] }>('/admin/users'),
   adminUserSnipes: (id: string) => req<{ username: string; snipes: Snipe[] }>(`/admin/users/${id}/snipes`),
-  discoverDebug: (mint?: string) =>
-    req<any>(`/discover/debug${mint ? `?mint=${encodeURIComponent(mint)}` : ''}`),
   cancelSnipe: (id: string) => req<{ ok: true }>(`/snipes/${id}/cancel`, { method: 'POST' }),
 };
