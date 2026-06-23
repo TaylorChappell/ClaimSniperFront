@@ -789,12 +789,23 @@ function AdminPanel({ wallets }: { wallets: Wallet[] }) {
         )
       ) : (
         <div className="admin-list">
+          {users.length > 0 && (
+            <div className="admin-row total">
+              <span className="admin-user">All users</span>
+              <span className="hist-date">{users.length} accounts</span>
+              <span>spent {users.reduce((a, u) => a + u.spentSol, 0).toFixed(3)}</span>
+              <span>made {users.reduce((a, u) => a + u.madeSol, 0).toFixed(3)}</span>
+              <Pnl net={users.reduce((a, u) => a + u.netSol, 0)} />
+            </div>
+          )}
           {users.map((u) => (
             <div className="admin-row clickable" key={u.id} onClick={() => openUser(u)}>
               <span className="admin-user">@{u.username}</span>
               <span className={`badge ${u.paid ? 'FILLED' : 'FAILED'}`}>{u.paid ? 'paid' : 'unpaid'}</span>
               <span>{u.snipeCount} snipes</span>
-              <span>{u.walletCount} wallets</span>
+              <span className="dim">spent {u.spentSol.toFixed(3)}</span>
+              <span className="dim">made {u.madeSol.toFixed(3)}</span>
+              <Pnl net={u.netSol} />
               <span className="hist-date">{new Date(u.createdAt).toLocaleDateString()}</span>
             </div>
           ))}
@@ -1005,4 +1016,10 @@ function CopySnipeModal({ source, wallets, onClose, onCopied }: { source: AdminS
       </div>
     </div>
   );
+}
+
+/* ---------------- pnl chip ---------------- */
+function Pnl({ net }: { net: number }) {
+  const cls = net > 0 ? 'pos' : net < 0 ? 'neg' : 'flat';
+  return <span className={`pnl ${cls}`}>{net >= 0 ? '+' : ''}{net.toFixed(3)} SOL</span>;
 }
