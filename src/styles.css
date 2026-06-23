@@ -459,3 +459,4 @@ button.danger:hover { border-color: var(--red); }
   padding: 14px; font-family: var(--mono); font-size: 11px; line-height: 1.5;
   color: var(--text); overflow-x: auto; max-height: 70vh; white-space: pre-wrap; word-break: break-all;
 }
+
