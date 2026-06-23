@@ -450,8 +450,8 @@ function SnipeForm({ wallets, onCreated }: { wallets: Wallet[]; onCreated: () =>
         bribe: Number(bribe),
         execMode,
         triggerMode,
-        onlyRedirected: triggerMode === 'REDIRECT' ? false : onlyRedirected,
-        watchWallet: triggerMode === 'REDIRECT' || onlyRedirected ? watchWallet.trim() : null,
+        onlyRedirected,
+        watchWallet: onlyRedirected ? watchWallet.trim() : null,
         exit: ex.build(),
       });
       toast(triggerMode === 'REDIRECT' ? 'Snipe armed, watching for the fee redirect' : 'Snipe armed, watching for the fee claim');
@@ -466,9 +466,7 @@ function SnipeForm({ wallets, onCreated }: { wallets: Wallet[]; onCreated: () =>
     }
   }
 
-  const ready =
-    mint && walletId && Number(amount) > 0 &&
-    (triggerMode === 'REDIRECT' ? watchWallet.trim().length >= 32 : !onlyRedirected || watchWallet.trim().length >= 32);
+  const ready = mint && walletId && Number(amount) > 0 && (!onlyRedirected || watchWallet.trim().length >= 32);
 
   return (
     <div className="card">
@@ -488,27 +486,23 @@ function SnipeForm({ wallets, onCreated }: { wallets: Wallet[]; onCreated: () =>
       <ExecModeSelect value={execMode} onChange={setExecMode} />
       <TriggerModeSelect value={triggerMode} onChange={setTriggerMode} />
 
-      {triggerMode === 'REDIRECT' ? (
+      <label className="switch-row" onClick={() => setOnlyRedirected((v) => !v)}>
+        <span className={`switch ${onlyRedirected ? 'on' : ''}`}><span className="knob" /></span>
+        {triggerMode === 'REDIRECT' ? 'Only a specific wallet' : "Only a specific wallet's claims"}
+      </label>
+      {onlyRedirected ? (
         <div className="tp-fields">
-          <label>Wallet fees get redirected to</label>
-          <input value={watchWallet} onChange={(e) => setWatchWallet(e.target.value)} placeholder="target wallet address" />
-          <div className="hint">Fires the buy the instant this coin's fee owner is changed to this wallet.</div>
+          <label>{triggerMode === 'REDIRECT' ? 'Wallet fees get redirected to' : 'Wallet to watch'}</label>
+          <input value={watchWallet} onChange={(e) => setWatchWallet(e.target.value)} placeholder={triggerMode === 'REDIRECT' ? 'target wallet address' : 'claimer wallet address'} />
+          <div className="hint">
+            {triggerMode === 'REDIRECT'
+              ? "Fires when this coin's fee owner is changed to this exact wallet."
+              : "Fires only when this exact wallet claims fees for the coin. The deployer's own early claims are ignored."}
+          </div>
         </div>
-      ) : (
-        <>
-          <label className="switch-row" onClick={() => setOnlyRedirected((v) => !v)}>
-            <span className={`switch ${onlyRedirected ? 'on' : ''}`}><span className="knob" /></span>
-            Only a specific wallet's claims
-          </label>
-          {onlyRedirected && (
-            <div className="tp-fields">
-              <label>Wallet to watch</label>
-              <input value={watchWallet} onChange={(e) => setWatchWallet(e.target.value)} placeholder="claimer wallet address" />
-              <div className="hint">Fires only when this exact wallet claims fees for the coin. The deployer's own early claims are ignored. Useful once fees are redirected to someone else.</div>
-            </div>
-          )}
-        </>
-      )}
+      ) : triggerMode === 'REDIRECT' ? (
+        <div className="hint">Fires when this coin's fee owner is changed to any new wallet.</div>
+      ) : null}
 
       <ExitFields ex={ex} />
 
@@ -536,9 +530,7 @@ function EditSnipeModal({ snipe, onClose, onChange }: { snipe: Snipe; onClose: (
   const ex = useExit(snipe);
   const [busy, setBusy] = useState(false);
 
-  const ready =
-    Number(amount) > 0 &&
-    (triggerMode === 'REDIRECT' ? watchWallet.trim().length >= 32 : !redir || watchWallet.trim().length >= 32);
+  const ready = Number(amount) > 0 && (!redir || watchWallet.trim().length >= 32);
 
   async function save() {
     setBusy(true);
@@ -548,8 +540,8 @@ function EditSnipeModal({ snipe, onClose, onChange }: { snipe: Snipe; onClose: (
         slippagePct: Number(slippage),
         priorityFee: Number(priority),
         bribe: Number(bribe),
-        onlyRedirected: triggerMode === 'REDIRECT' ? false : redir,
-        watchWallet: triggerMode === 'REDIRECT' || redir ? watchWallet.trim() : null,
+        onlyRedirected: redir,
+        watchWallet: redir ? watchWallet.trim() : null,
         execMode,
         triggerMode,
         exit: ex.build(),
@@ -582,25 +574,18 @@ function EditSnipeModal({ snipe, onClose, onChange }: { snipe: Snipe; onClose: (
             </div>
             <ExecModeSelect value={execMode} onChange={setExecMode} />
             <TriggerModeSelect value={triggerMode} onChange={setTriggerMode} />
-            {triggerMode === 'REDIRECT' ? (
+            <label className="switch-row" onClick={() => setRedir((v) => !v)}>
+              <span className={`switch ${redir ? 'on' : ''}`}><span className="knob" /></span>
+              {triggerMode === 'REDIRECT' ? 'Only a specific wallet' : "Only a specific wallet's claims"}
+            </label>
+            {redir ? (
               <div className="tp-fields">
-                <label>Wallet fees get redirected to</label>
-                <input value={watchWallet} onChange={(e) => setWatchWallet(e.target.value)} placeholder="target wallet address" />
+                <label>{triggerMode === 'REDIRECT' ? 'Wallet fees get redirected to' : 'Wallet to watch'}</label>
+                <input value={watchWallet} onChange={(e) => setWatchWallet(e.target.value)} placeholder={triggerMode === 'REDIRECT' ? 'target wallet address' : 'claimer wallet address'} />
               </div>
-            ) : (
-              <>
-                <label className="switch-row" onClick={() => setRedir((v) => !v)}>
-                  <span className={`switch ${redir ? 'on' : ''}`}><span className="knob" /></span>
-                  Only a specific wallet's claims
-                </label>
-                {redir && (
-                  <div className="tp-fields">
-                    <label>Wallet to watch</label>
-                    <input value={watchWallet} onChange={(e) => setWatchWallet(e.target.value)} placeholder="claimer wallet address" />
-                  </div>
-                )}
-              </>
-            )}
+            ) : triggerMode === 'REDIRECT' ? (
+              <div className="hint">Fires when this coin's fee owner is changed to any new wallet.</div>
+            ) : null}
           </>
         ) : (
           <p className="modal-sub" style={{ marginTop: -4 }}>This snipe already filled. Only the exit strategy can be changed.</p>
