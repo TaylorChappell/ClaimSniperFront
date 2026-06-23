@@ -45,6 +45,7 @@ export interface Snipe {
   priorityFee: number;
   bribe: number;
   execMode?: 'PUMPPORTAL' | 'LOCAL';
+  triggerMode?: 'CLAIM' | 'REDIRECT';
   ticker?: string | null;
   onlyRedirected: boolean;
   watchWallet?: string | null;
@@ -120,6 +121,7 @@ export const api = {
     priorityFee?: number;
     bribe?: number;
     execMode?: 'PUMPPORTAL' | 'LOCAL';
+    triggerMode?: 'CLAIM' | 'REDIRECT';
     onlyRedirected?: boolean;
     watchWallet?: string | null;
     exit?: ExitCfg;
@@ -130,6 +132,7 @@ export const api = {
     priorityFee?: number;
     bribe?: number;
     execMode?: 'PUMPPORTAL' | 'LOCAL';
+    triggerMode?: 'CLAIM' | 'REDIRECT';
     onlyRedirected?: boolean;
     watchWallet?: string | null;
     exit?: ExitCfg;
