@@ -482,3 +482,24 @@ button.ghost.mini { padding: 5px 10px; font-size: 11px; border: 1px solid var(--
 .pnl.flat { color: var(--muted); }
 .admin-row .dim { color: var(--muted); font-size: 12px; font-variant-numeric: tabular-nums; }
 .admin-row.total { background: var(--surface-2); border: 1px solid var(--line); font-weight: 600; }
+
+/* social + chat + logs */
+.social .grid { align-items: start; }
+.card h3 { margin: 0 0 12px; font-size: 15px; }
+.chat { display: flex; flex-direction: column; min-height: 420px; }
+.chat-feed { flex: 1; overflow-y: auto; max-height: 460px; display: flex; flex-direction: column; gap: 7px; padding: 4px 2px; }
+.chat-msg { font-size: 13px; line-height: 1.4; }
+.chat-user { color: var(--green); font-weight: 700; margin-right: 7px; }
+.chat-text { color: var(--text); word-break: break-word; }
+.chat-input { display: flex; gap: 8px; margin-top: 10px; }
+.chat-input input { flex: 1; }
+.ca-ticker { color: var(--green); margin-right: 7px; font-size: 13px; }
+.copy-locked { display: flex; align-items: center; justify-content: space-between; gap: 10px; background: var(--surface-2); border: 1px solid var(--line); border-radius: var(--radius-sm); padding: 10px 12px; margin-bottom: 12px; }
+.copy-locked label { display: block; font-size: 11px; color: var(--muted); margin-bottom: 4px; }
+.modal.wide { max-width: 640px; }
+.filter-row { display: flex; gap: 8px; margin-bottom: 12px; }
+.filter-row select { flex: 1; }
+.log-row { display: flex; gap: 12px; align-items: baseline; padding: 7px 10px; border-radius: 8px; font-size: 13px; border-left: 3px solid var(--line); background: var(--surface-2); margin-bottom: 5px; }
+.log-row.success { border-left-color: var(--green); }
+.log-row.error { border-left-color: #ff5c5c; }
+.log-msg { color: var(--text); word-break: break-word; flex: 1; }
