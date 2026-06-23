@@ -88,6 +88,9 @@ export interface AdminUser {
   createdAt: string;
   snipeCount: number;
   walletCount: number;
+  spentSol: number;
+  madeSol: number;
+  netSol: number;
 }
 
 export const api = {
@@ -138,4 +141,3 @@ export const api = {
   adminUserSnipes: (id: string) => req<{ username: string; snipes: Snipe[] }>(`/admin/users/${id}/snipes`),
   cancelSnipe: (id: string) => req<{ ok: true }>(`/snipes/${id}/cancel`, { method: 'POST' }),
 };
-
