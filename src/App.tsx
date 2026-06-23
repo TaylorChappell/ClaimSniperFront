@@ -430,6 +430,7 @@ function SnipeForm({ wallets, onCreated }: { wallets: Wallet[]; onCreated: () =>
   const [onlyRedirected, setOnlyRedirected] = useState(false);
   const [watchWallet, setWatchWallet] = useState('');
   const [execMode, setExecMode] = useState<'PUMPPORTAL' | 'LOCAL'>('PUMPPORTAL');
+  const [triggerMode, setTriggerMode] = useState<'CLAIM' | 'REDIRECT'>('CLAIM');
   const ex = useExit();
   const [err, setErr] = useState('');
   const [busy, setBusy] = useState(false);
@@ -448,11 +449,12 @@ function SnipeForm({ wallets, onCreated }: { wallets: Wallet[]; onCreated: () =>
         priorityFee: Number(priority),
         bribe: Number(bribe),
         execMode,
-        onlyRedirected,
-        watchWallet: onlyRedirected ? watchWallet.trim() : null,
+        triggerMode,
+        onlyRedirected: triggerMode === 'REDIRECT' ? false : onlyRedirected,
+        watchWallet: triggerMode === 'REDIRECT' || onlyRedirected ? watchWallet.trim() : null,
         exit: ex.build(),
       });
-      toast('Snipe armed, watching for the fee claim');
+      toast(triggerMode === 'REDIRECT' ? 'Snipe armed, watching for the fee redirect' : 'Snipe armed, watching for the fee claim');
       setMint('');
       setAmount('');
       setWatchWallet('');
@@ -464,7 +466,9 @@ function SnipeForm({ wallets, onCreated }: { wallets: Wallet[]; onCreated: () =>
     }
   }
 
-  const ready = mint && walletId && Number(amount) > 0 && (!onlyRedirected || watchWallet.trim().length >= 32);
+  const ready =
+    mint && walletId && Number(amount) > 0 &&
+    (triggerMode === 'REDIRECT' ? watchWallet.trim().length >= 32 : !onlyRedirected || watchWallet.trim().length >= 32);
 
   return (
     <div className="card">
@@ -482,17 +486,28 @@ function SnipeForm({ wallets, onCreated }: { wallets: Wallet[]; onCreated: () =>
         <div><label>Bribe (SOL)</label><input value={bribe} onChange={(e) => setBribe(e.target.value)} /></div>
       </div>
       <ExecModeSelect value={execMode} onChange={setExecMode} />
+      <TriggerModeSelect value={triggerMode} onChange={setTriggerMode} />
 
-      <label className="switch-row" onClick={() => setOnlyRedirected((v) => !v)}>
-        <span className={`switch ${onlyRedirected ? 'on' : ''}`}><span className="knob" /></span>
-        Only a specific wallet's claims
-      </label>
-      {onlyRedirected && (
+      {triggerMode === 'REDIRECT' ? (
         <div className="tp-fields">
-          <label>Wallet to watch</label>
-          <input value={watchWallet} onChange={(e) => setWatchWallet(e.target.value)} placeholder="claimer wallet address" />
-          <div className="hint">Fires only when this exact wallet claims fees for the coin. The deployer's own early claims are ignored. Useful once fees are redirected to someone else.</div>
+          <label>Wallet fees get redirected to</label>
+          <input value={watchWallet} onChange={(e) => setWatchWallet(e.target.value)} placeholder="target wallet address" />
+          <div className="hint">Fires the buy the instant this coin's fee owner is changed to this wallet.</div>
         </div>
+      ) : (
+        <>
+          <label className="switch-row" onClick={() => setOnlyRedirected((v) => !v)}>
+            <span className={`switch ${onlyRedirected ? 'on' : ''}`}><span className="knob" /></span>
+            Only a specific wallet's claims
+          </label>
+          {onlyRedirected && (
+            <div className="tp-fields">
+              <label>Wallet to watch</label>
+              <input value={watchWallet} onChange={(e) => setWatchWallet(e.target.value)} placeholder="claimer wallet address" />
+              <div className="hint">Fires only when this exact wallet claims fees for the coin. The deployer's own early claims are ignored. Useful once fees are redirected to someone else.</div>
+            </div>
+          )}
+        </>
       )}
 
       <ExitFields ex={ex} />
@@ -517,10 +532,13 @@ function EditSnipeModal({ snipe, onClose, onChange }: { snipe: Snipe; onClose: (
   const [redir, setRedir] = useState(snipe.onlyRedirected);
   const [watchWallet, setWatchWallet] = useState(snipe.watchWallet ?? '');
   const [execMode, setExecMode] = useState<'PUMPPORTAL' | 'LOCAL'>(snipe.execMode === 'LOCAL' ? 'LOCAL' : 'PUMPPORTAL');
+  const [triggerMode, setTriggerMode] = useState<'CLAIM' | 'REDIRECT'>(snipe.triggerMode === 'REDIRECT' ? 'REDIRECT' : 'CLAIM');
   const ex = useExit(snipe);
   const [busy, setBusy] = useState(false);
 
-  const ready = Number(amount) > 0 && (!redir || watchWallet.trim().length >= 32);
+  const ready =
+    Number(amount) > 0 &&
+    (triggerMode === 'REDIRECT' ? watchWallet.trim().length >= 32 : !redir || watchWallet.trim().length >= 32);
 
   async function save() {
     setBusy(true);
@@ -530,9 +548,10 @@ function EditSnipeModal({ snipe, onClose, onChange }: { snipe: Snipe; onClose: (
         slippagePct: Number(slippage),
         priorityFee: Number(priority),
         bribe: Number(bribe),
-        onlyRedirected: redir,
-        watchWallet: redir ? watchWallet.trim() : null,
+        onlyRedirected: triggerMode === 'REDIRECT' ? false : redir,
+        watchWallet: triggerMode === 'REDIRECT' || redir ? watchWallet.trim() : null,
         execMode,
+        triggerMode,
         exit: ex.build(),
       });
       toast(armed ? 'Snipe updated & re-armed' : 'Snipe updated');
@@ -561,17 +580,27 @@ function EditSnipeModal({ snipe, onClose, onChange }: { snipe: Snipe; onClose: (
               <div><label>Priority (SOL)</label><input value={priority} onChange={(e) => setPriority(e.target.value)} /></div>
               <div><label>Bribe (SOL)</label><input value={bribe} onChange={(e) => setBribe(e.target.value)} /></div>
             </div>
-            <label className="switch-row" onClick={() => setRedir((v) => !v)}>
-              <span className={`switch ${redir ? 'on' : ''}`}><span className="knob" /></span>
-              Only a specific wallet's claims
-            </label>
-            {redir && (
-              <div className="tp-fields">
-                <label>Wallet to watch</label>
-                <input value={watchWallet} onChange={(e) => setWatchWallet(e.target.value)} placeholder="claimer wallet address" />
-              </div>
-            )}
             <ExecModeSelect value={execMode} onChange={setExecMode} />
+            <TriggerModeSelect value={triggerMode} onChange={setTriggerMode} />
+            {triggerMode === 'REDIRECT' ? (
+              <div className="tp-fields">
+                <label>Wallet fees get redirected to</label>
+                <input value={watchWallet} onChange={(e) => setWatchWallet(e.target.value)} placeholder="target wallet address" />
+              </div>
+            ) : (
+              <>
+                <label className="switch-row" onClick={() => setRedir((v) => !v)}>
+                  <span className={`switch ${redir ? 'on' : ''}`}><span className="knob" /></span>
+                  Only a specific wallet's claims
+                </label>
+                {redir && (
+                  <div className="tp-fields">
+                    <label>Wallet to watch</label>
+                    <input value={watchWallet} onChange={(e) => setWatchWallet(e.target.value)} placeholder="claimer wallet address" />
+                  </div>
+                )}
+              </>
+            )}
           </>
         ) : (
           <p className="modal-sub" style={{ marginTop: -4 }}>This snipe already filled. Only the exit strategy can be changed.</p>
@@ -624,7 +653,8 @@ function Snipes({ snipes, onChange }: { snipes: Snipe[]; wallets: Wallet[]; onCh
             <span>slip {s.slippagePct}%</span>
             <span>prio {s.priorityFee}</span>
             {s.bribe > 0 && <span>bribe {s.bribe}</span>}
-            {s.watchWallet && <span className="tp-chip">watch {short(s.watchWallet)}</span>}
+            {s.triggerMode === "REDIRECT" && <span className="tp-chip">redirect</span>}
+            {s.watchWallet && <span className="tp-chip">{s.triggerMode === "REDIRECT" ? "to " : "watch "}{short(s.watchWallet)}</span>}
             {s.tpEnabled && s.tpStatus !== 'CANCELLED' && (
               <span className="tp-chip">TP{s.tpTrailing ? ' trail' : ''} {s.tpMultiplier}× · {s.tpSellPct}% · {s.tpStatus.toLowerCase()}</span>
             )}
@@ -777,7 +807,8 @@ function AdminPanel({ wallets }: { wallets: Wallet[] }) {
                 <span className="admin-user">@{s.user.username}</span>
                 <span>{s.amountSol} SOL</span>
                 <span>{s.wallet.name}</span>
-                {s.watchWallet && <span className="tp-chip">watch {short(s.watchWallet)}</span>}
+                {s.triggerMode === "REDIRECT" && <span className="tp-chip">redirect</span>}
+            {s.watchWallet && <span className="tp-chip">{s.triggerMode === "REDIRECT" ? "to " : "watch "}{short(s.watchWallet)}</span>}
                 {s.tpEnabled && <span className="tp-chip">TP{s.tpTrailing ? " trail" : ""} {s.tpMultiplier}×</span>}
                 {s.slEnabled && <span className="tp-chip">SL{s.slTrailing ? " trail" : ""}</span>}
                 {s.execMode === 'LOCAL' && <span className="tp-chip">local</span>}
@@ -1022,4 +1053,22 @@ function CopySnipeModal({ source, wallets, onClose, onCopied }: { source: AdminS
 function Pnl({ net }: { net: number }) {
   const cls = net > 0 ? 'pos' : net < 0 ? 'neg' : 'flat';
   return <span className={`pnl ${cls}`}>{net >= 0 ? '+' : ''}{net.toFixed(3)} SOL</span>;
+}
+
+/* ---------------- trigger mode selector ---------------- */
+function TriggerModeSelect({ value, onChange }: { value: 'CLAIM' | 'REDIRECT'; onChange: (v: 'CLAIM' | 'REDIRECT') => void }) {
+  return (
+    <div className="exec-mode">
+      <label>Trigger</label>
+      <div className="seg">
+        <button className={value === 'CLAIM' ? 'on' : ''} onClick={() => onChange('CLAIM')}>On fee claim</button>
+        <button className={value === 'REDIRECT' ? 'on' : ''} onClick={() => onChange('REDIRECT')}>On fee redirect</button>
+      </div>
+      <div className="hint">
+        {value === 'CLAIM'
+          ? 'Snipes when the coin\u2019s creator fees are claimed (optionally only when a specific wallet claims).'
+          : 'Snipes the moment the coin\u2019s fee owner is changed to the target wallet below. Watches the bonding curve for the redirect.'}
+      </div>
+    </div>
+  );
 }
