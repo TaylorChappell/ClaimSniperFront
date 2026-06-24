@@ -208,4 +208,5 @@ export const api = {
   socialSend: (text: string) =>
     req<{ message: ChatMessage }>('/social/chat', { method: 'POST', body: JSON.stringify({ text }) }),
   cancelSnipe: (id: string) => req<{ ok: true }>(`/snipes/${id}/cancel`, { method: 'POST' }),
+  cancelExit: (id: string) => req<{ snipe: Snipe }>(`/snipes/${id}/cancel-exit`, { method: 'POST' }),
 };
