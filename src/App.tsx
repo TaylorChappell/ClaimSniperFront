@@ -1497,6 +1497,8 @@ function Discover({ wallets, onSniped }: { wallets: Wallet[]; onSniped: () => vo
   const [msg, setMsg] = useState<string | null>(null);
   const [sort, setSort] = useState<DiscoverSort>('new');
   const [snipeMint, setSnipeMint] = useState<string | null>(null);
+  const [page, setPage] = useState(0);
+  const PAGE = 20;
 
   function load() {
     api.discover().then((r) => {
@@ -1526,6 +1528,11 @@ function Discover({ wallets, onSniped }: { wallets: Wallet[]; onSniped: () => vo
     return c;
   }, [coins, sort]);
 
+  useEffect(() => setPage(0), [sort]);
+  const pages = Math.max(1, Math.ceil(sorted.length / PAGE));
+  const pageClamped = Math.min(page, pages - 1);
+  const visible = sorted.slice(pageClamped * PAGE, pageClamped * PAGE + PAGE);
+
   return (
     <div className="discover">
       <div className="card">
@@ -1544,7 +1551,7 @@ function Discover({ wallets, onSniped }: { wallets: Wallet[]; onSniped: () => vo
         {!loading && msg && <div className="empty">{msg}</div>}
         {!loading && !msg && sorted.length === 0 && <div className="empty">No coins right now.</div>}
         <div className="disc-list">
-          {sorted.map((c) => (
+          {visible.map((c) => (
             <div className="disc-row" key={c.mint}>
               <div className="disc-coin">
                 {c.image ? <img className="disc-img" src={c.image} alt="" loading="lazy" /> : <div className="disc-img placeholder" />}
@@ -1565,6 +1572,13 @@ function Discover({ wallets, onSniped }: { wallets: Wallet[]; onSniped: () => vo
             </div>
           ))}
         </div>
+        {sorted.length > PAGE && (
+          <div className="pager">
+            <button className="ghost mini" disabled={pageClamped === 0} onClick={() => setPage(pageClamped - 1)}>Previous</button>
+            <span className="dim">Page {pageClamped + 1} of {pages} · {sorted.length} coins</span>
+            <button className="ghost mini" disabled={pageClamped >= pages - 1} onClick={() => setPage(pageClamped + 1)}>Next</button>
+          </div>
+        )}
       </div>
 
       {snipeMint && (
