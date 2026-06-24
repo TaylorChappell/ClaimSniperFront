@@ -224,4 +224,6 @@ export const api = {
   cancelSnipe: (id: string) => req<{ ok: true }>(`/snipes/${id}/cancel`, { method: 'POST' }),
   cancelExit: (id: string) => req<{ snipe: Snipe }>(`/snipes/${id}/cancel-exit`, { method: 'POST' }),
   discover: () => req<{ coins: DiscoverCoin[]; configured: boolean; message?: string }>('/discover'),
+  discoverHide: (mint: string) => req<{ ok: true }>('/discover/hide', { method: 'POST', body: JSON.stringify({ mint }) }),
+  discoverResetHidden: () => req<{ ok: true }>('/discover/reset-hidden', { method: 'POST' }),
 };
