@@ -1490,15 +1490,31 @@ function ago(iso: string | null): string {
 }
 
 type DiscoverSort = 'mc_desc' | 'mc_asc' | 'vol_desc' | 'vol_asc' | 'new' | 'old';
+type DiscFilters = { mcMin: string; mcMax: string; volMin: string; volMax: string; ageMin: string; ageMax: string };
 
 function Discover({ wallets, onSniped }: { wallets: Wallet[]; onSniped: () => void }) {
   const [coins, setCoins] = useState<DiscoverCoin[]>([]);
   const [loading, setLoading] = useState(true);
   const [msg, setMsg] = useState<string | null>(null);
-  const [sort, setSort] = useState<DiscoverSort>('new');
+  const [sort, setSort] = useState<DiscoverSort>(() => (localStorage.getItem('cs.discSort') as DiscoverSort) || 'new');
   const [snipeMint, setSnipeMint] = useState<string | null>(null);
   const [page, setPage] = useState(0);
   const PAGE = 20;
+  const emptyFilters: DiscFilters = { mcMin: '', mcMax: '', volMin: '', volMax: '', ageMin: '', ageMax: '' };
+  const loadFilters = (): DiscFilters => {
+    try {
+      const s = localStorage.getItem('cs.discFilters');
+      if (s) return { ...emptyFilters, ...(JSON.parse(s) as Partial<DiscFilters>) };
+    } catch { /* ignore */ }
+    return emptyFilters;
+  };
+  const [f, setF] = useState<DiscFilters>(loadFilters);
+  const [showFilters, setShowFilters] = useState<boolean>(() => Object.values(loadFilters()).some((v) => v.trim() !== ''));
+  const setField = (k: keyof DiscFilters, v: string) => setF((prev) => ({ ...prev, [k]: v }));
+  const activeFilters = Object.values(f).some((v) => v.trim() !== '');
+
+  useEffect(() => { localStorage.setItem('cs.discSort', sort); }, [sort]);
+  useEffect(() => { localStorage.setItem('cs.discFilters', JSON.stringify(f)); }, [f]);
 
   function load() {
     api.discover().then((r) => {
@@ -1513,7 +1529,32 @@ function Discover({ wallets, onSniped }: { wallets: Wallet[]; onSniped: () => vo
   }, []);
 
   const sorted = useMemo(() => {
-    const c = [...coins];
+    const numOr = (s: string, d: number) => {
+      const n = parseFloat(s);
+      return Number.isFinite(n) ? n : d;
+    };
+    const mcMin = numOr(f.mcMin, -Infinity), mcMax = numOr(f.mcMax, Infinity);
+    const volMin = numOr(f.volMin, -Infinity), volMax = numOr(f.volMax, Infinity);
+    const ageMin = numOr(f.ageMin, -Infinity), ageMax = numOr(f.ageMax, Infinity); // minutes
+    const hasMc = f.mcMin.trim() !== '' || f.mcMax.trim() !== '';
+    const hasVol = f.volMin.trim() !== '' || f.volMax.trim() !== '';
+    const ageMinutes = (x: DiscoverCoin) => (x.createdAt ? (Date.now() - new Date(x.createdAt).getTime()) / 60000 : Infinity);
+
+    const c = coins.filter((x) => {
+      // A set MC/Vol bound excludes coins with no value for that field.
+      if (hasMc) {
+        if (x.marketCapUsd == null) return false;
+        if (x.marketCapUsd < mcMin || x.marketCapUsd > mcMax) return false;
+      }
+      if (hasVol) {
+        if (x.volumeUsd == null) return false;
+        if (x.volumeUsd < volMin || x.volumeUsd > volMax) return false;
+      }
+      const age = ageMinutes(x);
+      if (age < ageMin || age > ageMax) return false;
+      return true;
+    });
+
     const mc = (x: DiscoverCoin) => x.marketCapUsd ?? -1;
     const vol = (x: DiscoverCoin) => x.volumeUsd ?? -1;
     const t = (x: DiscoverCoin) => (x.createdAt ? new Date(x.createdAt).getTime() : 0);
@@ -1526,9 +1567,9 @@ function Discover({ wallets, onSniped }: { wallets: Wallet[]; onSniped: () => vo
       case 'old': c.sort((a, b) => t(a) - t(b)); break;
     }
     return c;
-  }, [coins, sort]);
+  }, [coins, sort, f]);
 
-  useEffect(() => setPage(0), [sort]);
+  useEffect(() => setPage(0), [sort, f]);
   const pages = Math.max(1, Math.ceil(sorted.length / PAGE));
   const pageClamped = Math.min(page, pages - 1);
   const visible = sorted.slice(pageClamped * PAGE, pageClamped * PAGE + PAGE);
@@ -1538,18 +1579,54 @@ function Discover({ wallets, onSniped }: { wallets: Wallet[]; onSniped: () => vo
       <div className="card">
         <div className="disc-head">
           <h2>Discover</h2>
-          <select value={sort} onChange={(e) => setSort(e.target.value as DiscoverSort)}>
-            <option value="new">Newest first</option>
-            <option value="old">Oldest first</option>
-            <option value="mc_desc">Market cap: high to low</option>
-            <option value="mc_asc">Market cap: low to high</option>
-            <option value="vol_desc">Volume: high to low</option>
-            <option value="vol_asc">Volume: low to high</option>
-          </select>
+          <div className="disc-controls">
+            <button className={`ghost mini ${activeFilters ? 'on' : ''}`} onClick={() => setShowFilters((v) => !v)}>
+              Filters{activeFilters ? ' •' : ''}
+            </button>
+            <select value={sort} onChange={(e) => setSort(e.target.value as DiscoverSort)}>
+              <option value="new">Newest first</option>
+              <option value="old">Oldest first</option>
+              <option value="mc_desc">Market cap: high to low</option>
+              <option value="mc_asc">Market cap: low to high</option>
+              <option value="vol_desc">Volume: high to low</option>
+              <option value="vol_asc">Volume: low to high</option>
+            </select>
+          </div>
         </div>
-        {loading && <div className="empty">Loading coins…</div>}
+        {showFilters && (
+          <div className="disc-filters">
+            <div className="ff">
+              <label>Market cap (USD)</label>
+              <div className="ff-pair">
+                <input type="number" inputMode="decimal" placeholder="min" value={f.mcMin} onChange={(e) => setField('mcMin', e.target.value)} />
+                <input type="number" inputMode="decimal" placeholder="max" value={f.mcMax} onChange={(e) => setField('mcMax', e.target.value)} />
+              </div>
+            </div>
+            <div className="ff">
+              <label>Volume (USD)</label>
+              <div className="ff-pair">
+                <input type="number" inputMode="decimal" placeholder="min" value={f.volMin} onChange={(e) => setField('volMin', e.target.value)} />
+                <input type="number" inputMode="decimal" placeholder="max" value={f.volMax} onChange={(e) => setField('volMax', e.target.value)} />
+              </div>
+            </div>
+            <div className="ff">
+              <label>Age (minutes)</label>
+              <div className="ff-pair">
+                <input type="number" inputMode="decimal" placeholder="min" value={f.ageMin} onChange={(e) => setField('ageMin', e.target.value)} />
+                <input type="number" inputMode="decimal" placeholder="max" value={f.ageMax} onChange={(e) => setField('ageMax', e.target.value)} />
+              </div>
+            </div>
+            <button className="ghost mini" disabled={!activeFilters} onClick={() => setF(emptyFilters)}>Clear filters</button>
+          </div>
+        )}
+        {loading && <div className="empty">Loading…</div>}
         {!loading && msg && <div className="empty">{msg}</div>}
-        {!loading && !msg && sorted.length === 0 && <div className="empty">No coins right now.</div>}
+        {!loading && !msg && coins.length === 0 && (
+          <div className="empty">No redirected coins yet. This list fills live as coins have their fees redirected to another wallet.</div>
+        )}
+        {!loading && !msg && coins.length > 0 && sorted.length === 0 && (
+          <div className="empty">No coins match your filters.</div>
+        )}
         <div className="disc-list">
           {visible.map((c) => (
             <div className="disc-row" key={c.mint}>
@@ -1558,6 +1635,7 @@ function Discover({ wallets, onSniped }: { wallets: Wallet[]; onSniped: () => vo
                 <div className="disc-id">
                   <div className="disc-name">
                     <span className="disc-tk">{c.ticker ? `$${c.ticker}` : short(c.mint)}</span>
+                    {c.creator && <span className="tp-chip" title={`Fees redirected to ${c.creator}`}>→ {short(c.creator)}</span>}
                     {c.migrated && <span className="tp-chip">migrated</span>}
                   </div>
                   <CopyCA mint={c.mint} />
