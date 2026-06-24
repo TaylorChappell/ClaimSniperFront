@@ -503,3 +503,7 @@ button.ghost.mini { padding: 5px 10px; font-size: 11px; border: 1px solid var(--
 .log-row.success { border-left-color: var(--green); }
 .log-row.error { border-left-color: #ff5c5c; }
 .log-msg { color: var(--text); word-break: break-word; flex: 1; }
+
+/* unread chat dot + pager */
+.nav-dot { display: inline-block; width: 7px; height: 7px; border-radius: 50%; background: var(--green); margin-left: 6px; vertical-align: middle; box-shadow: 0 0 6px var(--green); }
+.pager { display: flex; align-items: center; justify-content: center; gap: 14px; margin-top: 12px; }
