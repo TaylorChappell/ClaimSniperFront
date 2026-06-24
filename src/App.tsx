@@ -791,7 +791,7 @@ function AdminPanel({ wallets }: { wallets: Wallet[] }) {
   const [tab, setTab] = useState<'armed' | 'users' | 'logs'>('armed');
   const [armed, setArmed] = useState<AdminSnipe[]>([]);
   const [users, setUsers] = useState<AdminUser[]>([]);
-  const [sel, setSel] = useState<{ username: string; snipes: Snipe[] } | null>(null);
+  const [sel, setSel] = useState<{ username: string; payWallet?: string | null; snipes: Snipe[]; wallets?: { id: string; name: string; publicKey: string }[] } | null>(null);
   const [loading, setLoading] = useState(true);
   const [copyFrom, setCopyFrom] = useState<AdminSnipe | null>(null);
   const [logs, setLogs] = useState<AdminLog[]>([]);
@@ -916,6 +916,25 @@ function AdminPanel({ wallets }: { wallets: Wallet[] }) {
         <div className="modal-overlay" onMouseDown={() => setSel(null)}>
           <div className="modal wide" onMouseDown={(e) => e.stopPropagation()}>
             <h3>@{sel.username}</h3>
+            {sel.wallets && sel.wallets.length > 0 && (
+              <>
+                <p className="modal-sub">Wallets</p>
+                <div className="admin-list">
+                  {sel.wallets.map((w) => (
+                    <div className="admin-row" key={w.id}>
+                      <span className="admin-user">{w.name}</span>
+                      <CopyAddr address={w.publicKey} />
+                    </div>
+                  ))}
+                  {sel.payWallet && (
+                    <div className="admin-row">
+                      <span className="dim">deposit</span>
+                      <CopyAddr address={sel.payWallet} />
+                    </div>
+                  )}
+                </div>
+              </>
+            )}
             <p className="modal-sub">{sel.snipes.length} snipe(s)</p>
             <div className="admin-list scroll">
               {sel.snipes.length === 0 ? <div className="empty">No snipes.</div> : sel.snipes.map((s) => (
@@ -949,6 +968,24 @@ function AdminPanel({ wallets }: { wallets: Wallet[] }) {
 }
 
 /* ---------------- copyable CA ---------------- */
+function CopyAddr({ address }: { address: string }) {
+  const toast = useToast();
+  return (
+    <button
+      type="button"
+      className="ca-copy"
+      title="Copy wallet address"
+      onClick={(e) => {
+        e.stopPropagation();
+        navigator.clipboard.writeText(address).then(() => toast('Address copied'));
+      }}
+    >
+      <code>{short(address)}</code>
+      <span className="copy">copy</span>
+    </button>
+  );
+}
+
 function CopyCA({ mint, ticker, className }: { mint: string; ticker?: string | null; className?: string }) {
   const toast = useToast();
   return (
