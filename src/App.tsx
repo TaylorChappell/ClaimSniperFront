@@ -251,6 +251,33 @@ function Dashboard({ username, admin, onLogout }: { username: string; admin: boo
   const [view, setView] = useState<'dashboard' | 'history' | 'social' | 'admin'>('dashboard');
   const filled = useMemo(() => snipes.filter((s) => s.status === 'FILLED'), [snipes]);
 
+  // Unread-chat dot on the Social tab.
+  const [chatUnread, setChatUnread] = useState(false);
+  const viewRef = useRef(view);
+  useEffect(() => { viewRef.current = view; }, [view]);
+  useEffect(() => {
+    let stop = false;
+    const check = () =>
+      api.socialChatLatest().then((r) => {
+        if (stop || !r.latest) return;
+        if (viewRef.current === 'social') {
+          localStorage.setItem('cs.chatSeen', new Date().toISOString());
+          return;
+        }
+        const seen = localStorage.getItem('cs.chatSeen');
+        if (!seen || new Date(r.latest) > new Date(seen)) setChatUnread(true);
+      }).catch(() => {});
+    check();
+    const t = setInterval(check, 20000);
+    return () => { stop = true; clearInterval(t); };
+  }, []);
+  useEffect(() => {
+    if (view === 'social') {
+      localStorage.setItem('cs.chatSeen', new Date().toISOString());
+      setChatUnread(false);
+    }
+  }, [view]);
+
   return (
     <div className="wrap">
       <div className="topbar rise">
@@ -261,7 +288,9 @@ function Dashboard({ username, admin, onLogout }: { username: string; admin: boo
         <div className="who">
           <button className={`nav-btn ${view === 'dashboard' ? 'on' : ''}`} onClick={() => setView('dashboard')}>Dashboard</button>
           <button className={`nav-btn ${view === 'history' ? 'on' : ''}`} onClick={() => setView('history')}>History</button>
-          <button className={`nav-btn ${view === 'social' ? 'on' : ''}`} onClick={() => setView('social')}>Social</button>
+          <button className={`nav-btn ${view === 'social' ? 'on' : ''}`} onClick={() => setView('social')}>
+            Social{chatUnread && <span className="nav-dot" />}
+          </button>
           {admin && <button className={`nav-btn admin ${view === 'admin' ? 'on' : ''}`} onClick={() => setView('admin')}>Admin</button>}
           <span className="user">@{username}</span>
           <button className="ghost" onClick={onLogout}>Sign out</button>
@@ -1117,7 +1146,7 @@ function Social({ wallets, onCopied }: { wallets: Wallet[]; onCopied: () => void
             <h3>Most sniped coins</h3>
             {trending.length === 0 && <p className="sub">No active snipes across the platform right now.</p>}
             <div className="admin-list">
-              {trending.map((c) => (
+              {trending.slice(0, 5).map((c) => (
                 <div className="admin-row" key={c.mint}>
                   <CopyCA mint={c.mint} ticker={c.ticker} />
                   <span className="tp-chip">{c.userCount} {c.userCount === 1 ? 'user' : 'users'}</span>
@@ -1239,12 +1268,18 @@ function ChatBox() {
 function UserSnipesModal({ userId, onClose, onCopy }: { userId: string; onClose: () => void; onCopy: (s: PublicSnipe) => void }) {
   const [data, setData] = useState<{ username: string; active: PublicSnipe[]; filled: PublicSnipe[] } | null>(null);
   const [tab, setTab] = useState<'active' | 'filled'>('active');
+  const [page, setPage] = useState(0);
+  const PAGE = 5;
 
   useEffect(() => {
     api.socialUserSnipes(userId).then(setData).catch(() => {});
   }, [userId]);
+  useEffect(() => setPage(0), [tab]);
 
-  const rows = data ? (tab === 'active' ? data.active : data.filled) : [];
+  const all = data ? (tab === 'active' ? data.active : data.filled) : [];
+  const pages = Math.max(1, Math.ceil(all.length / PAGE));
+  const rows = all.slice(page * PAGE, page * PAGE + PAGE);
+
   return (
     <div className="modal-overlay" onMouseDown={onClose}>
       <div className="modal wide" onMouseDown={(e) => e.stopPropagation()}>
@@ -1265,6 +1300,13 @@ function UserSnipesModal({ userId, onClose, onCopy }: { userId: string; onClose:
             </div>
           ))}
         </div>
+        {all.length > PAGE && (
+          <div className="pager">
+            <button className="ghost mini" disabled={page === 0} onClick={() => setPage((p) => p - 1)}>Previous</button>
+            <span className="dim">Page {page + 1} of {pages}</span>
+            <button className="ghost mini" disabled={page >= pages - 1} onClick={() => setPage((p) => p + 1)}>Next</button>
+          </div>
+        )}
         <div className="modal-actions">
           <button className="ghost" onClick={onClose}>Close</button>
         </div>
