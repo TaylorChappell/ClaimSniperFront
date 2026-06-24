@@ -583,3 +583,20 @@ button.ghost.mini { padding: 5px 10px; font-size: 11px; border: 1px solid var(--
   .disc-stats { gap: 14px; }
   .disc-snipe { margin-left: auto; }
 }
+
+/* discover filters */
+.disc-controls { display: flex; align-items: center; gap: 8px; }
+.disc-controls .ghost.on { border-color: var(--green); color: var(--green); }
+.disc-filters {
+  display: flex; flex-wrap: wrap; align-items: flex-end; gap: 14px;
+  padding: 14px; margin-bottom: 14px;
+  background: var(--surface-2); border: 1px solid var(--line); border-radius: var(--radius-sm);
+}
+.disc-filters .ff { display: flex; flex-direction: column; gap: 6px; }
+.disc-filters .ff > label { font-size: 11px; color: var(--muted); text-transform: uppercase; letter-spacing: 0.04em; }
+.disc-filters .ff-pair { display: flex; gap: 6px; }
+.disc-filters .ff-pair input { width: 96px; }
+@media (max-width: 720px) {
+  .disc-filters .ff { flex: 1 1 100%; }
+  .disc-filters .ff-pair input { flex: 1; width: auto; }
+}
