@@ -320,12 +320,12 @@ function Dashboard({ username, admin, onLogout }: { username: string; admin: boo
           {dashTab === 'arm' ? (
             <div className="rise d1"><SnipeForm wallets={wallets} onCreated={() => { refresh(); setDashTab('snipes'); }} /></div>
           ) : dashTab === 'wallets' ? (
-            <div className="rise d1"><Wallets wallets={wallets} onChange={refresh} /></div>
-          ) : (
             <>
               <div className="rise d1"><ProfitSection stats={stats} /></div>
-              <div className="rise d2"><Snipes snipes={snipes} wallets={wallets} onChange={refresh} /></div>
+              <div className="rise d2"><Wallets wallets={wallets} onChange={refresh} /></div>
             </>
+          ) : (
+            <div className="rise d1"><Snipes snipes={snipes} wallets={wallets} onChange={refresh} /></div>
           )}
         </div>
       )}
