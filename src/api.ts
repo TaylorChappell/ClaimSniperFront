@@ -190,8 +190,13 @@ export const api = {
     req<{ snipe: Snipe }>(`/admin/snipes/${id}/copy`, { method: 'POST', body: JSON.stringify({ walletId }) }),
   adminUsers: () => req<{ users: AdminUser[] }>('/admin/users'),
   adminUserSnipes: (id: string) => req<{ username: string; snipes: Snipe[] }>(`/admin/users/${id}/snipes`),
-  adminLogs: (userId?: string) =>
-    req<{ logs: AdminLog[] }>(`/admin/logs${userId ? `?userId=${encodeURIComponent(userId)}` : ''}`),
+  adminLogs: (userId?: string, level?: string) => {
+    const p = new URLSearchParams();
+    if (userId) p.set('userId', userId);
+    if (level) p.set('level', level);
+    const qs = p.toString();
+    return req<{ logs: AdminLog[] }>(`/admin/logs${qs ? `?${qs}` : ''}`);
+  },
   socialUsers: () => req<{ users: SocialUser[] }>('/social/users'),
   socialUserSnipes: (id: string) =>
     req<{ username: string; active: PublicSnipe[]; filled: PublicSnipe[] }>(`/social/users/${id}/snipes`),
