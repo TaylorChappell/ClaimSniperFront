@@ -796,12 +796,13 @@ function AdminPanel({ wallets }: { wallets: Wallet[] }) {
   const [copyFrom, setCopyFrom] = useState<AdminSnipe | null>(null);
   const [logs, setLogs] = useState<AdminLog[]>([]);
   const [logUser, setLogUser] = useState('');
+  const [logLevel, setLogLevel] = useState('');
 
   function reloadArmed() {
     api.adminArmed().then((a) => setArmed(a.snipes)).catch((e) => toast(e.message, 'err'));
   }
-  function loadLogs(uid: string) {
-    api.adminLogs(uid || undefined).then((r) => setLogs(r.logs)).catch((e) => toast(e.message, 'err'));
+  function loadLogs(uid: string, level: string) {
+    api.adminLogs(uid || undefined, level || undefined).then((r) => setLogs(r.logs)).catch((e) => toast(e.message, 'err'));
   }
 
   useEffect(() => {
@@ -813,9 +814,9 @@ function AdminPanel({ wallets }: { wallets: Wallet[] }) {
   }, []);
 
   useEffect(() => {
-    if (tab === 'logs') loadLogs(logUser);
+    if (tab === 'logs') loadLogs(logUser, logLevel);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [tab, logUser]);
+  }, [tab, logUser, logLevel]);
 
   async function openUser(u: AdminUser) {
     try {
@@ -892,7 +893,13 @@ function AdminPanel({ wallets }: { wallets: Wallet[] }) {
                 <option key={u.id} value={u.id}>@{u.username}</option>
               ))}
             </select>
-            <button className="ghost mini" onClick={() => loadLogs(logUser)}>Refresh</button>
+            <select value={logLevel} onChange={(e) => setLogLevel(e.target.value)}>
+              <option value="">All types</option>
+              <option value="success">Filled</option>
+              <option value="error">Failed</option>
+              <option value="info">Messages</option>
+            </select>
+            <button className="ghost mini" onClick={() => loadLogs(logUser, logLevel)}>Refresh</button>
           </div>
           {logs.length === 0 && <p className="sub">No logs yet.</p>}
           {logs.map((l) => (
@@ -1137,6 +1144,7 @@ function TriggerModeSelect({ value, onChange }: { value: 'CLAIM' | 'REDIRECT'; o
 /* ---------------- social ---------------- */
 function Social({ wallets, onCopied }: { wallets: Wallet[]; onCopied: () => void }) {
   const toast = useToast();
+  const [tab, setTab] = useState<'trending' | 'traders' | 'chat'>('trending');
   const [users, setUsers] = useState<SocialUser[]>([]);
   const [trending, setTrending] = useState<TrendingCoin[]>([]);
   const [openUserId, setOpenUserId] = useState<string | null>(null);
@@ -1154,48 +1162,51 @@ function Social({ wallets, onCopied }: { wallets: Wallet[]; onCopied: () => void
 
   return (
     <div className="social">
-      <div className="grid">
-        <div className="col">
-          <div className="card rise d1">
-            <h3>Most sniped coins</h3>
-            {trending.length === 0 && <p className="sub">No active snipes across the platform right now.</p>}
-            <div className="admin-list">
-              {trending.slice(0, 5).map((c) => (
-                <div className="admin-row" key={c.mint}>
-                  <CopyCA mint={c.mint} ticker={c.ticker} />
-                  <span className="tp-chip">{c.userCount} {c.userCount === 1 ? 'user' : 'users'}</span>
-                  <span className="dim">{c.snipeCount} snipes</span>
-                  {c.redirectCount > 0 && <span className="tp-chip">{c.redirectCount} redirect</span>}
-                  <button
-                    className="ghost mini"
-                    onClick={() => setCopy({ mint: c.mint, ticker: c.ticker, triggerMode: c.redirectCount > c.snipeCount - c.redirectCount ? 'REDIRECT' : 'CLAIM' })}
-                  >
-                    Copy
-                  </button>
-                </div>
-              ))}
-            </div>
-          </div>
-
-          <div className="card rise d2">
-            <h3>Traders</h3>
-            <div className="admin-list">
-              {users.map((u) => (
-                <div className="admin-row clickable" key={u.id} onClick={() => setOpenUserId(u.id)}>
-                  <span className="admin-user">@{u.username}</span>
-                  <span className="dim">{u.filledCount} filled</span>
-                  <span className="dim">spent {u.spentSol.toFixed(3)}</span>
-                  <Pnl net={u.netSol} />
-                </div>
-              ))}
-            </div>
-          </div>
-        </div>
-
-        <div className="col">
-          <ChatBox />
-        </div>
+      <div className="seg dash-tabs">
+        <button className={`seg-btn ${tab === 'trending' ? 'on' : ''}`} onClick={() => setTab('trending')}>Trending</button>
+        <button className={`seg-btn ${tab === 'traders' ? 'on' : ''}`} onClick={() => setTab('traders')}>Traders</button>
+        <button className={`seg-btn ${tab === 'chat' ? 'on' : ''}`} onClick={() => setTab('chat')}>Chat</button>
       </div>
+
+      {tab === 'trending' ? (
+        <div className="card rise d1">
+          <h3>Most sniped coins</h3>
+          {trending.length === 0 && <p className="sub">No active snipes across the platform right now.</p>}
+          <div className="admin-list">
+            {trending.slice(0, 5).map((c) => (
+              <div className="admin-row" key={c.mint}>
+                <CopyCA mint={c.mint} ticker={c.ticker} />
+                <span className="tp-chip">{c.userCount} {c.userCount === 1 ? 'user' : 'users'}</span>
+                <span className="dim">{c.snipeCount} snipes</span>
+                {c.redirectCount > 0 && <span className="tp-chip">{c.redirectCount} redirect</span>}
+                <button
+                  className="ghost mini"
+                  onClick={() => setCopy({ mint: c.mint, ticker: c.ticker, triggerMode: c.redirectCount > c.snipeCount - c.redirectCount ? 'REDIRECT' : 'CLAIM' })}
+                >
+                  Copy
+                </button>
+              </div>
+            ))}
+          </div>
+        </div>
+      ) : tab === 'traders' ? (
+        <div className="card rise d1">
+          <h3>Traders</h3>
+          {users.length === 0 && <p className="sub">No paid traders yet.</p>}
+          <div className="admin-list">
+            {users.map((u) => (
+              <div className="admin-row clickable" key={u.id} onClick={() => setOpenUserId(u.id)}>
+                <span className="admin-user">@{u.username}</span>
+                <span className="dim">{u.filledCount} filled</span>
+                <span className="dim">spent {u.spentSol.toFixed(3)}</span>
+                <Pnl net={u.netSol} />
+              </div>
+            ))}
+          </div>
+        </div>
+      ) : (
+        <ChatBox />
+      )}
 
       {openUserId && (
         <UserSnipesModal
