@@ -528,9 +528,12 @@ button.ghost.mini { padding: 5px 10px; font-size: 11px; border: 1px solid var(--
   .who {
     display: none; position: fixed; top: 64px; right: 14px; left: 14px; z-index: 1000;
     flex-direction: column; align-items: stretch; gap: 8px;
+    max-height: calc(100vh - 80px); overflow-y: auto; -webkit-overflow-scrolling: touch;
     background: var(--surface); border: 1px solid var(--line); border-radius: var(--radius);
     padding: 12px; box-shadow: 0 16px 40px rgba(0,0,0,0.6);
   }
+  .who.open { display: flex; }
+  .who .nav-btn { flex-shrink: 0; }
   .who.open { display: flex; }
   .who .nav-btn { text-align: left; width: 100%; padding: 11px 12px; }
   .who .user { padding: 6px 12px; border-top: 1px solid var(--line-soft); margin-top: 4px; }
