@@ -249,7 +249,10 @@ function Dashboard({ username, admin, onLogout }: { username: string; admin: boo
   const stats = data?.stats ?? null;
 
   const [view, setView] = useState<'dashboard' | 'history' | 'social' | 'admin'>('dashboard');
+  const [menuOpen, setMenuOpen] = useState(false);
+  const [dashTab, setDashTab] = useState<'arm' | 'snipes' | 'wallets'>('arm');
   const filled = useMemo(() => snipes.filter((s) => s.status === 'FILLED'), [snipes]);
+  const go = (v: typeof view) => { setView(v); setMenuOpen(false); };
 
   // Unread-chat dot on the Social tab.
   const [chatUnread, setChatUnread] = useState(false);
@@ -285,13 +288,17 @@ function Dashboard({ username, admin, onLogout }: { username: string; admin: boo
           <img className="logo-img" src={BRAND_IMG} alt="" />
           <b>Claim Sniper</b>
         </div>
-        <div className="who">
-          <button className={`nav-btn ${view === 'dashboard' ? 'on' : ''}`} onClick={() => setView('dashboard')}>Dashboard</button>
-          <button className={`nav-btn ${view === 'history' ? 'on' : ''}`} onClick={() => setView('history')}>History</button>
-          <button className={`nav-btn ${view === 'social' ? 'on' : ''}`} onClick={() => setView('social')}>
+        <button className="hamburger" aria-label="Menu" onClick={() => setMenuOpen((v) => !v)}>
+          <span /><span /><span />
+          {chatUnread && <span className="nav-dot ham-dot" />}
+        </button>
+        <div className={`who ${menuOpen ? 'open' : ''}`}>
+          <button className={`nav-btn ${view === 'dashboard' ? 'on' : ''}`} onClick={() => go('dashboard')}>Dashboard</button>
+          <button className={`nav-btn ${view === 'history' ? 'on' : ''}`} onClick={() => go('history')}>History</button>
+          <button className={`nav-btn ${view === 'social' ? 'on' : ''}`} onClick={() => go('social')}>
             Social{chatUnread && <span className="nav-dot" />}
           </button>
-          {admin && <button className={`nav-btn admin ${view === 'admin' ? 'on' : ''}`} onClick={() => setView('admin')}>Admin</button>}
+          {admin && <button className={`nav-btn admin ${view === 'admin' ? 'on' : ''}`} onClick={() => go('admin')}>Admin</button>}
           <span className="user">@{username}</span>
           <button className="ghost" onClick={onLogout}>Sign out</button>
         </div>
@@ -300,19 +307,26 @@ function Dashboard({ username, admin, onLogout }: { username: string; admin: boo
       {view === 'history' ? (
         <History snipes={filled} />
       ) : view === 'social' ? (
-        <Social wallets={wallets} onCopied={() => { refresh(); setView('dashboard'); }} />
+        <Social wallets={wallets} onCopied={() => { refresh(); go('dashboard'); }} />
       ) : view === 'admin' ? (
         <AdminPanel wallets={wallets} />
       ) : (
-        <div className="grid">
-          <div className="col">
+        <div className="dash">
+          <div className="seg dash-tabs">
+            <button className={`seg-btn ${dashTab === 'arm' ? 'on' : ''}`} onClick={() => setDashTab('arm')}>Arm snipe</button>
+            <button className={`seg-btn ${dashTab === 'snipes' ? 'on' : ''}`} onClick={() => setDashTab('snipes')}>Snipes</button>
+            <button className={`seg-btn ${dashTab === 'wallets' ? 'on' : ''}`} onClick={() => setDashTab('wallets')}>Wallets</button>
+          </div>
+          {dashTab === 'arm' ? (
+            <div className="rise d1"><SnipeForm wallets={wallets} onCreated={() => { refresh(); setDashTab('snipes'); }} /></div>
+          ) : dashTab === 'wallets' ? (
             <div className="rise d1"><Wallets wallets={wallets} onChange={refresh} /></div>
-            <div className="rise d2"><SnipeForm wallets={wallets} onCreated={refresh} /></div>
-          </div>
-          <div className="col">
-            <div className="rise d2"><ProfitSection stats={stats} /></div>
-            <div className="rise d3"><Snipes snipes={snipes} wallets={wallets} onChange={refresh} /></div>
-          </div>
+          ) : (
+            <>
+              <div className="rise d1"><ProfitSection stats={stats} /></div>
+              <div className="rise d2"><Snipes snipes={snipes} wallets={wallets} onChange={refresh} /></div>
+            </>
+          )}
         </div>
       )}
     </div>
