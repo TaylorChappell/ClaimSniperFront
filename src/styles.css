@@ -507,3 +507,47 @@ button.ghost.mini { padding: 5px 10px; font-size: 11px; border: 1px solid var(--
 /* unread chat dot + pager */
 .nav-dot { display: inline-block; width: 7px; height: 7px; border-radius: 50%; background: var(--green); margin-left: 6px; vertical-align: middle; box-shadow: 0 0 6px var(--green); }
 .pager { display: flex; align-items: center; justify-content: center; gap: 14px; margin-top: 12px; }
+
+/* ---------- dashboard sub-tabs ---------- */
+.dash-tabs { display: flex; width: 100%; margin-bottom: 18px; }
+.dash-tabs .seg-btn { flex: 1; }
+
+/* ---------- hamburger menu (mobile nav) ---------- */
+.hamburger { display: none; position: relative; background: transparent; border: 1px solid var(--line); border-radius: 10px; padding: 9px 10px; cursor: pointer; }
+.hamburger span { display: block; width: 20px; height: 2px; background: var(--text); border-radius: 2px; }
+.hamburger span + span { margin-top: 4px; }
+.ham-dot { position: absolute; top: 5px; right: 5px; margin: 0; }
+
+/* ---------- responsive ---------- */
+@media (max-width: 720px) {
+  .wrap { padding: 16px 14px 80px; }
+  .topbar { margin-bottom: 18px; padding-bottom: 14px; }
+  .brand .logo-img { width: 48px; height: 48px; }
+  .brand b { font-size: 17px; }
+  .hamburger { display: block; }
+  .who {
+    display: none; position: absolute; top: 70px; right: 14px; left: 14px; z-index: 50;
+    flex-direction: column; align-items: stretch; gap: 8px;
+    background: var(--surface); border: 1px solid var(--line); border-radius: var(--radius);
+    padding: 12px; box-shadow: 0 16px 40px rgba(0,0,0,0.5);
+  }
+  .who.open { display: flex; }
+  .who .nav-btn { text-align: left; width: 100%; padding: 11px 12px; }
+  .who .user { padding: 6px 12px; border-top: 1px solid var(--line-soft); margin-top: 4px; }
+  .who .ghost { width: 100%; }
+  .topbar { position: relative; }
+
+  .stats { grid-template-columns: 1fr 1fr; }
+  .row { grid-template-columns: 1fr; }
+  .modal { width: calc(100vw - 28px); max-width: none; margin: 0 14px; }
+  .modal.wide { max-width: none; }
+  .admin-row { flex-wrap: wrap; gap: 7px 10px; }
+  .coin-grid { grid-template-columns: 1fr; }
+  .chat-feed { max-height: 320px; }
+  .seg { flex-wrap: wrap; }
+}
+
+@media (max-width: 420px) {
+  .stats { grid-template-columns: 1fr; }
+  .brand b { font-size: 15px; }
+}
