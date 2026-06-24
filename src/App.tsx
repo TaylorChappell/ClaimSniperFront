@@ -1,5 +1,5 @@
 import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState } from 'react';
-import { api, getToken, setToken, type Wallet, type Snipe, type Stats, type AdminSnipe, type AdminUser, type SocialUser, type PublicSnipe, type TrendingCoin, type ChatMessage, type AdminLog } from './api';
+import { api, getToken, setToken, type Wallet, type Snipe, type Stats, type AdminSnipe, type AdminUser, type SocialUser, type PublicSnipe, type TrendingCoin, type ChatMessage, type AdminLog, type DiscoverCoin } from './api';
 import { useLeaderPolling } from './sync';
 
 const BRAND_IMG = `${import.meta.env.BASE_URL}sniper.png`;
@@ -248,7 +248,7 @@ function Dashboard({ username, admin, onLogout }: { username: string; admin: boo
   const snipes = data?.snipes ?? [];
   const stats = data?.stats ?? null;
 
-  const [view, setView] = useState<'dashboard' | 'history' | 'social' | 'admin'>('dashboard');
+  const [view, setView] = useState<'dashboard' | 'history' | 'social' | 'discover' | 'admin'>('dashboard');
   const [menuOpen, setMenuOpen] = useState(false);
   const [dashTab, setDashTab] = useState<'arm' | 'snipes' | 'wallets'>('arm');
   const filled = useMemo(() => snipes.filter((s) => s.status === 'FILLED'), [snipes]);
@@ -294,6 +294,7 @@ function Dashboard({ username, admin, onLogout }: { username: string; admin: boo
         </button>
         <div className={`who ${menuOpen ? 'open' : ''}`}>
           <button className={`nav-btn ${view === 'dashboard' ? 'on' : ''}`} onClick={() => go('dashboard')}>Dashboard</button>
+          <button className={`nav-btn ${view === 'discover' ? 'on' : ''}`} onClick={() => go('discover')}>Discover</button>
           <button className={`nav-btn ${view === 'history' ? 'on' : ''}`} onClick={() => go('history')}>History</button>
           <button className={`nav-btn ${view === 'social' ? 'on' : ''}`} onClick={() => go('social')}>
             Social{chatUnread && <span className="nav-dot" />}
@@ -308,6 +309,8 @@ function Dashboard({ username, admin, onLogout }: { username: string; admin: boo
         <History snipes={filled} />
       ) : view === 'social' ? (
         <Social wallets={wallets} onCopied={() => { refresh(); go('dashboard'); }} />
+      ) : view === 'discover' ? (
+        <Discover wallets={wallets} onSniped={() => { refresh(); go('dashboard'); }} />
       ) : view === 'admin' ? (
         <AdminPanel wallets={wallets} />
       ) : (
@@ -464,9 +467,9 @@ function WalletSelect({ wallets, value, onChange }: { wallets: Wallet[]; value: 
 }
 
 /* ---------------- snipe form ---------------- */
-function SnipeForm({ wallets, onCreated }: { wallets: Wallet[]; onCreated: () => void }) {
+function SnipeForm({ wallets, onCreated, initialMint, mintLocked }: { wallets: Wallet[]; onCreated: () => void; initialMint?: string; mintLocked?: boolean }) {
   const toast = useToast();
-  const [mint, setMint] = useState('');
+  const [mint, setMint] = useState(initialMint ?? '');
   const [walletId, setWalletId] = useState('');
   const [amount, setAmount] = useState('');
   const [slippage, setSlippage] = useState('15');
@@ -518,7 +521,7 @@ function SnipeForm({ wallets, onCreated }: { wallets: Wallet[]; onCreated: () =>
     <div className="card">
       <h2>Arm a snipe</h2>
       <label>Coin CA (mint)</label>
-      <input value={mint} onChange={(e) => setMint(e.target.value)} placeholder="pump.fun mint address" />
+      <input value={mint} onChange={(e) => setMint(e.target.value)} placeholder="pump.fun mint address" readOnly={mintLocked} />
       <label>Buy with wallet</label>
       <WalletSelect wallets={wallets} value={walletId} onChange={setWalletId} />
       <div className="row">
@@ -1465,6 +1468,120 @@ function CopyPublicModal({
           </button>
         </div>
       </div>
+    </div>
+  );
+}
+
+/* ---------------- discover ---------------- */
+function compactUsd(n: number | null): string {
+  if (n == null) return '—';
+  if (n >= 1e9) return `$${(n / 1e9).toFixed(2)}B`;
+  if (n >= 1e6) return `$${(n / 1e6).toFixed(2)}M`;
+  if (n >= 1e3) return `$${(n / 1e3).toFixed(1)}K`;
+  return `$${n.toFixed(0)}`;
+}
+function ago(iso: string | null): string {
+  if (!iso) return '—';
+  const s = Math.max(0, (Date.now() - new Date(iso).getTime()) / 1000);
+  if (s < 60) return `${Math.floor(s)}s`;
+  if (s < 3600) return `${Math.floor(s / 60)}m`;
+  if (s < 86400) return `${Math.floor(s / 3600)}h`;
+  return `${Math.floor(s / 86400)}d`;
+}
+
+type DiscoverSort = 'mc_desc' | 'mc_asc' | 'vol_desc' | 'vol_asc' | 'new' | 'old';
+
+function Discover({ wallets, onSniped }: { wallets: Wallet[]; onSniped: () => void }) {
+  const [coins, setCoins] = useState<DiscoverCoin[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [msg, setMsg] = useState<string | null>(null);
+  const [sort, setSort] = useState<DiscoverSort>('new');
+  const [snipeMint, setSnipeMint] = useState<string | null>(null);
+
+  function load() {
+    api.discover().then((r) => {
+      setCoins(r.coins);
+      setMsg(r.configured ? null : r.message ?? 'Discover is not configured.');
+    }).catch((e) => setMsg(e.message)).finally(() => setLoading(false));
+  }
+  useEffect(() => {
+    load();
+    const t = setInterval(load, 20000);
+    return () => clearInterval(t);
+  }, []);
+
+  const sorted = useMemo(() => {
+    const c = [...coins];
+    const mc = (x: DiscoverCoin) => x.marketCapUsd ?? -1;
+    const vol = (x: DiscoverCoin) => x.volumeUsd ?? -1;
+    const t = (x: DiscoverCoin) => (x.createdAt ? new Date(x.createdAt).getTime() : 0);
+    switch (sort) {
+      case 'mc_desc': c.sort((a, b) => mc(b) - mc(a)); break;
+      case 'mc_asc': c.sort((a, b) => mc(a) - mc(b)); break;
+      case 'vol_desc': c.sort((a, b) => vol(b) - vol(a)); break;
+      case 'vol_asc': c.sort((a, b) => vol(a) - vol(b)); break;
+      case 'new': c.sort((a, b) => t(b) - t(a)); break;
+      case 'old': c.sort((a, b) => t(a) - t(b)); break;
+    }
+    return c;
+  }, [coins, sort]);
+
+  return (
+    <div className="discover">
+      <div className="card">
+        <div className="disc-head">
+          <h2>Discover</h2>
+          <select value={sort} onChange={(e) => setSort(e.target.value as DiscoverSort)}>
+            <option value="new">Newest first</option>
+            <option value="old">Oldest first</option>
+            <option value="mc_desc">Market cap: high to low</option>
+            <option value="mc_asc">Market cap: low to high</option>
+            <option value="vol_desc">Volume: high to low</option>
+            <option value="vol_asc">Volume: low to high</option>
+          </select>
+        </div>
+        {loading && <div className="empty">Loading coins…</div>}
+        {!loading && msg && <div className="empty">{msg}</div>}
+        {!loading && !msg && sorted.length === 0 && <div className="empty">No coins right now.</div>}
+        <div className="disc-list">
+          {sorted.map((c) => (
+            <div className="disc-row" key={c.mint}>
+              <div className="disc-coin">
+                {c.image ? <img className="disc-img" src={c.image} alt="" loading="lazy" /> : <div className="disc-img placeholder" />}
+                <div className="disc-id">
+                  <div className="disc-name">
+                    <span className="disc-tk">{c.ticker ? `$${c.ticker}` : short(c.mint)}</span>
+                    {c.migrated && <span className="tp-chip">migrated</span>}
+                  </div>
+                  <CopyCA mint={c.mint} />
+                </div>
+              </div>
+              <div className="disc-stats">
+                <div className="disc-stat"><span>MC</span><b>{compactUsd(c.marketCapUsd)}</b></div>
+                <div className="disc-stat"><span>Vol</span><b>{compactUsd(c.volumeUsd)}</b></div>
+                <div className="disc-stat"><span>Age</span><b>{ago(c.createdAt)}</b></div>
+              </div>
+              <button className="primary inline disc-snipe" onClick={() => setSnipeMint(c.mint)}>Snipe</button>
+            </div>
+          ))}
+        </div>
+      </div>
+
+      {snipeMint && (
+        <div className="modal-overlay" onMouseDown={() => setSnipeMint(null)}>
+          <div className="modal" onMouseDown={(e) => e.stopPropagation()}>
+            <SnipeForm
+              wallets={wallets}
+              initialMint={snipeMint}
+              mintLocked
+              onCreated={() => { setSnipeMint(null); onSniped(); }}
+            />
+            <div className="modal-actions">
+              <button className="ghost" onClick={() => setSnipeMint(null)}>Cancel</button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
