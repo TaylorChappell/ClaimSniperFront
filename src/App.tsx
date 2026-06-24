@@ -283,7 +283,7 @@ function Dashboard({ username, admin, onLogout }: { username: string; admin: boo
 
   return (
     <div className="wrap">
-      <div className="topbar rise">
+      <div className="topbar">
         <div className="brand">
           <img className="logo-img" src={BRAND_IMG} alt="" />
           <b>Claim Sniper</b>
