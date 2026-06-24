@@ -152,6 +152,8 @@ export interface DiscoverCoin {
   liquidityUsd: number | null;
   createdAt: string | null;
   migrated: boolean;
+  creator?: string | null;
+  redirectedAt?: string | null;
 }
 
 export const api = {
