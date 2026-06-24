@@ -198,6 +198,7 @@ export const api = {
   socialTrending: () => req<{ coins: TrendingCoin[] }>('/social/trending'),
   socialChat: (after?: string) =>
     req<{ messages: ChatMessage[] }>(`/social/chat${after ? `?after=${encodeURIComponent(after)}` : ''}`),
+  socialChatLatest: () => req<{ latest: string | null }>('/social/chat/latest'),
   socialSend: (text: string) =>
     req<{ message: ChatMessage }>('/social/chat', { method: 'POST', body: JSON.stringify({ text }) }),
   cancelSnipe: (id: string) => req<{ ok: true }>(`/snipes/${id}/cancel`, { method: 'POST' }),
