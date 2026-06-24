@@ -1516,6 +1516,14 @@ function Discover({ wallets, onSniped }: { wallets: Wallet[]; onSniped: () => vo
   useEffect(() => { localStorage.setItem('cs.discSort', sort); }, [sort]);
   useEffect(() => { localStorage.setItem('cs.discFilters', JSON.stringify(f)); }, [f]);
 
+  function hide(mint: string) {
+    setCoins((prev) => prev.filter((c) => c.mint !== mint));
+    api.discoverHide(mint).catch(() => load());
+  }
+  function resetHidden() {
+    api.discoverResetHidden().then(load).catch(() => {});
+  }
+
   function load() {
     api.discover().then((r) => {
       setCoins(r.coins);
@@ -1580,6 +1588,7 @@ function Discover({ wallets, onSniped }: { wallets: Wallet[]; onSniped: () => vo
         <div className="disc-head">
           <h2>Discover</h2>
           <div className="disc-controls">
+            <button className="ghost mini" onClick={resetHidden}>Reset hidden</button>
             <button className={`ghost mini ${activeFilters ? 'on' : ''}`} onClick={() => setShowFilters((v) => !v)}>
               Filters{activeFilters ? ' •' : ''}
             </button>
@@ -1647,6 +1656,7 @@ function Discover({ wallets, onSniped }: { wallets: Wallet[]; onSniped: () => vo
                 <div className="disc-stat"><span>Age</span><b>{ago(c.createdAt)}</b></div>
               </div>
               <button className="primary inline disc-snipe" onClick={() => setSnipeMint(c.mint)}>Snipe</button>
+              <button className="disc-hide" title="Hide from my list" onClick={() => hide(c.mint)}>×</button>
             </div>
           ))}
         </div>
