@@ -600,3 +600,10 @@ button.ghost.mini { padding: 5px 10px; font-size: 11px; border: 1px solid var(--
   .disc-filters .ff { flex: 1 1 100%; }
   .disc-filters .ff-pair input { flex: 1; width: auto; }
 }
+
+.disc-hide {
+  flex-shrink: 0; width: 28px; height: 28px; border-radius: 8px;
+  background: transparent; border: 1px solid var(--line); color: var(--muted);
+  font-size: 16px; line-height: 1; cursor: pointer;
+}
+.disc-hide:hover { border-color: var(--red); color: var(--red); }
