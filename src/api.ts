@@ -142,6 +142,18 @@ export interface AdminLog {
   createdAt: string;
 }
 
+export interface DiscoverCoin {
+  mint: string;
+  ticker: string | null;
+  name: string | null;
+  image: string | null;
+  marketCapUsd: number | null;
+  volumeUsd: number | null;
+  liquidityUsd: number | null;
+  createdAt: string | null;
+  migrated: boolean;
+}
+
 export const api = {
   register: (username: string, password: string) =>
     req<{ token: string; username: string; paid: boolean; admin: boolean }>('/auth/register', {
@@ -209,4 +221,5 @@ export const api = {
     req<{ message: ChatMessage }>('/social/chat', { method: 'POST', body: JSON.stringify({ text }) }),
   cancelSnipe: (id: string) => req<{ ok: true }>(`/snipes/${id}/cancel`, { method: 'POST' }),
   cancelExit: (id: string) => req<{ snipe: Snipe }>(`/snipes/${id}/cancel-exit`, { method: 'POST' }),
+  discover: () => req<{ coins: DiscoverCoin[]; configured: boolean; message?: string }>('/discover'),
 };
