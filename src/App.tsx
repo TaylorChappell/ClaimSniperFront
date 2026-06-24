@@ -699,6 +699,14 @@ function Snipes({ snipes, onChange }: { snipes: Snipe[]; wallets: Wallet[]; onCh
           </div>
           <div className="snipe-actions">
             <button className="ghost" onClick={() => setEdit(s)}>Edit</button>
+            {s.status === 'FILLED' && s.tpStatus === 'PENDING' && (s.tpEnabled || s.slEnabled) && (
+              <button
+                className="ghost"
+                onClick={() => api.cancelExit(s.id).then(onChange).catch((e) => toast(e.message, 'err'))}
+              >
+                Cancel TP/SL
+              </button>
+            )}
             <button className="ghost" onClick={() => remove(s.id)}>
               {s.status === 'ARMED' ? 'Disarm' : 'Remove'}
             </button>
