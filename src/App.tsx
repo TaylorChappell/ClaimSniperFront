@@ -1282,14 +1282,26 @@ function ChatBox() {
   const [text, setText] = useState('');
   const [busy, setBusy] = useState(false);
   const lastRef = useRef<string | undefined>(undefined);
+  const pollingRef = useRef(false);
+  const sendingRef = useRef(false);
 
   function poll() {
+    if (pollingRef.current) return; // never run two polls at once
+    pollingRef.current = true;
     api.socialChat(lastRef.current).then((r) => {
       if (r.messages.length) {
-        lastRef.current = r.messages[r.messages.length - 1].createdAt;
-        setMessages((prev) => (lastRef.current && prev.length ? [...prev, ...r.messages] : r.messages).slice(-200));
+        setMessages((prev) => {
+          // Merge by id so an overlapping/repeated message can never render twice.
+          const byId = new Map(prev.map((m) => [m.id, m]));
+          for (const m of r.messages) byId.set(m.id, m);
+          const merged = [...byId.values()]
+            .sort((a, b) => (a.createdAt < b.createdAt ? -1 : a.createdAt > b.createdAt ? 1 : 0))
+            .slice(-200);
+          lastRef.current = merged.length ? merged[merged.length - 1].createdAt : lastRef.current;
+          return merged;
+        });
       }
-    }).catch(() => {});
+    }).catch(() => {}).finally(() => { pollingRef.current = false; });
   }
   useEffect(() => {
     poll();
@@ -1299,7 +1311,8 @@ function ChatBox() {
 
   async function send() {
     const t = text.trim();
-    if (!t) return;
+    if (!t || sendingRef.current) return; // block double-send (fast Enter/click)
+    sendingRef.current = true;
     setBusy(true);
     try {
       await api.socialSend(t);
@@ -1309,6 +1322,7 @@ function ChatBox() {
       /* ignore */
     } finally {
       setBusy(false);
+      sendingRef.current = false;
     }
   }
 
