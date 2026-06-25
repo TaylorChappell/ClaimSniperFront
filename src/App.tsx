@@ -2339,6 +2339,27 @@ async function getPushRegistration() {
   return navigator.serviceWorker.register(`${import.meta.env.BASE_URL}sw.js`);
 }
 
+async function ensurePushSubscription() {
+  const keyInfo = await api.pushPublicKey();
+  if (!keyInfo.configured || !keyInfo.publicKey)
+    throw new Error("Notifications are not configured on the server yet");
+
+  const permission = await Notification.requestPermission();
+  if (permission !== "granted")
+    throw new Error("Notification permission was not granted");
+
+  const reg = await getPushRegistration();
+  const existing = await reg.pushManager.getSubscription();
+  const sub =
+    existing ??
+    (await reg.pushManager.subscribe({
+      userVisibleOnly: true,
+      applicationServerKey: urlBase64ToUint8Array(keyInfo.publicKey),
+    }));
+
+  return sub;
+}
+
 /* ---------------- social ---------------- */
 
 function NotificationToggle() {
@@ -2370,7 +2391,14 @@ function NotificationToggle() {
         const sub = await reg.pushManager.getSubscription();
         if (stop) return;
         setConfigured(keyInfo.configured && !!keyInfo.publicKey);
-        setEnabled(!!sub);
+        if (!sub) {
+          setEnabled(false);
+          return;
+        }
+        const status = await api.pushSubscriptionStatus(sub.endpoint).catch(
+          () => null,
+        );
+        if (!stop) setEnabled(!!status?.tradeEnabled);
       } catch {
         if (!stop) setSupported(false);
       }
@@ -2386,26 +2414,12 @@ function NotificationToggle() {
     setErr("");
     setBusy(true);
     try {
-      const keyInfo = await api.pushPublicKey();
-      if (!keyInfo.configured || !keyInfo.publicKey)
-        throw new Error("Notifications are not configured on the server yet");
-
-      const permission = await Notification.requestPermission();
-      if (permission !== "granted")
-        throw new Error("Notification permission was not granted");
-
-      const reg = await getPushRegistration();
-      const existing = await reg.pushManager.getSubscription();
-      const sub =
-        existing ??
-        (await reg.pushManager.subscribe({
-          userVisibleOnly: true,
-          applicationServerKey: urlBase64ToUint8Array(keyInfo.publicKey),
-        }));
-
-      await api.savePushSubscription(pushSubscriptionPayload(sub));
+      const sub = await ensurePushSubscription();
+      await api.savePushSubscription(pushSubscriptionPayload(sub), {
+        tradeEnabled: true,
+      });
       setEnabled(true);
-      toast("Notifications enabled on this device");
+      toast("Snipe notifications enabled on this device");
     } catch (e: any) {
       const msg = e?.message ?? "Failed to enable notifications";
       setErr(msg);
@@ -2421,12 +2435,9 @@ function NotificationToggle() {
     try {
       const reg = await getPushRegistration();
       const sub = await reg.pushManager.getSubscription();
-      if (sub) {
-        await api.deletePushSubscription(sub.endpoint).catch(() => {});
-        await sub.unsubscribe().catch(() => {});
-      }
+      if (sub) await api.updatePushPreferences(sub.endpoint, { tradeEnabled: false });
       setEnabled(false);
-      toast("Notifications disabled on this device");
+      toast("Snipe notifications disabled on this device");
     } catch (e: any) {
       const msg = e?.message ?? "Failed to disable notifications";
       setErr(msg);
@@ -2439,7 +2450,7 @@ function NotificationToggle() {
   return (
     <div className="notify-row">
       <div>
-        <div className="notify-title">Device alerts</div>
+        <div className="notify-title">Snipe alerts</div>
         <div className="notify-sub">
           {supported
             ? configured
@@ -2457,9 +2468,124 @@ function NotificationToggle() {
         {busy ? (
           <span className="spin" />
         ) : enabled ? (
-          "Disable notifications"
+          "Disable snipe alerts"
         ) : (
-          "Enable notifications"
+          "Enable snipe alerts"
+        )}
+      </button>
+    </div>
+  );
+}
+
+function ChatNotificationToggle() {
+  const toast = useToast();
+  const [supported, setSupported] = useState(true);
+  const [configured, setConfigured] = useState(true);
+  const [enabled, setEnabled] = useState(false);
+  const [busy, setBusy] = useState(false);
+  const [err, setErr] = useState("");
+
+  useEffect(() => {
+    let stop = false;
+
+    async function load() {
+      const canUse =
+        "serviceWorker" in navigator &&
+        "PushManager" in window &&
+        "Notification" in window;
+      if (!canUse) {
+        if (!stop) setSupported(false);
+        return;
+      }
+
+      try {
+        const [keyInfo, reg] = await Promise.all([
+          api.pushPublicKey(),
+          getPushRegistration(),
+        ]);
+        const sub = await reg.pushManager.getSubscription();
+        if (stop) return;
+        setConfigured(keyInfo.configured && !!keyInfo.publicKey);
+        if (!sub) {
+          setEnabled(false);
+          return;
+        }
+        const status = await api.pushSubscriptionStatus(sub.endpoint).catch(
+          () => null,
+        );
+        if (!stop) setEnabled(!!status?.chatEnabled);
+      } catch {
+        if (!stop) setSupported(false);
+      }
+    }
+
+    load();
+    return () => {
+      stop = true;
+    };
+  }, []);
+
+  async function enable() {
+    setErr("");
+    setBusy(true);
+    try {
+      const sub = await ensurePushSubscription();
+      await api.savePushSubscription(pushSubscriptionPayload(sub), {
+        chatEnabled: true,
+      });
+      setEnabled(true);
+      toast("Chat notifications enabled on this device");
+    } catch (e: any) {
+      const msg = e?.message ?? "Failed to enable chat notifications";
+      setErr(msg);
+      toast(msg, "err");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function disable() {
+    setErr("");
+    setBusy(true);
+    try {
+      const reg = await getPushRegistration();
+      const sub = await reg.pushManager.getSubscription();
+      if (sub) await api.updatePushPreferences(sub.endpoint, { chatEnabled: false });
+      setEnabled(false);
+      toast("Chat notifications disabled on this device");
+    } catch (e: any) {
+      const msg = e?.message ?? "Failed to disable chat notifications";
+      setErr(msg);
+      toast(msg, "err");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  return (
+    <div className="notify-row chat-notify-row">
+      <div>
+        <div className="notify-title">Chat notifications</div>
+        <div className="notify-sub">
+          {supported
+            ? configured
+              ? "Get a notification on this device when another trader sends a chat message."
+              : "Server VAPID keys are missing, so chat notifications are currently off."
+            : "This browser does not support web push. On iPhone, install the site to your Home Screen first."}
+        </div>
+        {err && <div className="err mini-err">{err}</div>}
+      </div>
+      <button
+        className={`${enabled ? "ghost" : "primary"} inline`}
+        onClick={enabled ? disable : enable}
+        disabled={busy || !supported || !configured}
+      >
+        {busy ? (
+          <span className="spin" />
+        ) : enabled ? (
+          "Disable chat alerts"
+        ) : (
+          "Enable chat alerts"
         )}
       </button>
     </div>
@@ -2686,6 +2812,7 @@ function ChatBox() {
   return (
     <div className="card rise d1 chat">
       <h3>Chat</h3>
+      <ChatNotificationToggle />
       <div className="chat-feed">
         {messages.length === 0 && (
           <p className="sub">No messages yet. Say hi.</p>

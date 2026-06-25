@@ -197,6 +197,11 @@ export interface PushSubscriptionPayload {
     auth: string;
   };
 }
+export interface PushSubscriptionStatus {
+  subscribed: boolean;
+  tradeEnabled: boolean;
+  chatEnabled: boolean;
+}
 
 export interface AdminNotificationResult {
   ok: true;
@@ -374,10 +379,26 @@ export const api = {
       body: JSON.stringify({ text }),
     }),
   pushPublicKey: () => req<PushPublicKey>("/push/public-key"),
-  savePushSubscription: (subscription: PushSubscriptionPayload) =>
+  pushSubscriptionStatus: (endpoint: string) =>
+    req<PushSubscriptionStatus>("/push/subscription/status", {
+      method: "POST",
+      body: JSON.stringify({ endpoint }),
+    }),
+  savePushSubscription: (
+    subscription: PushSubscriptionPayload,
+    prefs?: { tradeEnabled?: boolean; chatEnabled?: boolean },
+  ) =>
     req<{ ok: true }>("/push/subscription", {
       method: "POST",
-      body: JSON.stringify(subscription),
+      body: JSON.stringify({ ...subscription, ...(prefs ?? {}) }),
+    }),
+  updatePushPreferences: (
+    endpoint: string,
+    prefs: { tradeEnabled?: boolean; chatEnabled?: boolean },
+  ) =>
+    req<{ ok: true }>("/push/subscription/preferences", {
+      method: "PATCH",
+      body: JSON.stringify({ endpoint, ...prefs }),
     }),
   deletePushSubscription: (endpoint: string) =>
     req<{ ok: true }>("/push/subscription", {
