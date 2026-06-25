@@ -218,6 +218,34 @@ export interface DiscoverCoin {
   migrated: boolean;
   creator?: string | null;
   redirectedAt?: string | null;
+  source?: string | null;
+  signature?: string | null;
+  authority?: string | null;
+  sharingConfig?: string | null;
+  metadataUpdatedAt?: string | null;
+  isLikelyAgent?: boolean;
+  isLikelyCharity?: boolean;
+  classificationReason?: string | null;
+}
+
+export interface DiscoverMetadata {
+  mint: string;
+  ticker: string | null;
+  name: string | null;
+  image: string | null;
+  marketCapUsd: number | null;
+  creator: string | null;
+  source: string | null;
+  signature: string | null;
+  authority: string | null;
+  sharingConfig: string | null;
+  firstSeenAt: string;
+  redirectedAt: string;
+  metadataUpdatedAt: string | null;
+  isLikelyAgent: boolean;
+  isLikelyCharity: boolean;
+  classificationReason: string | null;
+  metadata: unknown;
 }
 
 export const api = {
@@ -346,10 +374,17 @@ export const api = {
     req<{ ok: true }>(`/snipes/${id}/cancel`, { method: "POST" }),
   cancelExit: (id: string) =>
     req<{ snipe: Snipe }>(`/snipes/${id}/cancel-exit`, { method: "POST" }),
-  discover: () =>
-    req<{ coins: DiscoverCoin[]; configured: boolean; message?: string }>(
-      "/discover",
-    ),
+  discover: (includeSpecial = false) =>
+    req<{
+      coins: DiscoverCoin[];
+      configured: boolean;
+      message?: string;
+      total?: number;
+      includeSpecial?: boolean;
+      mode?: string;
+    }>(`/discover?includeSpecial=${includeSpecial ? "true" : "false"}`),
+  discoverMetadata: (mint: string) =>
+    req<DiscoverMetadata>(`/discover/${encodeURIComponent(mint)}/metadata`),
   discoverHide: (mint: string) =>
     req<{ ok: true }>("/discover/hide", {
       method: "POST",

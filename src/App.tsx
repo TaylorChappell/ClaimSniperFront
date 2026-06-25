@@ -22,6 +22,7 @@ import {
   type ChatMessage,
   type AdminLog,
   type DiscoverCoin,
+  type DiscoverMetadata,
   type TakeProfitEntry,
 } from "./api";
 import { useLeaderPolling } from "./sync";
@@ -3018,6 +3019,14 @@ function Discover({
   const [sort, setSort] = useState<DiscoverSort>(
     () => (localStorage.getItem("cs.discSort") as DiscoverSort) || "new",
   );
+  const [includeSpecial, setIncludeSpecial] = useState<boolean>(
+    () => localStorage.getItem("cs.discIncludeSpecial") === "true",
+  );
+  const [tab, setTab] = useState<"coins" | "metadata">("coins");
+  const [selectedMetaMint, setSelectedMetaMint] = useState<string | null>(null);
+  const [metadata, setMetadata] = useState<DiscoverMetadata | null>(null);
+  const [metadataLoading, setMetadataLoading] = useState(false);
+  const [metadataError, setMetadataError] = useState<string | null>(null);
   const [snipeMint, setSnipeMint] = useState<string | null>(null);
   const [page, setPage] = useState(0);
   const PAGE = 20;
@@ -3053,9 +3062,16 @@ function Discover({
   useEffect(() => {
     localStorage.setItem("cs.discFilters", JSON.stringify(f));
   }, [f]);
+  useEffect(() => {
+    localStorage.setItem("cs.discIncludeSpecial", includeSpecial ? "true" : "false");
+  }, [includeSpecial]);
 
   function hide(mint: string) {
     setCoins((prev) => prev.filter((c) => c.mint !== mint));
+    if (selectedMetaMint === mint) {
+      setSelectedMetaMint(null);
+      setMetadata(null);
+    }
     api.discoverHide(mint).catch(() => load());
   }
   function resetHidden() {
@@ -3066,8 +3082,9 @@ function Discover({
   }
 
   function load() {
+    setLoading(true);
     api
-      .discover()
+      .discover(includeSpecial)
       .then((r) => {
         setCoins(r.coins);
         setMsg(
@@ -3077,11 +3094,27 @@ function Discover({
       .catch((e) => setMsg(e.message))
       .finally(() => setLoading(false));
   }
+
   useEffect(() => {
     load();
     const t = setInterval(load, 20000);
     return () => clearInterval(t);
-  }, []);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [includeSpecial]);
+
+  useEffect(() => {
+    if (tab !== "metadata" || !selectedMetaMint) return;
+    setMetadataLoading(true);
+    setMetadataError(null);
+    api
+      .discoverMetadata(selectedMetaMint)
+      .then(setMetadata)
+      .catch((e) => {
+        setMetadata(null);
+        setMetadataError(e.message);
+      })
+      .finally(() => setMetadataLoading(false));
+  }, [tab, selectedMetaMint]);
 
   const sorted = useMemo(() => {
     const numOr = (s: string, d: number) => {
@@ -3102,7 +3135,6 @@ function Discover({
         : Infinity;
 
     const c = coins.filter((x) => {
-      // A set MC/Vol bound excludes coins with no value for that field.
       if (hasMc) {
         if (x.marketCapUsd == null) return false;
         if (x.marketCapUsd < mcMin || x.marketCapUsd > mcMax) return false;
@@ -3143,17 +3175,36 @@ function Discover({
     return c;
   }, [coins, sort, f]);
 
-  useEffect(() => setPage(0), [sort, f]);
+  useEffect(() => setPage(0), [sort, f, includeSpecial]);
   const pages = Math.max(1, Math.ceil(sorted.length / PAGE));
   const pageClamped = Math.min(page, pages - 1);
   const visible = sorted.slice(pageClamped * PAGE, pageClamped * PAGE + PAGE);
+  const specialCount = coins.filter((c) => c.isLikelyAgent || c.isLikelyCharity).length;
+  const metadataCoin = coins.find((c) => c.mint === selectedMetaMint) ?? null;
 
   return (
     <div className="discover">
       <div className="card">
         <div className="disc-head">
-          <h2>Discover</h2>
+          <div>
+            <h2>Discover</h2>
+            <div className="hint">
+              DB-backed redirect index. This page does not check every token on-chain.
+            </div>
+          </div>
           <div className="disc-controls">
+            <button
+              className={`ghost mini ${tab === "coins" ? "on" : ""}`}
+              onClick={() => setTab("coins")}
+            >
+              Coins
+            </button>
+            <button
+              className={`ghost mini ${tab === "metadata" ? "on" : ""}`}
+              onClick={() => setTab("metadata")}
+            >
+              Token metadata
+            </button>
             <button className="ghost mini" onClick={resetHidden}>
               Reset hidden
             </button>
@@ -3162,6 +3213,14 @@ function Discover({
               onClick={() => setShowFilters((v) => !v)}
             >
               Filters{activeFilters ? " •" : ""}
+            </button>
+            <button
+              className={`ghost mini ${includeSpecial ? "on" : ""}`}
+              title="Agent/charity detection is metadata keyword based, not a perfect on-chain flag."
+              onClick={() => setIncludeSpecial((v) => !v)}
+            >
+              {includeSpecial ? "Showing" : "Hiding"} agent/charity
+              {specialCount ? ` (${specialCount})` : ""}
             </button>
             <select
               value={sort}
@@ -3244,99 +3303,183 @@ function Discover({
             </button>
           </div>
         )}
-        {loading && <div className="empty">Loading…</div>}
-        {!loading && msg && <div className="empty">{msg}</div>}
-        {!loading && !msg && coins.length === 0 && (
-          <div className="empty">
-            No redirected coins yet. This list fills live as coins have their
-            fees redirected to another wallet.
-          </div>
-        )}
-        {!loading && !msg && coins.length > 0 && sorted.length === 0 && (
-          <div className="empty">No coins match your filters.</div>
-        )}
-        <div className="disc-list">
-          {visible.map((c) => (
-            <div className="disc-row" key={c.mint}>
-              <div className="disc-coin">
-                {c.image ? (
-                  <img
-                    className="disc-img"
-                    src={c.image}
-                    alt=""
-                    loading="lazy"
-                  />
-                ) : (
-                  <div className="disc-img placeholder" />
-                )}
-                <div className="disc-id">
-                  <div className="disc-name">
-                    <span className="disc-tk">
-                      {c.ticker ? `$${c.ticker}` : short(c.mint)}
-                    </span>
-                    {c.creator && (
-                      <span
-                        className="tp-chip"
-                        title={`Fees redirected to ${c.creator}`}
-                      >
-                        → {short(c.creator)}
-                      </span>
-                    )}
-                    {c.migrated && <span className="tp-chip">migrated</span>}
-                  </div>
-                  <CopyCA mint={c.mint} />
-                </div>
+
+        {tab === "metadata" ? (
+          <div className="metadata-tab">
+            <div className="meta-toolbar">
+              <div className="ff meta-select">
+                <label>Token</label>
+                <select
+                  value={selectedMetaMint ?? ""}
+                  onChange={(e) => setSelectedMetaMint(e.target.value || null)}
+                >
+                  <option value="">Select a redirected token…</option>
+                  {coins.map((c) => (
+                    <option key={c.mint} value={c.mint}>
+                      {c.ticker ? `$${c.ticker}` : short(c.mint)} · {short(c.mint)}
+                    </option>
+                  ))}
+                </select>
               </div>
-              <div className="disc-stats">
-                <div className="disc-stat">
-                  <span>MC</span>
-                  <b>{compactUsd(c.marketCapUsd)}</b>
-                </div>
-                <div className="disc-stat">
-                  <span>Vol</span>
-                  <b>{compactUsd(c.volumeUsd)}</b>
-                </div>
-                <div className="disc-stat">
-                  <span>Age</span>
-                  <b>{ago(c.createdAt)}</b>
-                </div>
-              </div>
-              <button
-                className="primary inline disc-snipe"
-                onClick={() => setSnipeMint(c.mint)}
-              >
-                Snipe
-              </button>
-              <button
-                className="disc-hide"
-                title="Hide from my list"
-                onClick={() => hide(c.mint)}
-              >
-                ×
-              </button>
+              {metadataCoin && (
+                <button
+                  className="primary inline"
+                  onClick={() => setSnipeMint(metadataCoin.mint)}
+                >
+                  Snipe this token
+                </button>
+              )}
             </div>
-          ))}
-        </div>
-        {sorted.length > PAGE && (
-          <div className="pager">
-            <button
-              className="ghost mini"
-              disabled={pageClamped === 0}
-              onClick={() => setPage(pageClamped - 1)}
-            >
-              Previous
-            </button>
-            <span className="dim">
-              Page {pageClamped + 1} of {pages} · {sorted.length} coins
-            </span>
-            <button
-              className="ghost mini"
-              disabled={pageClamped >= pages - 1}
-              onClick={() => setPage(pageClamped + 1)}
-            >
-              Next
-            </button>
+            {!selectedMetaMint && (
+              <div className="empty">Pick a token to inspect all saved metadata.</div>
+            )}
+            {selectedMetaMint && metadataLoading && <div className="empty">Loading metadata…</div>}
+            {selectedMetaMint && metadataError && <div className="err">{metadataError}</div>}
+            {selectedMetaMint && metadata && !metadataLoading && (
+              <div className="meta-grid">
+                <div className="meta-summary">
+                  {metadata.image ? <img className="disc-img" src={metadata.image} alt="" /> : null}
+                  <div>
+                    <div className="disc-name">
+                      <span className="disc-tk">
+                        {metadata.ticker ? `$${metadata.ticker}` : short(metadata.mint)}
+                      </span>
+                      {metadata.isLikelyAgent && <span className="tp-chip">agent?</span>}
+                      {metadata.isLikelyCharity && <span className="tp-chip">charity?</span>}
+                    </div>
+                    <div className="hint">{metadata.name ?? metadata.mint}</div>
+                    <CopyCA mint={metadata.mint} />
+                  </div>
+                </div>
+                <div className="meta-kv">
+                  <div><span>MC</span><b>{compactUsd(metadata.marketCapUsd)}</b></div>
+                  <div><span>Redirect source</span><b>{metadata.source ?? "—"}</b></div>
+                  <div><span>Fee owner</span><b>{metadata.creator ? short(metadata.creator) : "—"}</b></div>
+                  <div><span>Updated</span><b>{metadata.metadataUpdatedAt ? ago(metadata.metadataUpdatedAt) : "—"}</b></div>
+                  <div><span>Classification</span><b>{metadata.classificationReason ?? "none"}</b></div>
+                </div>
+                <pre className="debug-out meta-json">
+                  {JSON.stringify(metadata, null, 2)}
+                </pre>
+              </div>
+            )}
           </div>
+        ) : (
+          <>
+            {loading && <div className="empty">Loading…</div>}
+            {!loading && msg && <div className="empty">{msg}</div>}
+            {!loading && !msg && coins.length === 0 && (
+              <div className="empty">
+                No redirected coins yet. This list fills live as coins have their
+                fees redirected to another wallet.
+              </div>
+            )}
+            {!loading && !msg && coins.length > 0 && sorted.length === 0 && (
+              <div className="empty">No coins match your filters.</div>
+            )}
+            <div className="disc-list">
+              {visible.map((c) => (
+                <div className="disc-row" key={c.mint}>
+                  <div className="disc-coin">
+                    {c.image ? (
+                      <img
+                        className="disc-img"
+                        src={c.image}
+                        alt=""
+                        loading="lazy"
+                      />
+                    ) : (
+                      <div className="disc-img placeholder" />
+                    )}
+                    <div className="disc-id">
+                      <div className="disc-name">
+                        <span className="disc-tk">
+                          {c.ticker ? `$${c.ticker}` : short(c.mint)}
+                        </span>
+                        {c.creator && (
+                          <span
+                            className="tp-chip"
+                            title={`Fees redirected to ${c.creator}`}
+                          >
+                            → {short(c.creator)}
+                          </span>
+                        )}
+                        {c.isLikelyAgent && (
+                          <span className="tp-chip" title={c.classificationReason ?? "Metadata matched agent keywords"}>
+                            agent?
+                          </span>
+                        )}
+                        {c.isLikelyCharity && (
+                          <span className="tp-chip" title={c.classificationReason ?? "Metadata matched charity keywords"}>
+                            charity?
+                          </span>
+                        )}
+                        {c.migrated && <span className="tp-chip">migrated</span>}
+                      </div>
+                      <CopyCA mint={c.mint} />
+                    </div>
+                  </div>
+                  <div className="disc-stats">
+                    <div className="disc-stat">
+                      <span>MC</span>
+                      <b>{compactUsd(c.marketCapUsd)}</b>
+                    </div>
+                    <div className="disc-stat">
+                      <span>Src</span>
+                      <b title={c.source ?? "—"}>{c.source ? c.source.replace("_fee_sharing_config", "_fee").replace("update_fee_shares_v2", "shares_v2") : "—"}</b>
+                    </div>
+                    <div className="disc-stat">
+                      <span>Age</span>
+                      <b>{ago(c.createdAt)}</b>
+                    </div>
+                  </div>
+                  <button
+                    className="ghost mini"
+                    onClick={() => {
+                      setSelectedMetaMint(c.mint);
+                      setTab("metadata");
+                    }}
+                  >
+                    Meta
+                  </button>
+                  <button
+                    className="primary inline disc-snipe"
+                    onClick={() => setSnipeMint(c.mint)}
+                  >
+                    Snipe
+                  </button>
+                  <button
+                    className="disc-hide"
+                    title="Hide from my list"
+                    onClick={() => hide(c.mint)}
+                  >
+                    ×
+                  </button>
+                </div>
+              ))}
+            </div>
+            {sorted.length > PAGE && (
+              <div className="pager">
+                <button
+                  className="ghost mini"
+                  disabled={pageClamped === 0}
+                  onClick={() => setPage(pageClamped - 1)}
+                >
+                  Previous
+                </button>
+                <span className="dim">
+                  Page {pageClamped + 1} of {pages} · {sorted.length} coins
+                </span>
+                <button
+                  className="ghost mini"
+                  disabled={pageClamped >= pages - 1}
+                  onClick={() => setPage(pageClamped + 1)}
+                >
+                  Next
+                </button>
+              </div>
+            )}
+          </>
         )}
       </div>
 
