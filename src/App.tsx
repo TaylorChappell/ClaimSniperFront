@@ -673,7 +673,9 @@ function Snipes({ snipes, onChange }: { snipes: Snipe[]; wallets: Wallet[]; onCh
           <div className="head">
             <span className="ticker">
               {s.ticker ? `$${s.ticker}` : short(s.mint)}
-              {s.onlyRedirected && <span className="redir-tag" title="Only fires on a specific wallet's claims">redirected</span>}
+              <span className={`mode-tag ${s.triggerMode === 'REDIRECT' ? 'mode-redirect' : 'mode-claim'}`}>
+                {s.triggerMode === 'REDIRECT' ? 'REDIRECT' : 'CLAIM'}
+              </span>
             </span>
             <span className={`badge ${s.status}`}>
               {s.status === 'ARMED' && <span className="dot" />}
@@ -687,7 +689,6 @@ function Snipes({ snipes, onChange }: { snipes: Snipe[]; wallets: Wallet[]; onCh
             <span>slip {s.slippagePct}%</span>
             <span>prio {s.priorityFee}</span>
             {s.bribe > 0 && <span>bribe {s.bribe}</span>}
-            {s.triggerMode === "REDIRECT" && <span className="tp-chip">redirect</span>}
             {s.watchWallet && <span className="tp-chip">{s.triggerMode === "REDIRECT" ? "to " : "watch "}{short(s.watchWallet)}</span>}
             {s.tpEnabled && s.tpStatus !== 'CANCELLED' && (
               <span className="tp-chip">TP{s.tpTrailing ? ' trail' : ''} {s.tpMultiplier}× · {s.tpSellPct}% · {s.tpStatus.toLowerCase()}</span>
@@ -1196,7 +1197,7 @@ function Social({ wallets, onCopied }: { wallets: Wallet[]; onCopied: () => void
   const [users, setUsers] = useState<SocialUser[]>([]);
   const [trending, setTrending] = useState<TrendingCoin[]>([]);
   const [openUserId, setOpenUserId] = useState<string | null>(null);
-  const [copy, setCopy] = useState<{ mint: string; ticker?: string | null; triggerMode: 'CLAIM' | 'REDIRECT' } | null>(null);
+  const [copy, setCopy] = useState<{ mint: string; ticker?: string | null; triggerMode: 'CLAIM' | 'REDIRECT'; source?: PublicSnipe } | null>(null);
 
   function load() {
     api.socialUsers().then((r) => setUsers(r.users)).catch(() => {});
@@ -1260,7 +1261,7 @@ function Social({ wallets, onCopied }: { wallets: Wallet[]; onCopied: () => void
         <UserSnipesModal
           userId={openUserId}
           onClose={() => setOpenUserId(null)}
-          onCopy={(s) => setCopy({ mint: s.mint, ticker: s.ticker, triggerMode: s.triggerMode === 'REDIRECT' ? 'REDIRECT' : 'CLAIM' })}
+          onCopy={(s) => setCopy({ mint: s.mint, ticker: s.ticker, triggerMode: s.triggerMode === 'REDIRECT' ? 'REDIRECT' : 'CLAIM', source: s })}
         />
       )}
       {copy && (
@@ -1268,6 +1269,7 @@ function Social({ wallets, onCopied }: { wallets: Wallet[]; onCopied: () => void
           mint={copy.mint}
           ticker={copy.ticker}
           triggerMode={copy.triggerMode}
+          source={copy.source}
           wallets={wallets}
           onClose={() => setCopy(null)}
           onCopied={() => { setCopy(null); toast('Snipe armed from copied coin'); onCopied(); }}
@@ -1403,18 +1405,18 @@ function UserSnipesModal({ userId, onClose, onCopy }: { userId: string; onClose:
 }
 
 function CopyPublicModal({
-  mint, ticker, triggerMode, wallets, onClose, onCopied,
-}: { mint: string; ticker?: string | null; triggerMode: 'CLAIM' | 'REDIRECT'; wallets: Wallet[]; onClose: () => void; onCopied: () => void }) {
+  mint, ticker, triggerMode, source, wallets, onClose, onCopied,
+}: { mint: string; ticker?: string | null; triggerMode: 'CLAIM' | 'REDIRECT'; source?: PublicSnipe; wallets: Wallet[]; onClose: () => void; onCopied: () => void }) {
   const toast = useToast();
   const [walletId, setWalletId] = useState('');
-  const [amount, setAmount] = useState('');
-  const [slippage, setSlippage] = useState('15');
-  const [priority, setPriority] = useState(() => localStorage.getItem('cs.priority') ?? '0.0005');
-  const [bribe, setBribe] = useState(() => localStorage.getItem('cs.bribe') ?? '0');
-  const [execMode, setExecMode] = useState<'PUMPPORTAL' | 'LOCAL'>('PUMPPORTAL');
-  const [onlyWallet, setOnlyWallet] = useState(false);
-  const [watchWallet, setWatchWallet] = useState('');
-  const ex = useExit();
+  const [amount, setAmount] = useState(source?.amountSol != null ? String(source.amountSol) : '');
+  const [slippage, setSlippage] = useState(source?.slippagePct != null ? String(source.slippagePct) : '15');
+  const [priority, setPriority] = useState(source?.priorityFee != null ? String(source.priorityFee) : (localStorage.getItem('cs.priority') ?? '0.0005'));
+  const [bribe, setBribe] = useState(source?.bribe != null ? String(source.bribe) : (localStorage.getItem('cs.bribe') ?? '0'));
+  const [execMode, setExecMode] = useState<'PUMPPORTAL' | 'LOCAL'>(source?.execMode === 'LOCAL' ? 'LOCAL' : 'PUMPPORTAL');
+  const [onlyWallet, setOnlyWallet] = useState(!!source?.watchWallet);
+  const [watchWallet, setWatchWallet] = useState(source?.watchWallet ?? '');
+  const ex = useExit(source as Partial<Snipe> | undefined);
   const [busy, setBusy] = useState(false);
 
   const ready = walletId && Number(amount) > 0 && (!onlyWallet || watchWallet.trim().length >= 32);

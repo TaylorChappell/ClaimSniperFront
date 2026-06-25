@@ -113,9 +113,23 @@ export interface PublicSnipe {
   status: string;
   triggerMode?: 'CLAIM' | 'REDIRECT';
   execMode?: 'PUMPPORTAL' | 'LOCAL';
+  slippagePct?: number;
+  priorityFee?: number;
+  bribe?: number;
+  watchWallet?: string | null;
+  onlyRedirected?: boolean;
   tpEnabled: boolean;
   tpMultiplier?: number | null;
+  tpSellPct?: number | null;
+  tpSlippagePct?: number | null;
+  tpTrailing?: boolean;
+  tpTrailPct?: number | null;
+  tpStatus?: string;
   slEnabled?: boolean;
+  slPct?: number | null;
+  slTrailing?: boolean;
+  slTrailPct?: number | null;
+  slSlippagePct?: number | null;
   createdAt: string;
   filledAt?: string | null;
 }
