@@ -1937,6 +1937,7 @@ function ExitFields({ ex }: { ex: ReturnType<typeof useExit> }) {
                     <strong>Take profit {index + 1}</strong>
                     {ex.takeProfits.length > 1 && (
                       <button
+                        type="button"
                         className="ghost mini"
                         onClick={() => ex.removeTakeProfit(index)}
                       >
@@ -1987,16 +1988,21 @@ function ExitFields({ ex }: { ex: ReturnType<typeof useExit> }) {
                 </div>
               ))}
             </div>
-            <button
-              className="ghost tp-add"
-              onClick={ex.addTakeProfit}
-              disabled={ex.takeProfits.length >= 3}
-            >
-              + Add take profit
-            </button>
+            <div className="tp-add-wrap">
+              <button
+                type="button"
+                className="tp-add"
+                onClick={ex.addTakeProfit}
+                disabled={ex.takeProfits.length >= 3}
+              >
+                + Add another take profit
+                <span>{ex.takeProfits.length}/3</span>
+              </button>
+            </div>
             <div className="hint">
-              Each entry sells its percentage of your wallet's current remaining
-              token balance when that MC multiple is reached. Max 3 entries.
+              Add up to 3 take-profit entries. Each entry sells its percentage
+              of your wallet's current remaining token balance when that MC
+              multiple is reached.
             </div>
           </div>
         )}
