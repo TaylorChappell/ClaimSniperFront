@@ -1885,7 +1885,6 @@ function useExit(initial?: Partial<Snipe>) {
       slippagePct: Number(tp.slippagePct),
     }));
     const first = cleanTakeProfits[0];
-
     return {
       tpEnabled: tpOn,
       // Fixed TP mode uses the ladder. Trailing TP mode uses the legacy scalar
@@ -1896,7 +1895,8 @@ function useExit(initial?: Partial<Snipe>) {
       tpSlippagePct: first?.slippagePct ?? 20,
       tpTrailing: tpOn ? tpTrail : false,
       // Do not send 0 for this when trailing is disabled. The backend validates
-      // tpTrailPct as min 0.1 whenever the field exists.
+      // tpTrailPct as min 0.1 whenever the field exists. This affects both the
+      // normal Arm button and social copy trade, because both call ex.build().
       ...(tpOn && tpTrail ? { tpTrailPct: Number(tpTrailPct) } : {}),
       slEnabled: slOn,
       ...(slOn
