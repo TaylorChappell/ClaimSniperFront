@@ -156,6 +156,19 @@ export interface AdminLog {
   createdAt: string;
 }
 
+export interface PushPublicKey {
+  configured: boolean;
+  publicKey: string | null;
+}
+
+export interface PushSubscriptionPayload {
+  endpoint: string;
+  keys: {
+    p256dh: string;
+    auth: string;
+  };
+}
+
 export interface DiscoverCoin {
   mint: string;
   ticker: string | null;
@@ -235,6 +248,11 @@ export const api = {
   socialChatLatest: () => req<{ latest: string | null }>('/social/chat/latest'),
   socialSend: (text: string) =>
     req<{ message: ChatMessage }>('/social/chat', { method: 'POST', body: JSON.stringify({ text }) }),
+  pushPublicKey: () => req<PushPublicKey>('/push/public-key'),
+  savePushSubscription: (subscription: PushSubscriptionPayload) =>
+    req<{ ok: true }>('/push/subscription', { method: 'POST', body: JSON.stringify(subscription) }),
+  deletePushSubscription: (endpoint: string) =>
+    req<{ ok: true }>('/push/subscription', { method: 'DELETE', body: JSON.stringify({ endpoint }) }),
   cancelSnipe: (id: string) => req<{ ok: true }>(`/snipes/${id}/cancel`, { method: 'POST' }),
   cancelExit: (id: string) => req<{ snipe: Snipe }>(`/snipes/${id}/cancel-exit`, { method: 'POST' }),
   discover: () => req<{ coins: DiscoverCoin[]; configured: boolean; message?: string }>('/discover'),

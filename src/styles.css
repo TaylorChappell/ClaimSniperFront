@@ -484,6 +484,26 @@ button.ghost.mini { padding: 5px 10px; font-size: 11px; border: 1px solid var(--
 .admin-row .dim { color: var(--muted); font-size: 12px; font-variant-numeric: tabular-nums; }
 .admin-row.total { background: var(--surface-2); border: 1px solid var(--line); font-weight: 600; }
 
+
+.notify-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 14px;
+  margin: 0 0 14px;
+  padding: 12px 14px;
+  border: 1px solid var(--line);
+  border-radius: 14px;
+  background: rgba(255, 255, 255, 0.035);
+}
+.notify-title { font-size: 13px; font-weight: 800; }
+.notify-sub { margin-top: 3px; color: var(--muted); font-size: 12px; line-height: 1.35; }
+.mini-err { margin-top: 6px; font-size: 12px; }
+@media (max-width: 650px) {
+  .notify-row { align-items: stretch; flex-direction: column; }
+  .notify-row .inline { width: 100%; }
+}
+
 /* social + chat + logs */
 .social .grid { align-items: start; }
 .card h3 { margin: 0 0 12px; font-size: 15px; }

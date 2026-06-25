@@ -1190,7 +1190,144 @@ function TriggerModeSelect({ value, onChange }: { value: 'CLAIM' | 'REDIRECT'; o
   );
 }
 
+
+function urlBase64ToUint8Array(base64: string) {
+  const padding = '='.repeat((4 - (base64.length % 4)) % 4);
+  const normalized = `${base64}${padding}`.replace(/-/g, '+').replace(/_/g, '/');
+  const raw = window.atob(normalized);
+  const output = new Uint8Array(raw.length);
+  for (let i = 0; i < raw.length; i++) output[i] = raw.charCodeAt(i);
+  return output;
+}
+
+function pushSubscriptionPayload(sub: PushSubscription) {
+  const json = sub.toJSON();
+  if (!json.endpoint || !json.keys?.p256dh || !json.keys?.auth) throw new Error('Browser returned an invalid push subscription');
+  return {
+    endpoint: json.endpoint,
+    keys: {
+      p256dh: json.keys.p256dh,
+      auth: json.keys.auth,
+    },
+  };
+}
+
+async function getPushRegistration() {
+  if (!('serviceWorker' in navigator) || !('PushManager' in window) || !('Notification' in window)) {
+    throw new Error('This browser does not support web push notifications');
+  }
+  return navigator.serviceWorker.register(`${import.meta.env.BASE_URL}sw.js`);
+}
+
 /* ---------------- social ---------------- */
+
+function NotificationToggle() {
+  const toast = useToast();
+  const [supported, setSupported] = useState(true);
+  const [configured, setConfigured] = useState(true);
+  const [enabled, setEnabled] = useState(false);
+  const [busy, setBusy] = useState(false);
+  const [err, setErr] = useState('');
+
+  useEffect(() => {
+    let stop = false;
+
+    async function load() {
+      const canUse = 'serviceWorker' in navigator && 'PushManager' in window && 'Notification' in window;
+      if (!canUse) {
+        if (!stop) setSupported(false);
+        return;
+      }
+
+      try {
+        const [keyInfo, reg] = await Promise.all([api.pushPublicKey(), getPushRegistration()]);
+        const sub = await reg.pushManager.getSubscription();
+        if (stop) return;
+        setConfigured(keyInfo.configured && !!keyInfo.publicKey);
+        setEnabled(!!sub);
+      } catch {
+        if (!stop) setSupported(false);
+      }
+    }
+
+    load();
+    return () => { stop = true; };
+  }, []);
+
+  async function enable() {
+    setErr('');
+    setBusy(true);
+    try {
+      const keyInfo = await api.pushPublicKey();
+      if (!keyInfo.configured || !keyInfo.publicKey) throw new Error('Notifications are not configured on the server yet');
+
+      const permission = await Notification.requestPermission();
+      if (permission !== 'granted') throw new Error('Notification permission was not granted');
+
+      const reg = await getPushRegistration();
+      const existing = await reg.pushManager.getSubscription();
+      const sub = existing ?? await reg.pushManager.subscribe({
+        userVisibleOnly: true,
+        applicationServerKey: urlBase64ToUint8Array(keyInfo.publicKey),
+      });
+
+      await api.savePushSubscription(pushSubscriptionPayload(sub));
+      setEnabled(true);
+      toast('Notifications enabled on this device');
+    } catch (e: any) {
+      const msg = e?.message ?? 'Failed to enable notifications';
+      setErr(msg);
+      toast(msg, 'err');
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function disable() {
+    setErr('');
+    setBusy(true);
+    try {
+      const reg = await getPushRegistration();
+      const sub = await reg.pushManager.getSubscription();
+      if (sub) {
+        await api.deletePushSubscription(sub.endpoint).catch(() => {});
+        await sub.unsubscribe().catch(() => {});
+      }
+      setEnabled(false);
+      toast('Notifications disabled on this device');
+    } catch (e: any) {
+      const msg = e?.message ?? 'Failed to disable notifications';
+      setErr(msg);
+      toast(msg, 'err');
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  return (
+    <div className="notify-row">
+      <div>
+        <div className="notify-title">Device alerts</div>
+        <div className="notify-sub">
+          {supported
+            ? configured
+              ? 'Get a notification on this device when one of your snipes fills or fails.'
+              : 'Server VAPID keys are missing, so notifications are currently off.'
+            : 'This browser does not support web push. On iPhone, install the site to your Home Screen first.'}
+        </div>
+        {err && <div className="err mini-err">{err}</div>}
+      </div>
+      <button
+        className={`${enabled ? 'ghost' : 'primary'} inline`}
+        onClick={enabled ? disable : enable}
+        disabled={busy || !supported || !configured}
+      >
+        {busy ? <span className="spin" /> : enabled ? 'Disable notifications' : 'Enable notifications'}
+      </button>
+    </div>
+  );
+}
+
 function Social({ wallets, onCopied }: { wallets: Wallet[]; onCopied: () => void }) {
   const toast = useToast();
   const [tab, setTab] = useState<'trending' | 'traders' | 'chat'>('trending');
@@ -1216,6 +1353,8 @@ function Social({ wallets, onCopied }: { wallets: Wallet[]; onCopied: () => void
         <button className={`seg-btn ${tab === 'traders' ? 'on' : ''}`} onClick={() => setTab('traders')}>Traders</button>
         <button className={`seg-btn ${tab === 'chat' ? 'on' : ''}`} onClick={() => setTab('chat')}>Chat</button>
       </div>
+
+      <NotificationToggle />
 
       {tab === 'trending' ? (
         <div className="card rise d1">
