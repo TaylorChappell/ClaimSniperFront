@@ -214,6 +214,12 @@ export interface DiscoverCoin {
   marketCapUsd: number | null;
   volumeUsd: number | null;
   liquidityUsd: number | null;
+  priceUsd: number | null;
+  pairAddress: string | null;
+  pairDexId: string | null;
+  pairUrl: string | null;
+  pairCreatedAt: string | null;
+  marketDataUpdatedAt: string | null;
   createdAt: string | null;
   migrated: boolean;
   creator?: string | null;
@@ -234,6 +240,14 @@ export interface DiscoverMetadata {
   name: string | null;
   image: string | null;
   marketCapUsd: number | null;
+  volumeUsd: number | null;
+  liquidityUsd: number | null;
+  priceUsd: number | null;
+  pairAddress: string | null;
+  pairDexId: string | null;
+  pairUrl: string | null;
+  pairCreatedAt: string | null;
+  marketDataUpdatedAt: string | null;
   creator: string | null;
   source: string | null;
   signature: string | null;

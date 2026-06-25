@@ -1885,6 +1885,7 @@ function useExit(initial?: Partial<Snipe>) {
       slippagePct: Number(tp.slippagePct),
     }));
     const first = cleanTakeProfits[0];
+
     return {
       tpEnabled: tpOn,
       // Fixed TP mode uses the ladder. Trailing TP mode uses the legacy scalar
@@ -1894,12 +1895,18 @@ function useExit(initial?: Partial<Snipe>) {
       tpSellPct: first?.sellPct ?? 100,
       tpSlippagePct: first?.slippagePct ?? 20,
       tpTrailing: tpOn ? tpTrail : false,
-      tpTrailPct: tpTrail ? Number(tpTrailPct) : 0,
+      // Do not send 0 for this when trailing is disabled. The backend validates
+      // tpTrailPct as min 0.1 whenever the field exists.
+      ...(tpOn && tpTrail ? { tpTrailPct: Number(tpTrailPct) } : {}),
       slEnabled: slOn,
-      slPct: Number(slPct),
-      slTrailing: slTrail,
-      slTrailPct: Number(slTrailPct),
-      slSlippagePct: Number(slSlip),
+      ...(slOn
+        ? {
+            slPct: Number(slPct),
+            slTrailing: slTrail,
+            slTrailPct: Number(slTrailPct),
+            slSlippagePct: Number(slSlip),
+          }
+        : { slTrailing: false }),
     };
   };
 
@@ -3353,6 +3360,11 @@ function Discover({
                 </div>
                 <div className="meta-kv">
                   <div><span>MC</span><b>{compactUsd(metadata.marketCapUsd)}</b></div>
+                  <div><span>Vol 24h</span><b>{compactUsd(metadata.volumeUsd)}</b></div>
+                  <div><span>Liquidity</span><b>{compactUsd(metadata.liquidityUsd)}</b></div>
+                  <div><span>Price</span><b>{metadata.priceUsd != null ? `$${metadata.priceUsd.toExponential(3)}` : "—"}</b></div>
+                  <div><span>Pair</span><b>{metadata.pairDexId ?? "—"}</b></div>
+                  <div><span>Market updated</span><b>{metadata.marketDataUpdatedAt ? ago(metadata.marketDataUpdatedAt) : "—"}</b></div>
                   <div><span>Redirect source</span><b>{metadata.source ?? "—"}</b></div>
                   <div><span>Fee owner</span><b>{metadata.creator ? short(metadata.creator) : "—"}</b></div>
                   <div><span>Updated</span><b>{metadata.metadataUpdatedAt ? ago(metadata.metadataUpdatedAt) : "—"}</b></div>
@@ -3425,8 +3437,12 @@ function Discover({
                       <b>{compactUsd(c.marketCapUsd)}</b>
                     </div>
                     <div className="disc-stat">
-                      <span>Src</span>
-                      <b title={c.source ?? "—"}>{c.source ? c.source.replace("_fee_sharing_config", "_fee").replace("update_fee_shares_v2", "shares_v2") : "—"}</b>
+                      <span>Vol</span>
+                      <b>{compactUsd(c.volumeUsd)}</b>
+                    </div>
+                    <div className="disc-stat">
+                      <span>Liq</span>
+                      <b>{compactUsd(c.liquidityUsd)}</b>
                     </div>
                     <div className="disc-stat">
                       <span>Age</span>
