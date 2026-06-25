@@ -169,6 +169,14 @@ export interface PushSubscriptionPayload {
   };
 }
 
+export interface AdminNotificationResult {
+  ok: true;
+  total: number;
+  sent: number;
+  failed: number;
+  removed: number;
+}
+
 export interface DiscoverCoin {
   mint: string;
   ticker: string | null;
@@ -232,6 +240,8 @@ export const api = {
   adminUsers: () => req<{ users: AdminUser[] }>('/admin/users'),
   adminUserSnipes: (id: string) =>
     req<{ username: string; payWallet: string | null; snipes: Snipe[]; wallets: { id: string; name: string; publicKey: string }[] }>(`/admin/users/${id}/snipes`),
+  adminSendNotification: (title: string, body: string, url?: string) =>
+    req<AdminNotificationResult>('/admin/notifications/test', { method: 'POST', body: JSON.stringify({ title, body, url }) }),
   adminLogs: (userId?: string, level?: string) => {
     const p = new URLSearchParams();
     if (userId) p.set('userId', userId);

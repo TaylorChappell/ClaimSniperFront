@@ -800,7 +800,7 @@ function History({ snipes }: { snipes: Snipe[] }) {
 /* ---------------- admin panel (MrKnowBody / Rich) ---------------- */
 function AdminPanel({ wallets }: { wallets: Wallet[] }) {
   const toast = useToast();
-  const [tab, setTab] = useState<'armed' | 'users' | 'logs'>('armed');
+  const [tab, setTab] = useState<'armed' | 'users' | 'logs' | 'notify'>('armed');
   const [armed, setArmed] = useState<AdminSnipe[]>([]);
   const [users, setUsers] = useState<AdminUser[]>([]);
   const [sel, setSel] = useState<{ username: string; payWallet?: string | null; snipes: Snipe[]; wallets?: { id: string; name: string; publicKey: string }[] } | null>(null);
@@ -849,6 +849,7 @@ function AdminPanel({ wallets }: { wallets: Wallet[] }) {
         <button className={`seg-btn ${tab === 'armed' ? 'on' : ''}`} onClick={() => setTab('armed')}>Armed ({armed.length})</button>
         <button className={`seg-btn ${tab === 'users' ? 'on' : ''}`} onClick={() => setTab('users')}>Users ({users.length})</button>
         <button className={`seg-btn ${tab === 'logs' ? 'on' : ''}`} onClick={() => setTab('logs')}>Logs</button>
+        <button className={`seg-btn ${tab === 'notify' ? 'on' : ''}`} onClick={() => setTab('notify')}>Send notification</button>
       </div>
 
       {loading ? (
@@ -896,6 +897,8 @@ function AdminPanel({ wallets }: { wallets: Wallet[] }) {
             </div>
           ))}
         </div>
+      ) : tab === 'notify' ? (
+        <AdminNotificationTester />
       ) : (
         <div className="admin-list">
           <div className="filter-row">
@@ -974,6 +977,60 @@ function AdminPanel({ wallets }: { wallets: Wallet[] }) {
           onClose={() => setCopyFrom(null)}
           onCopied={() => { setCopyFrom(null); reloadArmed(); }}
         />
+      )}
+    </div>
+  );
+}
+
+
+function AdminNotificationTester() {
+  const toast = useToast();
+  const [title, setTitle] = useState('Claim Sniper test');
+  const [body, setBody] = useState('This is a test notification from the admin panel.');
+  const [url, setUrl] = useState('/');
+  const [busy, setBusy] = useState(false);
+  const [last, setLast] = useState<{ total: number; sent: number; failed: number; removed: number } | null>(null);
+
+  async function send() {
+    setBusy(true);
+    setLast(null);
+    try {
+      const res = await api.adminSendNotification(title, body, url || '/');
+      setLast(res);
+      toast(`Notification sent to ${res.sent}/${res.total} device(s)`, res.sent > 0 ? 'fill' : 'ok');
+    } catch (e: any) {
+      toast(e.message, 'err');
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  return (
+    <div className="admin-notify-card">
+      <h3>Send test notification</h3>
+      <p className="sub">Sends a browser push notification to every device that has enabled notifications.</p>
+
+      <label>Title</label>
+      <input value={title} maxLength={80} onChange={(e) => setTitle(e.target.value)} />
+
+      <label>Message</label>
+      <textarea value={body} maxLength={240} onChange={(e) => setBody(e.target.value)} rows={4} />
+
+      <label>Open URL</label>
+      <input value={url} onChange={(e) => setUrl(e.target.value)} placeholder="/" />
+      <div className="hint">Use / for the app home, or a relative path if you add one later.</div>
+
+      <button className="primary inline" onClick={send} disabled={busy || !title.trim() || !body.trim()}>
+        {busy ? <span className="spin" /> : 'Send notification'}
+      </button>
+
+      {last && (
+        <div className="notify-result">
+          <span>devices: {last.total}</span>
+          <span>sent: {last.sent}</span>
+          <span>failed: {last.failed}</span>
+          <span>removed: {last.removed}</span>
+        </div>
       )}
     </div>
   );

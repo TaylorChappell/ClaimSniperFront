@@ -484,6 +484,45 @@ button.ghost.mini { padding: 5px 10px; font-size: 11px; border: 1px solid var(--
 .admin-row .dim { color: var(--muted); font-size: 12px; font-variant-numeric: tabular-nums; }
 .admin-row.total { background: var(--surface-2); border: 1px solid var(--line); font-weight: 600; }
 
+.admin-notify-card {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  max-width: 640px;
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  padding: 18px;
+}
+.admin-notify-card h3 { margin: 0; }
+.admin-notify-card textarea {
+  resize: vertical;
+  min-height: 96px;
+  background: var(--surface-2);
+  color: var(--text);
+  border: 1px solid var(--line);
+  border-radius: var(--radius-sm);
+  padding: 10px 12px;
+  font-family: var(--sans);
+  font-size: 14px;
+}
+.notify-result {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-top: 4px;
+  font-family: var(--mono);
+  font-size: 12px;
+  color: var(--muted);
+}
+.notify-result span {
+  padding: 5px 8px;
+  border: 1px solid var(--line-soft);
+  border-radius: 999px;
+  background: var(--surface-2);
+}
+
+
 
 .notify-row {
   display: flex;
