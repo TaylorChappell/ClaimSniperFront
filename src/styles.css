@@ -59,7 +59,7 @@ a:hover { text-decoration: underline; }
   40% { box-shadow: 0 0 0 1px var(--green), 0 0 34px 4px var(--green-glow); }
   100% { box-shadow: 0 0 0 1px var(--green), 0 0 22px var(--green-glow); }
 }
-.rise { animation: rise 0.5s cubic-bezier(0.2, 0.7, 0.2, 1) both; }
+.rise { animation: rise 0.5s cubic-bezier(0.2, 0.7, 0.2, 1) backwards; }
 .rise.d1 { animation-delay: 0.06s; }
 .rise.d2 { animation-delay: 0.12s; }
 .rise.d3 { animation-delay: 0.18s; }
@@ -616,3 +616,6 @@ button.ghost.mini { padding: 5px 10px; font-size: 11px; border: 1px solid var(--
 }
 .mode-tag.mode-claim { background: rgba(34,197,94,0.14); color: var(--green); border: 1px solid rgba(34,197,94,0.3); }
 .mode-tag.mode-redirect { background: rgba(245,158,11,0.14); color: #f59e0b; border: 1px solid rgba(245,158,11,0.3); }
+
+/* Lock background scroll while any modal/overlay is open */
+html:has(.modal-overlay), body:has(.modal-overlay) { overflow: hidden; }
