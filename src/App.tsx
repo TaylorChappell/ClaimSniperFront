@@ -1824,8 +1824,12 @@ function useExit(initial?: Partial<Snipe>) {
   const [tpOn, setTpOn] = useState(
     initial ? !!initial.tpEnabled && initial.tpStatus !== "CANCELLED" : false,
   );
+  const [tpTrail, setTpTrail] = useState(!!initial?.tpTrailing);
   const [takeProfits, setTakeProfits] = useState<TpDraft[]>(() =>
     initialTpDrafts(initial),
+  );
+  const [tpTrailPct, setTpTrailPct] = useState(
+    String(initial?.tpTrailPct ?? 20),
   );
   const [slOn, setSlOn] = useState(!!initial?.slEnabled);
   const [slTrail, setSlTrail] = useState(!!initial?.slTrailing);
@@ -1882,13 +1886,14 @@ function useExit(initial?: Partial<Snipe>) {
     const first = cleanTakeProfits[0];
     return {
       tpEnabled: tpOn,
-      takeProfits: tpOn ? cleanTakeProfits : [],
-      // legacy mirror for older API paths
+      // Fixed TP mode uses the ladder. Trailing TP mode uses the legacy scalar
+      // fields below because it is one activation point + one trailing sell rule.
+      takeProfits: tpOn && !tpTrail ? cleanTakeProfits : [],
       tpMultiplier: first?.multiplier ?? 2,
       tpSellPct: first?.sellPct ?? 100,
       tpSlippagePct: first?.slippagePct ?? 20,
-      tpTrailing: false,
-      tpTrailPct: 0,
+      tpTrailing: tpOn ? tpTrail : false,
+      tpTrailPct: tpTrail ? Number(tpTrailPct) : 0,
       slEnabled: slOn,
       slPct: Number(slPct),
       slTrailing: slTrail,
@@ -1900,10 +1905,14 @@ function useExit(initial?: Partial<Snipe>) {
   return {
     tpOn,
     setTpOn,
+    tpTrail,
+    setTpTrail,
     takeProfits,
     addTakeProfit,
     removeTakeProfit,
     updateTakeProfit,
+    tpTrailPct,
+    setTpTrailPct,
     slOn,
     setSlOn,
     slTrail,
@@ -1919,6 +1928,12 @@ function useExit(initial?: Partial<Snipe>) {
 }
 
 function ExitFields({ ex }: { ex: ReturnType<typeof useExit> }) {
+  const trailTp = ex.takeProfits[0] ?? {
+    multiplier: "2",
+    sellPct: "100",
+    slippagePct: "20",
+  };
+
   return (
     <>
       <div className={`tp-box ${ex.tpOn ? "on" : ""}`}>
@@ -1930,80 +1945,146 @@ function ExitFields({ ex }: { ex: ReturnType<typeof useExit> }) {
         </label>
         {ex.tpOn && (
           <div className="tp-fields">
-            <div className="tp-ladder">
-              {ex.takeProfits.map((tp, index) => (
-                <div className="tp-entry" key={index}>
-                  <div className="tp-entry-head">
-                    <strong>Take profit {index + 1}</strong>
-                    {ex.takeProfits.length > 1 && (
-                      <button
-                        type="button"
-                        className="ghost mini"
-                        onClick={() => ex.removeTakeProfit(index)}
-                      >
-                        Remove
-                      </button>
-                    )}
+            <label
+              className="switch-row sub"
+              onClick={() => ex.setTpTrail((v) => !v)}
+            >
+              <span className={`switch ${ex.tpTrail ? "on" : ""}`}>
+                <span className="knob" />
+              </span>
+              Trailing
+            </label>
+
+            {ex.tpTrail ? (
+              <>
+                <div className="row">
+                  <div>
+                    <label>Activate at MC ×</label>
+                    <input
+                      value={trailTp.multiplier}
+                      onChange={(e) =>
+                        ex.updateTakeProfit(0, "multiplier", e.target.value)
+                      }
+                      placeholder="2"
+                    />
                   </div>
-                  <div className="row">
-                    <div>
-                      <label>Sell at MC ×</label>
-                      <input
-                        value={tp.multiplier}
-                        onChange={(e) =>
-                          ex.updateTakeProfit(
-                            index,
-                            "multiplier",
-                            e.target.value,
-                          )
-                        }
-                        placeholder="2"
-                      />
-                    </div>
-                    <div>
-                      <label>Sell %</label>
-                      <input
-                        value={tp.sellPct}
-                        onChange={(e) =>
-                          ex.updateTakeProfit(index, "sellPct", e.target.value)
-                        }
-                        placeholder="50"
-                      />
-                    </div>
-                    <div>
-                      <label>Slippage %</label>
-                      <input
-                        value={tp.slippagePct}
-                        onChange={(e) =>
-                          ex.updateTakeProfit(
-                            index,
-                            "slippagePct",
-                            e.target.value,
-                          )
-                        }
-                        placeholder="20"
-                      />
-                    </div>
+                  <div>
+                    <label>Sell %</label>
+                    <input
+                      value={trailTp.sellPct}
+                      onChange={(e) =>
+                        ex.updateTakeProfit(0, "sellPct", e.target.value)
+                      }
+                      placeholder="100"
+                    />
+                  </div>
+                  <div>
+                    <label>Trail drop %</label>
+                    <input
+                      value={ex.tpTrailPct}
+                      onChange={(e) => ex.setTpTrailPct(e.target.value)}
+                      placeholder="20"
+                    />
+                  </div>
+                  <div>
+                    <label>Slippage %</label>
+                    <input
+                      value={trailTp.slippagePct}
+                      onChange={(e) =>
+                        ex.updateTakeProfit(0, "slippagePct", e.target.value)
+                      }
+                      placeholder="20"
+                    />
                   </div>
                 </div>
-              ))}
-            </div>
-            <div className="tp-add-wrap">
-              <button
-                type="button"
-                className="tp-add"
-                onClick={ex.addTakeProfit}
-                disabled={ex.takeProfits.length >= 3}
-              >
-                + Add another take profit
-                <span>{ex.takeProfits.length}/3</span>
-              </button>
-            </div>
-            <div className="hint">
-              Add up to 3 take-profit entries. Each entry sells its percentage
-              of your wallet's current remaining token balance when that MC
-              multiple is reached.
-            </div>
+                <div className="hint">
+                  After MC hits {trailTp.multiplier || "?"}× entry, it tracks
+                  the peak and sells {trailTp.sellPct || "?"}% when MC drops{" "}
+                  {ex.tpTrailPct || "?"}% from that peak.
+                </div>
+              </>
+            ) : (
+              <>
+                <div className="tp-ladder">
+                  {ex.takeProfits.map((tp, index) => (
+                    <div className="tp-entry" key={index}>
+                      <div className="tp-entry-head">
+                        <strong>Take profit {index + 1}</strong>
+                        {ex.takeProfits.length > 1 && (
+                          <button
+                            type="button"
+                            className="ghost mini"
+                            onClick={() => ex.removeTakeProfit(index)}
+                          >
+                            Remove
+                          </button>
+                        )}
+                      </div>
+                      <div className="row">
+                        <div>
+                          <label>Sell at MC ×</label>
+                          <input
+                            value={tp.multiplier}
+                            onChange={(e) =>
+                              ex.updateTakeProfit(
+                                index,
+                                "multiplier",
+                                e.target.value,
+                              )
+                            }
+                            placeholder="2"
+                          />
+                        </div>
+                        <div>
+                          <label>Sell %</label>
+                          <input
+                            value={tp.sellPct}
+                            onChange={(e) =>
+                              ex.updateTakeProfit(
+                                index,
+                                "sellPct",
+                                e.target.value,
+                              )
+                            }
+                            placeholder="50"
+                          />
+                        </div>
+                        <div>
+                          <label>Slippage %</label>
+                          <input
+                            value={tp.slippagePct}
+                            onChange={(e) =>
+                              ex.updateTakeProfit(
+                                index,
+                                "slippagePct",
+                                e.target.value,
+                              )
+                            }
+                            placeholder="20"
+                          />
+                        </div>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+                <div className="tp-add-wrap">
+                  <button
+                    type="button"
+                    className="tp-add"
+                    onClick={ex.addTakeProfit}
+                    disabled={ex.takeProfits.length >= 3}
+                  >
+                    + Add another take profit
+                    <span>{ex.takeProfits.length}/3</span>
+                  </button>
+                </div>
+                <div className="hint">
+                  Add up to 3 take-profit entries. Each entry sells its
+                  percentage of your wallet's current remaining token balance
+                  when that MC multiple is reached.
+                </div>
+              </>
+            )}
           </div>
         )}
       </div>
