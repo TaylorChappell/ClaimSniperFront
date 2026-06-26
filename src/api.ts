@@ -1,5 +1,4 @@
 const BASE = import.meta.env.VITE_API_URL ?? "http://localhost:8080";
-const DISCOVER_BASE = import.meta.env.VITE_DISCOVER_API_URL ?? BASE;
 
 let token: string | null = localStorage.getItem("token");
 export const getToken = () => token;
@@ -9,9 +8,9 @@ export function setToken(t: string | null) {
   else localStorage.removeItem("token");
 }
 
-async function req<T>(path: string, opts: RequestInit = {}, base = BASE): Promise<T> {
+async function req<T>(path: string, opts: RequestInit = {}): Promise<T> {
   const hasBody = opts.body != null;
-  const res = await fetch(base + path, {
+  const res = await fetch(BASE + path, {
     ...opts,
     headers: {
       ...(hasBody ? { "Content-Type": "application/json" } : {}),
@@ -451,20 +450,16 @@ export const api = {
       total?: number;
       includeSpecial?: boolean;
       mode?: string;
-    }>(`/discover?includeSpecial=${includeSpecial ? "true" : "false"}`, {}, DISCOVER_BASE),
+    }>(`/discover?includeSpecial=${includeSpecial ? "true" : "false"}`),
   discoverMetadata: (mint: string) =>
-<<<<<<< HEAD
-    req<DiscoverMetadata>(`/discover/${encodeURIComponent(mint)}/metadata`, {}, DISCOVER_BASE),
-  resolveTokenMarket: (mint: string) =>
-    req<DiscoverCoin>(`/tokens/${encodeURIComponent(mint)}/market/resolve`, { method: "POST" }, DISCOVER_BASE),
-=======
     req<DiscoverMetadata>(`/discover/${encodeURIComponent(mint)}/metadata`),
->>>>>>> parent of de87e6d (Update)
+  resolveTokenMarket: (mint: string) =>
+    req<DiscoverCoin>(`/tokens/${encodeURIComponent(mint)}/market/resolve`, { method: "POST" }),
   discoverHide: (mint: string) =>
     req<{ ok: true }>("/discover/hide", {
       method: "POST",
       body: JSON.stringify({ mint }),
-    }, DISCOVER_BASE),
+    }),
   discoverResetHidden: () =>
-    req<{ ok: true }>("/discover/reset-hidden", { method: "POST" }, DISCOVER_BASE),
+    req<{ ok: true }>("/discover/reset-hidden", { method: "POST" }),
 };
