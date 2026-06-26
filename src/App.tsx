@@ -24,16 +24,30 @@ import {
   type DiscoverCoin,
   type DiscoverMetadata,
   type TakeProfitEntry,
+  type Profile,
+  type TradingPlatform,
 } from "./api";
 import { useLeaderPolling } from "./sync";
 
 const BRAND_IMG = `${import.meta.env.BASE_URL}sniper.png`;
+const DEFAULT_CHAT_COLOR = "#20e070";
+const DEFAULT_PLATFORM: TradingPlatform = "AXIOM";
 const short = (s: string) => `${s.slice(0, 4)}…${s.slice(-4)}`;
+function defaultProfile(username: string, admin = false): Profile {
+  return {
+    username,
+    paid: true,
+    admin,
+    avatarDataUrl: null,
+    chatColor: DEFAULT_CHAT_COLOR,
+    tradingPlatform: DEFAULT_PLATFORM,
+  };
+}
 
-function initialViewFromUrl(): "dashboard" | "history" | "social" | "discover" | "admin" {
+function initialViewFromUrl(): "dashboard" | "history" | "social" | "discover" | "settings" | "admin" {
   if (typeof window === "undefined") return "dashboard";
   const view = new URLSearchParams(window.location.search).get("view");
-  return view === "history" || view === "social" || view === "discover" || view === "admin"
+  return view === "history" || view === "social" || view === "discover" || view === "settings" || view === "admin"
     ? view
     : "dashboard";
 }
@@ -297,6 +311,250 @@ function PayScreen({
   );
 }
 
+
+function AvatarBubble({
+  username,
+  avatarDataUrl,
+  size = "md",
+}: {
+  username: string;
+  avatarDataUrl?: string | null;
+  size?: "sm" | "md" | "lg";
+}) {
+  const letter = username.trim().slice(0, 1).toUpperCase() || "?";
+  return avatarDataUrl ? (
+    <img className={`avatar ${size}`} src={avatarDataUrl} alt={`${username} avatar`} />
+  ) : (
+    <div className={`avatar ${size} avatar-fallback`}>{letter}</div>
+  );
+}
+
+function ProfileMenu({
+  profile,
+  openSettings,
+  onLogout,
+}: {
+  profile: Profile;
+  openSettings: () => void;
+  onLogout: () => void;
+}) {
+  const [open, setOpen] = useState(false);
+  const wrapRef = useRef<HTMLDivElement | null>(null);
+
+  useEffect(() => {
+    if (!open) return;
+    const onDown = (event: MouseEvent) => {
+      if (!wrapRef.current) return;
+      if (!wrapRef.current.contains(event.target as Node)) setOpen(false);
+    };
+    window.addEventListener("mousedown", onDown);
+    return () => window.removeEventListener("mousedown", onDown);
+  }, [open]);
+
+  return (
+    <div className="profile-menu" ref={wrapRef}>
+      <button
+        className={`profile-trigger ${open ? "on" : ""}`}
+        aria-label="Profile menu"
+        onClick={() => setOpen((v) => !v)}
+      >
+        <AvatarBubble username={profile.username} avatarDataUrl={profile.avatarDataUrl} />
+      </button>
+      {open && (
+        <div className="profile-dropdown">
+          <div className="profile-card-head">
+            <AvatarBubble username={profile.username} avatarDataUrl={profile.avatarDataUrl} size="lg" />
+            <div>
+              <div className="profile-name" style={{ color: profile.chatColor }}>
+                @{profile.username}
+              </div>
+              <div className="profile-platform">{platformLabel(profile.tradingPlatform)}</div>
+            </div>
+          </div>
+          <button
+            className="profile-row"
+            onClick={() => {
+              setOpen(false);
+              openSettings();
+            }}
+          >
+            <span>⚙</span>
+            <b>Settings</b>
+            <em>›</em>
+          </button>
+          <button className="profile-row danger" onClick={onLogout}>
+            <span>↪</span>
+            <b>Log out</b>
+          </button>
+        </div>
+      )}
+    </div>
+  );
+}
+
+const PLATFORMS: { id: TradingPlatform; label: string; icon: string }[] = [
+  { id: "AXIOM", label: "Axiom", icon: "A" },
+  { id: "GMGN", label: "GMGN", icon: "G" },
+  { id: "TERMINAL", label: "Terminal", icon: "⌁" },
+];
+
+function platformLabel(platform: TradingPlatform | string | null | undefined) {
+  return PLATFORMS.find((p) => p.id === platform)?.label ?? "Axiom";
+}
+
+function SettingsPage({
+  profile,
+  onUpdated,
+}: {
+  profile: Profile;
+  onUpdated: (profile: Profile) => void;
+}) {
+  const toast = useToast();
+  const fileRef = useRef<HTMLInputElement | null>(null);
+  const [avatarDataUrl, setAvatarDataUrl] = useState<string | null>(profile.avatarDataUrl ?? null);
+  const [chatColor, setChatColor] = useState(profile.chatColor || DEFAULT_CHAT_COLOR);
+  const [tradingPlatform, setTradingPlatform] = useState<TradingPlatform>(
+    profile.tradingPlatform || DEFAULT_PLATFORM,
+  );
+  const [busy, setBusy] = useState(false);
+
+  useEffect(() => {
+    setAvatarDataUrl(profile.avatarDataUrl ?? null);
+    setChatColor(profile.chatColor || DEFAULT_CHAT_COLOR);
+    setTradingPlatform(profile.tradingPlatform || DEFAULT_PLATFORM);
+  }, [profile.avatarDataUrl, profile.chatColor, profile.tradingPlatform]);
+
+  async function pickAvatar(file: File | undefined) {
+    if (!file) return;
+    if (!file.type.startsWith("image/")) {
+      toast("Upload an image file", "err");
+      return;
+    }
+    try {
+      const data = await resizeAvatar(file);
+      setAvatarDataUrl(data);
+    } catch (e: any) {
+      toast(e?.message ?? "Could not read avatar", "err");
+    }
+  }
+
+  async function save() {
+    setBusy(true);
+    try {
+      const res = await api.updateProfile({
+        avatarDataUrl,
+        chatColor,
+        tradingPlatform,
+      });
+      onUpdated(res.profile);
+      toast("Settings saved");
+    } catch (e: any) {
+      toast(e.message, "err");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  return (
+    <div className="settings-page rise d1">
+      <div className="card settings-card">
+        <h2>Settings</h2>
+        <div className="settings-profile-row">
+          <button className="avatar-edit" onClick={() => fileRef.current?.click()}>
+            <AvatarBubble username={profile.username} avatarDataUrl={avatarDataUrl} size="lg" />
+            <span className="avatar-edit-icon">✎</span>
+          </button>
+          <input
+            ref={fileRef}
+            type="file"
+            accept="image/png,image/jpeg,image/webp,image/gif"
+            hidden
+            onChange={(e) => pickAvatar(e.target.files?.[0])}
+          />
+          <div className="settings-identity">
+            <div className="settings-name-line">
+              <span style={{ color: chatColor }}>@{profile.username}</span>
+              <label className="mini-color" title="Chat name colour">
+                <input type="color" value={chatColor} onChange={(e) => setChatColor(e.target.value)} />
+                <span>●</span>
+              </label>
+            </div>
+            <div className="hint">Your avatar and name colour show in chat.</div>
+          </div>
+        </div>
+
+        <div className="settings-section">
+          <label>Chat colour</label>
+          <div className="color-row">
+            <input type="color" value={chatColor} onChange={(e) => setChatColor(e.target.value)} />
+            <input value={chatColor} onChange={(e) => setChatColor(normalizeHexInput(e.target.value))} />
+          </div>
+        </div>
+
+        <div className="settings-section">
+          <label>Trading platform of choice</label>
+          <div className="platform-grid">
+            {PLATFORMS.map((platform) => (
+              <button
+                key={platform.id}
+                className={`platform-card ${tradingPlatform === platform.id ? "on" : ""}`}
+                onClick={() => setTradingPlatform(platform.id)}
+              >
+                <span className={`platform-icon ${platform.id.toLowerCase()}`}>{platform.icon}</span>
+                <b>{platform.label}</b>
+              </button>
+            ))}
+          </div>
+        </div>
+
+        <button className="primary" onClick={save} disabled={busy}>
+          {busy ? <span className="spin" /> : "Save settings"}
+        </button>
+      </div>
+    </div>
+  );
+}
+
+function normalizeHexInput(value: string) {
+  const trimmed = value.trim();
+  if (/^#[0-9a-f]{0,6}$/i.test(trimmed)) return trimmed;
+  if (/^[0-9a-f]{0,6}$/i.test(trimmed)) return `#${trimmed}`;
+  return DEFAULT_CHAT_COLOR;
+}
+
+function resizeAvatar(file: File): Promise<string> {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onerror = () => reject(new Error("Could not read avatar"));
+    reader.onload = () => {
+      const img = new Image();
+      img.onerror = () => reject(new Error("Could not load avatar image"));
+      img.onload = () => {
+        const canvas = document.createElement("canvas");
+        const size = 256;
+        canvas.width = size;
+        canvas.height = size;
+        const ctx = canvas.getContext("2d");
+        if (!ctx) return reject(new Error("Could not process avatar"));
+        const scale = Math.max(size / img.width, size / img.height);
+        const w = img.width * scale;
+        const h = img.height * scale;
+        const x = (size - w) / 2;
+        const y = (size - h) / 2;
+        ctx.clearRect(0, 0, size, size);
+        ctx.drawImage(img, x, y, w, h);
+        resolve(canvas.toDataURL("image/webp", 0.82));
+      };
+      img.src = String(reader.result);
+    };
+    reader.readAsDataURL(file);
+  });
+}
+
+function ChatAvatar({ message }: { message: ChatMessage }) {
+  return <AvatarBubble username={message.username} avatarDataUrl={message.avatarDataUrl} size="sm" />;
+}
+
 /* ---------------- dashboard ---------------- */
 function Dashboard({
   username,
@@ -359,8 +617,24 @@ function Dashboard({
   const stats = data?.stats ?? null;
 
   const [view, setView] = useState<
-    "dashboard" | "history" | "social" | "discover" | "admin"
+    "dashboard" | "history" | "social" | "discover" | "settings" | "admin"
   >(() => initialViewFromUrl());
+  const [profile, setProfile] = useState<Profile>(() => defaultProfile(username, admin));
+
+  useEffect(() => {
+    let stop = false;
+    api
+      .profile()
+      .then((r) => {
+        if (stop) return;
+        setProfile(r.profile);
+        localStorage.setItem("username", r.profile.username);
+      })
+      .catch(() => {});
+    return () => {
+      stop = true;
+    };
+  }, []);
   const [menuOpen, setMenuOpen] = useState(false);
   const [dashTab, setDashTab] = useState<"arm" | "snipes" | "wallets">("arm");
   const filled = useMemo(
@@ -457,11 +731,15 @@ function Dashboard({
               Admin
             </button>
           )}
-          <span className="user">@{username}</span>
-          <button className="ghost" onClick={onLogout}>
-            Sign out
-          </button>
         </div>
+        <ProfileMenu
+          profile={profile}
+          openSettings={() => {
+            setView("settings");
+            setMenuOpen(false);
+          }}
+          onLogout={onLogout}
+        />
       </div>
 
       {view === "history" ? (
@@ -480,6 +758,14 @@ function Dashboard({
           onSniped={() => {
             refresh();
             go("dashboard");
+          }}
+        />
+      ) : view === "settings" ? (
+        <SettingsPage
+          profile={profile}
+          onUpdated={(next) => {
+            setProfile(next);
+            localStorage.setItem("username", next.username);
           }}
         />
       ) : view === "admin" ? (
@@ -2850,8 +3136,13 @@ function ChatBox() {
         )}
         {messages.map((m) => (
           <div className="chat-msg" key={m.id}>
-            <span className="chat-user">@{m.username}</span>
-            <span className="chat-text">{m.text}</span>
+            <ChatAvatar message={m} />
+            <div className="chat-bubble">
+              <span className="chat-user" style={{ color: m.chatColor || DEFAULT_CHAT_COLOR }}>
+                @{m.username}
+              </span>
+              <span className="chat-text">{m.text}</span>
+            </div>
           </div>
         ))}
       </div>

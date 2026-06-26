@@ -32,6 +32,15 @@ export interface Wallet {
   publicKey: string;
   balanceSol?: number;
 }
+export type TradingPlatform = "AXIOM" | "GMGN" | "TERMINAL";
+export interface Profile {
+  username: string;
+  paid: boolean;
+  admin: boolean;
+  avatarDataUrl: string | null;
+  chatColor: string;
+  tradingPlatform: TradingPlatform;
+}
 export interface TakeProfitEntryCfg {
   multiplier: number;
   sellPct: number;
@@ -124,6 +133,9 @@ export interface AdminUser {
 export interface SocialUser {
   id: string;
   username: string;
+  avatarDataUrl?: string | null;
+  chatColor?: string | null;
+  tradingPlatform?: TradingPlatform | null;
   createdAt: string;
   snipeCount: number;
   filledCount: number;
@@ -175,6 +187,9 @@ export interface ChatMessage {
   username: string;
   text: string;
   createdAt: string;
+  avatarDataUrl?: string | null;
+  chatColor?: string | null;
+  tradingPlatform?: TradingPlatform | null;
 }
 export interface AdminLog {
   id: string;
@@ -269,7 +284,7 @@ export interface DiscoverMetadata {
 
 export const api = {
   register: (username: string, password: string) =>
-    req<{ token: string; username: string; paid: boolean; admin: boolean }>(
+    req<{ token: string } & Profile>(
       "/auth/register",
       {
         method: "POST",
@@ -277,15 +292,24 @@ export const api = {
       },
     ),
   login: (username: string, password: string) =>
-    req<{ token: string; username: string; paid: boolean; admin: boolean }>(
+    req<{ token: string } & Profile>(
       "/auth/login",
       {
         method: "POST",
         body: JSON.stringify({ username, password }),
       },
     ),
-  me: () =>
-    req<{ username: string; paid: boolean; admin: boolean }>("/auth/me"),
+  me: () => req<Profile>("/auth/me"),
+  profile: () => req<{ profile: Profile }>("/profile"),
+  updateProfile: (body: {
+    avatarDataUrl?: string | null;
+    chatColor?: string;
+    tradingPlatform?: TradingPlatform;
+  }) =>
+    req<{ profile: Profile }>("/profile", {
+      method: "PATCH",
+      body: JSON.stringify(body),
+    }),
   billingStatus: () => req<BillingStatus>("/billing/status"),
   walletsWithBalances: () => req<{ wallets: Wallet[] }>("/wallets/balances"),
   addWallet: (name: string, privateKey: string) =>
