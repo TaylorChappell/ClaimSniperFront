@@ -453,6 +453,8 @@ export const api = {
     }>(`/discover?includeSpecial=${includeSpecial ? "true" : "false"}`),
   discoverMetadata: (mint: string) =>
     req<DiscoverMetadata>(`/discover/${encodeURIComponent(mint)}/metadata`),
+  resolveTokenMarket: (mint: string) =>
+    req<DiscoverCoin>(`/tokens/${encodeURIComponent(mint)}/market/resolve`, { method: "POST" }),
   discoverHide: (mint: string) =>
     req<{ ok: true }>("/discover/hide", {
       method: "POST",
