@@ -1,4 +1,5 @@
 import {
+  type MouseEvent as ReactMouseEvent,
   createContext,
   useCallback,
   useContext,
@@ -42,6 +43,56 @@ function defaultProfile(username: string, admin = false): Profile {
     chatColor: DEFAULT_CHAT_COLOR,
     tradingPlatform: DEFAULT_PLATFORM,
   };
+}
+
+
+type TradeOpenTarget = {
+  mint: string;
+  pairAddress?: string | null;
+  pairUrl?: string | null;
+  ticker?: string | null;
+};
+
+function tradingPlatformLabel(platform: TradingPlatform) {
+  if (platform === "GMGN") return "GMGN";
+  if (platform === "TERMINAL") return "Terminal";
+  return "Axiom";
+}
+
+function tradingPlatformUrl(platform: TradingPlatform, token: TradeOpenTarget) {
+  const mint = token.mint?.trim();
+  const pair = token.pairAddress?.trim();
+
+  if (platform === "GMGN") {
+    return mint ? `https://gmgn.ai/sol/token/${mint}` : null;
+  }
+
+  if (platform === "TERMINAL") {
+    return pair ? `https://trade.padre.gg/trade/solana/${pair}` : null;
+  }
+
+  return pair ? `https://axiom.trade/meme/${pair}` : null;
+}
+
+function openInTradingPlatform(
+  platform: TradingPlatform,
+  token: TradeOpenTarget,
+  toast?: (text: string, kind?: ToastKind) => void,
+) {
+  const url = tradingPlatformUrl(platform, token);
+  if (!url) {
+    toast?.(
+      `${tradingPlatformLabel(platform)} needs a pair address for this token, but it has not been indexed yet. Use GMGN or wait for market data to refresh.`,
+      "err",
+    );
+    return;
+  }
+  window.open(url, "_blank", "noopener,noreferrer");
+}
+
+function isInteractiveClick(e: ReactMouseEvent<HTMLElement>) {
+  const el = e.target as HTMLElement | null;
+  return !!el?.closest("button,a,input,select,textarea,label");
 }
 
 function initialViewFromUrl(): "dashboard" | "history" | "social" | "discover" | "settings" | "admin" {
@@ -743,10 +794,11 @@ function Dashboard({
       </div>
 
       {view === "history" ? (
-        <History />
+        <History tradingPlatform={profile.tradingPlatform} />
       ) : view === "social" ? (
         <Social
           wallets={wallets}
+          tradingPlatform={profile.tradingPlatform}
           onCopied={() => {
             refresh();
             go("dashboard");
@@ -813,7 +865,12 @@ function Dashboard({
             </>
           ) : (
             <div className="rise d1">
-              <Snipes snipes={snipes} wallets={wallets} onChange={refresh} />
+              <Snipes
+                snipes={snipes}
+                wallets={wallets}
+                tradingPlatform={profile.tradingPlatform}
+                onChange={refresh}
+              />
             </div>
           )}
         </div>
@@ -1358,10 +1415,12 @@ function EditSnipeModal({
 /* ---------------- snipes ---------------- */
 function Snipes({
   snipes,
+  tradingPlatform,
   onChange,
 }: {
   snipes: Snipe[];
   wallets: Wallet[];
+  tradingPlatform: TradingPlatform;
   onChange: () => void;
 }) {
   const toast = useToast();
@@ -1392,6 +1451,18 @@ function Snipes({
         <div
           className={`snipe ${s.status} ${exiting.has(s.id) ? "exiting" : ""}`}
           key={s.id}
+          role="button"
+          tabIndex={0}
+          title={`Open in ${tradingPlatformLabel(tradingPlatform)}`}
+          onClick={(e) => {
+            if (isInteractiveClick(e)) return;
+            openInTradingPlatform(tradingPlatform, s, toast);
+          }}
+          onKeyDown={(e) => {
+            if (e.key !== "Enter" && e.key !== " ") return;
+            e.preventDefault();
+            openInTradingPlatform(tradingPlatform, s, toast);
+          }}
         >
           <div className="head">
             <span className="ticker">
@@ -1527,7 +1598,8 @@ function playChime(kind: "fill" | "fail") {
 }
 
 /* ---------------- history (permanent fill history) ---------------- */
-function History() {
+function History({ tradingPlatform }: { tradingPlatform: TradingPlatform }) {
+  const toast = useToast();
   const PAGE = 10;
   const [page, setPage] = useState(0);
   const [loading, setLoading] = useState(true);
@@ -1581,7 +1653,22 @@ function History() {
         <>
           <div className="hist-list">
             {fills.map((s) => (
-              <div className="hist-row" key={s.id}>
+              <div
+                className="hist-row clickable"
+                key={s.id}
+                role="button"
+                tabIndex={0}
+                title={`Open in ${tradingPlatformLabel(tradingPlatform)}`}
+                onClick={(e) => {
+                  if (isInteractiveClick(e)) return;
+                  openInTradingPlatform(tradingPlatform, s, toast);
+                }}
+                onKeyDown={(e) => {
+                  if (e.key !== "Enter" && e.key !== " ") return;
+                  e.preventDefault();
+                  openInTradingPlatform(tradingPlatform, s, toast);
+                }}
+              >
                 <span className="hist-tk">
                   {s.ticker ? `$${s.ticker}` : short(s.mint)}
                 </span>
@@ -2894,9 +2981,11 @@ function ChatNotificationToggle() {
 
 function Social({
   wallets,
+  tradingPlatform,
   onCopied,
 }: {
   wallets: Wallet[];
+  tradingPlatform: TradingPlatform;
   onCopied: () => void;
 }) {
   const toast = useToast();
@@ -3016,6 +3105,7 @@ function Social({
       {openUserId && (
         <UserSnipesModal
           userId={openUserId}
+          tradingPlatform={tradingPlatform}
           onClose={() => setOpenUserId(null)}
           onCopy={(s) =>
             setCopy({
@@ -3168,13 +3258,16 @@ function ChatBox() {
 
 function UserSnipesModal({
   userId,
+  tradingPlatform,
   onClose,
   onCopy,
 }: {
   userId: string;
+  tradingPlatform: TradingPlatform;
   onClose: () => void;
   onCopy: (s: PublicSnipe) => void;
 }) {
+  const toast = useToast();
   const [data, setData] = useState<{
     username: string;
     active: PublicSnipe[];
@@ -3224,6 +3317,12 @@ function UserSnipesModal({
                 <span className="tp-chip">redirect</span>
               )}
               {tab === "filled" && <Pnl net={s.soldSol - s.amountSol} />}
+              <button
+                className="ghost mini"
+                onClick={() => openInTradingPlatform(tradingPlatform, s, toast)}
+              >
+                View
+              </button>
               <button className="ghost mini" onClick={() => onCopy(s)}>
                 Copy
               </button>

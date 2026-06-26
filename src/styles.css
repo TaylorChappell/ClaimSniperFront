@@ -2327,3 +2327,14 @@ body:has(.modal-overlay) {
     order: 2;
   }
 }
+
+/* trading-platform open affordance */
+.snipe[role="button"],
+.hist-row.clickable {
+  cursor: pointer;
+}
+.snipe[role="button"]:focus-visible,
+.hist-row.clickable:focus-visible {
+  outline: 2px solid var(--green);
+  outline-offset: 3px;
+}

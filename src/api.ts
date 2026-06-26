@@ -70,6 +70,9 @@ export interface ExitCfg {
 export interface Snipe {
   id: string;
   mint: string;
+  pairAddress?: string | null;
+  pairDexId?: string | null;
+  pairUrl?: string | null;
   amountSol: number;
   slippagePct: number;
   priorityFee: number;
@@ -146,6 +149,9 @@ export interface SocialUser {
 export interface PublicSnipe {
   id: string;
   mint: string;
+  pairAddress?: string | null;
+  pairDexId?: string | null;
+  pairUrl?: string | null;
   ticker?: string | null;
   amountSol: number;
   soldSol: number;
@@ -176,6 +182,9 @@ export interface PublicSnipe {
 }
 export interface TrendingCoin {
   mint: string;
+  pairAddress?: string | null;
+  pairDexId?: string | null;
+  pairUrl?: string | null;
   ticker?: string | null;
   userCount: number;
   snipeCount: number;
