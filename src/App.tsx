@@ -74,58 +74,20 @@ function tradingPlatformUrl(platform: TradingPlatform, token: TradeOpenTarget) {
   return pair ? `https://axiom.trade/meme/${pair}` : null;
 }
 
-async function openInTradingPlatform(
+function openInTradingPlatform(
   platform: TradingPlatform,
   token: TradeOpenTarget,
   toast?: (text: string, kind?: ToastKind) => void,
 ) {
-  const mint = token.mint?.trim();
-  let target: TradeOpenTarget = token;
-  let url = tradingPlatformUrl(platform, target);
-
-  if (url) {
-    window.open(url, "_blank", "noopener,noreferrer");
+  const url = tradingPlatformUrl(platform, token);
+  if (!url) {
+    toast?.(
+      `${tradingPlatformLabel(platform)} needs a pair address for this token, but it has not been indexed yet. Use GMGN or wait for market data to refresh.`,
+      "err",
+    );
     return;
   }
-
-  // GMGN opens directly from the mint. Axiom/Terminal need a pair address.
-  // Open a blank tab immediately so the browser does not block the popup while
-  // the backend resolves/caches the pair address.
-  if (platform !== "GMGN" && mint) {
-    const pending = window.open("about:blank", "_blank");
-    toast?.(`Resolving ${tradingPlatformLabel(platform)} pair…`);
-
-    try {
-      const market = await api.resolveTokenMarket(mint);
-      target = {
-        ...target,
-        pairAddress: market.pairAddress,
-        pairUrl: market.pairUrl,
-        ticker: target.ticker ?? market.ticker,
-      };
-      url = tradingPlatformUrl(platform, target);
-    } catch {
-      pending?.close();
-      toast?.(
-        `${tradingPlatformLabel(platform)} pair is not indexed yet. Try GMGN for now, or try again in a minute.`,
-        "err",
-      );
-      return;
-    }
-
-    if (url) {
-      if (pending) pending.location.href = url;
-      else window.open(url, "_blank", "noopener,noreferrer");
-      return;
-    }
-
-    pending?.close();
-  }
-
-  toast?.(
-    `${tradingPlatformLabel(platform)} needs a pair address for this token, but it has not been indexed yet. Try GMGN for now.`,
-    "err",
-  );
+  window.open(url, "_blank", "noopener,noreferrer");
 }
 
 function isInteractiveClick(e: ReactMouseEvent<HTMLElement>) {

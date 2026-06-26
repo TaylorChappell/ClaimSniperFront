@@ -453,9 +453,13 @@ export const api = {
       mode?: string;
     }>(`/discover?includeSpecial=${includeSpecial ? "true" : "false"}`, {}, DISCOVER_BASE),
   discoverMetadata: (mint: string) =>
+<<<<<<< HEAD
     req<DiscoverMetadata>(`/discover/${encodeURIComponent(mint)}/metadata`, {}, DISCOVER_BASE),
   resolveTokenMarket: (mint: string) =>
     req<DiscoverCoin>(`/tokens/${encodeURIComponent(mint)}/market/resolve`, { method: "POST" }, DISCOVER_BASE),
+=======
+    req<DiscoverMetadata>(`/discover/${encodeURIComponent(mint)}/metadata`),
+>>>>>>> parent of de87e6d (Update)
   discoverHide: (mint: string) =>
     req<{ ok: true }>("/discover/hide", {
       method: "POST",
