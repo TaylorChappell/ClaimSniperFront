@@ -358,6 +358,9 @@ function ProfileMenu({
         aria-label="Profile menu"
         onClick={() => setOpen((v) => !v)}
       >
+        <span className="profile-trigger-name" style={{ color: profile.chatColor }}>
+          @{profile.username}
+        </span>
         <AvatarBubble username={profile.username} avatarDataUrl={profile.avatarDataUrl} />
       </button>
       {open && (
@@ -683,58 +686,60 @@ function Dashboard({
           <img className="logo-img" src={BRAND_IMG} alt="" />
           <b>Claim Sniper</b>
         </div>
-        <button
-          className="hamburger"
-          aria-label="Menu"
-          onClick={() => setMenuOpen((v) => !v)}
-        >
-          <span />
-          <span />
-          <span />
-          {chatUnread && <span className="nav-dot ham-dot" />}
-        </button>
-        <div className={`who ${menuOpen ? "open" : ""}`}>
+        <div className="top-actions">
           <button
-            className={`nav-btn ${view === "dashboard" ? "on" : ""}`}
-            onClick={() => go("dashboard")}
+            className="hamburger"
+            aria-label="Menu"
+            onClick={() => setMenuOpen((v) => !v)}
           >
-            Dashboard
+            <span />
+            <span />
+            <span />
+            {chatUnread && <span className="nav-dot ham-dot" />}
           </button>
-          <button
-            className={`nav-btn ${view === "discover" ? "on" : ""}`}
-            onClick={() => go("discover")}
-          >
-            Discover
-          </button>
-          <button
-            className={`nav-btn ${view === "history" ? "on" : ""}`}
-            onClick={() => go("history")}
-          >
-            History
-          </button>
-          <button
-            className={`nav-btn ${view === "social" ? "on" : ""}`}
-            onClick={() => go("social")}
-          >
-            Social{chatUnread && <span className="nav-dot" />}
-          </button>
-          {admin && (
+          <div className={`who ${menuOpen ? "open" : ""}`}>
             <button
-              className={`nav-btn admin ${view === "admin" ? "on" : ""}`}
-              onClick={() => go("admin")}
+              className={`nav-btn ${view === "dashboard" ? "on" : ""}`}
+              onClick={() => go("dashboard")}
             >
-              Admin
+              Dashboard
             </button>
-          )}
+            <button
+              className={`nav-btn ${view === "discover" ? "on" : ""}`}
+              onClick={() => go("discover")}
+            >
+              Discover
+            </button>
+            <button
+              className={`nav-btn ${view === "history" ? "on" : ""}`}
+              onClick={() => go("history")}
+            >
+              History
+            </button>
+            <button
+              className={`nav-btn ${view === "social" ? "on" : ""}`}
+              onClick={() => go("social")}
+            >
+              Social{chatUnread && <span className="nav-dot" />}
+            </button>
+            {admin && (
+              <button
+                className={`nav-btn admin ${view === "admin" ? "on" : ""}`}
+                onClick={() => go("admin")}
+              >
+                Admin
+              </button>
+            )}
+          </div>
+          <ProfileMenu
+            profile={profile}
+            openSettings={() => {
+              setView("settings");
+              setMenuOpen(false);
+            }}
+            onLogout={onLogout}
+          />
         </div>
-        <ProfileMenu
-          profile={profile}
-          openSettings={() => {
-            setView("settings");
-            setMenuOpen(false);
-          }}
-          onLogout={onLogout}
-        />
       </div>
 
       {view === "history" ? (

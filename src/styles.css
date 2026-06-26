@@ -2246,3 +2246,84 @@ body:has(.modal-overlay) {
   .platform-grid { grid-template-columns: 1fr; }
   .topbar { gap: 10px; }
 }
+
+/* ---------- topbar profile/nav polish ---------- */
+.top-actions {
+  margin-left: auto;
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 12px;
+}
+.top-actions .who {
+  gap: 10px;
+}
+@media (min-width: 721px) {
+  .topbar {
+    gap: 22px;
+  }
+  .top-actions {
+    gap: 12px;
+  }
+  .top-actions .who {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+  }
+  .top-actions .nav-btn {
+    min-height: 42px;
+    padding: 10px 16px;
+  }
+  .profile-trigger {
+    width: auto;
+    min-width: 0;
+    height: 50px;
+    padding: 5px 6px 5px 15px;
+    display: flex;
+    align-items: center;
+    gap: 11px;
+    border-radius: 999px;
+  }
+  .profile-trigger .avatar.md {
+    width: 40px;
+    height: 40px;
+  }
+  .profile-trigger-name {
+    display: block;
+    max-width: 160px;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    font-weight: 900;
+    font-size: 14px;
+    letter-spacing: -0.03em;
+  }
+}
+@media (max-width: 720px) {
+  .topbar {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 10px;
+  }
+  .top-actions {
+    margin-left: auto;
+    gap: 8px;
+  }
+  .profile-trigger {
+    width: 44px;
+    height: 44px;
+    padding: 0;
+    display: grid;
+    place-items: center;
+  }
+  .profile-trigger-name {
+    display: none;
+  }
+  .hamburger {
+    order: 1;
+  }
+  .profile-menu {
+    order: 2;
+  }
+}
