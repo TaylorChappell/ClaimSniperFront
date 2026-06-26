@@ -30,6 +30,20 @@ import { useLeaderPolling } from "./sync";
 const BRAND_IMG = `${import.meta.env.BASE_URL}sniper.png`;
 const short = (s: string) => `${s.slice(0, 4)}…${s.slice(-4)}`;
 
+function initialViewFromUrl(): "dashboard" | "history" | "social" | "discover" | "admin" {
+  if (typeof window === "undefined") return "dashboard";
+  const view = new URLSearchParams(window.location.search).get("view");
+  return view === "history" || view === "social" || view === "discover" || view === "admin"
+    ? view
+    : "dashboard";
+}
+
+function initialSocialTabFromUrl(): "trending" | "traders" | "chat" {
+  if (typeof window === "undefined") return "trending";
+  const tab = new URLSearchParams(window.location.search).get("socialTab");
+  return tab === "traders" || tab === "chat" ? tab : "trending";
+}
+
 type ToastKind = "ok" | "err" | "fill";
 type Toast = { id: number; text: string; kind: ToastKind };
 const ToastCtx = createContext<(text: string, kind?: ToastKind) => void>(
@@ -346,7 +360,7 @@ function Dashboard({
 
   const [view, setView] = useState<
     "dashboard" | "history" | "social" | "discover" | "admin"
-  >("dashboard");
+  >(() => initialViewFromUrl());
   const [menuOpen, setMenuOpen] = useState(false);
   const [dashTab, setDashTab] = useState<"arm" | "snipes" | "wallets">("arm");
   const filled = useMemo(
@@ -2600,7 +2614,7 @@ function Social({
   onCopied: () => void;
 }) {
   const toast = useToast();
-  const [tab, setTab] = useState<"trending" | "traders" | "chat">("trending");
+  const [tab, setTab] = useState<"trending" | "traders" | "chat">(() => initialSocialTabFromUrl());
   const [users, setUsers] = useState<SocialUser[]>([]);
   const [trending, setTrending] = useState<TrendingCoin[]>([]);
   const [openUserId, setOpenUserId] = useState<string | null>(null);
@@ -2753,6 +2767,18 @@ function ChatBox() {
   const lastRef = useRef<string | undefined>(undefined);
   const pollingRef = useRef(false);
   const sendingRef = useRef(false);
+  const feedRef = useRef<HTMLDivElement | null>(null);
+
+  const scrollToBottom = useCallback((smooth = false) => {
+    requestAnimationFrame(() => {
+      const el = feedRef.current;
+      if (!el) return;
+      el.scrollTo({
+        top: el.scrollHeight,
+        behavior: smooth ? "smooth" : "auto",
+      });
+    });
+  }, []);
 
   function poll() {
     if (pollingRef.current) return; // never run two polls at once
@@ -2792,6 +2818,11 @@ function ChatBox() {
     return () => clearInterval(t);
   }, []);
 
+  useEffect(() => {
+    if (!messages.length) return;
+    scrollToBottom(messages.length > 1);
+  }, [messages.length, scrollToBottom]);
+
   async function send() {
     const t = text.trim();
     if (!t || sendingRef.current) return; // block double-send (fast Enter/click)
@@ -2813,7 +2844,7 @@ function ChatBox() {
     <div className="card rise d1 chat">
       <h3>Chat</h3>
       <ChatNotificationToggle />
-      <div className="chat-feed">
+      <div className="chat-feed" ref={feedRef}>
         {messages.length === 0 && (
           <p className="sub">No messages yet. Say hi.</p>
         )}
