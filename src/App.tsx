@@ -393,9 +393,9 @@ function ProfileMenu({
 }
 
 const PLATFORMS: { id: TradingPlatform; label: string; icon: string }[] = [
-  { id: "AXIOM", label: "Axiom", icon: "A" },
-  { id: "GMGN", label: "GMGN", icon: "G" },
-  { id: "TERMINAL", label: "Terminal", icon: "⌁" },
+  { id: "AXIOM", label: "Axiom", icon: "/Axiom.png" },
+  { id: "GMGN", label: "GMGN", icon: "/GMGN.png" },
+  { id: "TERMINAL", label: "Terminal", icon: "/Terminal.png" },
 ];
 
 function platformLabel(platform: TradingPlatform | string | null | undefined) {
@@ -476,20 +476,13 @@ function SettingsPage({
               <span style={{ color: chatColor }}>@{profile.username}</span>
               <label className="mini-color" title="Chat name colour">
                 <input type="color" value={chatColor} onChange={(e) => setChatColor(e.target.value)} />
-                <span>●</span>
+                <span className="mini-color-swatch" style={{ background: chatColor }} />
               </label>
             </div>
             <div className="hint">Your avatar and name colour show in chat.</div>
           </div>
         </div>
 
-        <div className="settings-section">
-          <label>Chat colour</label>
-          <div className="color-row">
-            <input type="color" value={chatColor} onChange={(e) => setChatColor(e.target.value)} />
-            <input value={chatColor} onChange={(e) => setChatColor(normalizeHexInput(e.target.value))} />
-          </div>
-        </div>
 
         <div className="settings-section">
           <label>Trading platform of choice</label>
@@ -500,7 +493,9 @@ function SettingsPage({
                 className={`platform-card ${tradingPlatform === platform.id ? "on" : ""}`}
                 onClick={() => setTradingPlatform(platform.id)}
               >
-                <span className={`platform-icon ${platform.id.toLowerCase()}`}>{platform.icon}</span>
+                <span className="platform-icon">
+                  <img src={platform.icon} alt="" />
+                </span>
                 <b>{platform.label}</b>
               </button>
             ))}
