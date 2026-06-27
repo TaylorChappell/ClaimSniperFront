@@ -2338,3 +2338,21 @@ body:has(.modal-overlay) {
   outline: 2px solid var(--green);
   outline-offset: 3px;
 }
+
+
+.notify-actions {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  align-items: stretch;
+}
+
+.settings-section .notify-row {
+  margin-top: 10px;
+}
+
+@media (max-width: 720px) {
+  .notify-actions {
+    width: 100%;
+  }
+}

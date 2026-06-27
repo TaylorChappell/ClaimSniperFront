@@ -235,6 +235,15 @@ export interface AdminNotificationResult {
   removed: number;
 }
 
+export interface PushTestResult {
+  ok: boolean;
+  total: number;
+  sent: number;
+  failed: number;
+  removed: number;
+  error?: string;
+}
+
 export interface DiscoverCoin {
   mint: string;
   ticker: string | null;
@@ -412,6 +421,8 @@ export const api = {
       body: JSON.stringify({ text }),
     }),
   pushPublicKey: () => req<PushPublicKey>("/push/public-key"),
+  pushTest: () =>
+    req<PushTestResult>("/push/test", { method: "POST" }),
   pushSubscriptionStatus: (endpoint: string) =>
     req<PushSubscriptionStatus>("/push/subscription/status", {
       method: "POST",

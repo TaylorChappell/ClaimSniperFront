@@ -594,6 +594,13 @@ function SettingsPage({
           </div>
         </div>
 
+        <div className="settings-section notifications-settings">
+          <label>Notifications</label>
+          <div className="hint">Manage desktop/browser alerts for this device. These settings are per browser, so enable them again on each device you use.</div>
+          <NotificationToggle />
+          <ChatNotificationToggle />
+        </div>
+
         <button className="primary" onClick={save} disabled={busy}>
           {busy ? <span className="spin" /> : "Save settings"}
         </button>
@@ -2872,6 +2879,21 @@ function NotificationToggle() {
     }
   }
 
+  async function sendTest() {
+    setErr("");
+    setBusy(true);
+    try {
+      const res = await api.pushTest();
+      toast(res.sent > 0 ? "Test notification sent" : "No subscribed devices found", res.sent > 0 ? "ok" : "err");
+    } catch (e: any) {
+      const msg = e?.message ?? "Failed to send test notification";
+      setErr(msg);
+      toast(msg, "err");
+    } finally {
+      setBusy(false);
+    }
+  }
+
   return (
     <div className="notify-row">
       <div>
@@ -2885,19 +2907,26 @@ function NotificationToggle() {
         </div>
         {err && <div className="err mini-err">{err}</div>}
       </div>
-      <button
-        className={`${enabled ? "ghost" : "primary"} inline`}
-        onClick={enabled ? disable : enable}
-        disabled={busy || !supported || !configured}
-      >
-        {busy ? (
-          <span className="spin" />
-        ) : enabled ? (
-          "Disable snipe alerts"
-        ) : (
-          "Enable snipe alerts"
+      <div className="notify-actions">
+        <button
+          className={`${enabled ? "ghost" : "primary"} inline`}
+          onClick={enabled ? disable : enable}
+          disabled={busy || !supported || !configured}
+        >
+          {busy ? (
+            <span className="spin" />
+          ) : enabled ? (
+            "Disable snipe alerts"
+          ) : (
+            "Enable snipe alerts"
+          )}
+        </button>
+        {enabled && (
+          <button className="ghost inline" onClick={sendTest} disabled={busy}>
+            Send test
+          </button>
         )}
-      </button>
+      </div>
     </div>
   );
 }
@@ -3077,8 +3106,6 @@ function Social({
         </button>
       </div>
 
-      <NotificationToggle />
-
       {tab === "trending" ? (
         <div className="card rise d1">
           <h3>Most sniped coins</h3>
@@ -3257,7 +3284,6 @@ function ChatBox() {
   return (
     <div className="card rise d1 chat">
       <h3>Chat</h3>
-      <ChatNotificationToggle />
       <div className="chat-feed" ref={feedRef}>
         {messages.length === 0 && (
           <p className="sub">No messages yet. Say hi.</p>
