@@ -596,9 +596,11 @@ function SettingsPage({
 
         <div className="settings-section notifications-settings">
           <label>Notifications</label>
-          <div className="hint">Manage desktop/browser alerts for this device. These settings are per browser, so enable them again on each device you use.</div>
+          <div className="hint">Manage browser alerts for this device. Notification permissions and subscriptions are per browser, so enable them again on each desktop, phone, or tablet you use.</div>
+          <NotificationDeviceControl />
           <NotificationToggle />
           <ChatNotificationToggle />
+          <MobileNotificationGuide />
         </div>
 
         <button className="primary" onClick={save} disabled={busy}>
@@ -2794,6 +2796,194 @@ async function ensurePushSubscription() {
 
 /* ---------------- social ---------------- */
 
+type BrowserPushPermission = NotificationPermission | "unsupported";
+
+function pushPermissionText(permission: BrowserPushPermission) {
+  if (permission === "granted") return "Allowed";
+  if (permission === "denied") return "Blocked";
+  if (permission === "unsupported") return "Not supported";
+  return "Not asked yet";
+}
+
+function pushPermissionHelp(permission: BrowserPushPermission, subscribed: boolean) {
+  if (permission === "unsupported") {
+    return "This browser does not support web push. On iPhone/iPad, install Claim Sniper to the Home Screen using Safari first.";
+  }
+  if (permission === "denied") {
+    return "Notifications are blocked in your browser. Use the padlock/site settings, or your phone/browser notification settings, then come back and allow this device.";
+  }
+  if (permission === "granted" && subscribed) {
+    return "This device is allowed and registered. Choose which alerts you want below.";
+  }
+  if (permission === "granted") {
+    return "Browser permission is allowed, but this device is not registered yet. Click Allow this device to subscribe it.";
+  }
+  return "Click Allow this device to show the browser permission popup, then choose which alerts you want below.";
+}
+
+function NotificationDeviceControl() {
+  const toast = useToast();
+  const [supported, setSupported] = useState(true);
+  const [configured, setConfigured] = useState(true);
+  const [permission, setPermission] = useState<BrowserPushPermission>(
+    typeof window !== "undefined" && "Notification" in window ? Notification.permission : "unsupported",
+  );
+  const [subscribed, setSubscribed] = useState(false);
+  const [busy, setBusy] = useState(false);
+  const [err, setErr] = useState("");
+
+  const load = useCallback(async () => {
+    const canUse =
+      typeof window !== "undefined" &&
+      "serviceWorker" in navigator &&
+      "PushManager" in window &&
+      "Notification" in window;
+
+    if (!canUse) {
+      setSupported(false);
+      setPermission("unsupported");
+      setSubscribed(false);
+      return;
+    }
+
+    setSupported(true);
+    setPermission(Notification.permission);
+
+    try {
+      const keyInfo = await api.pushPublicKey();
+      setConfigured(keyInfo.configured && !!keyInfo.publicKey);
+
+      if (!keyInfo.configured || !keyInfo.publicKey) {
+        setSubscribed(false);
+        return;
+      }
+
+      const reg = await getPushRegistration();
+      const sub = await reg.pushManager.getSubscription();
+      setSubscribed(!!sub);
+    } catch {
+      setConfigured(false);
+      setSubscribed(false);
+    }
+  }, []);
+
+  useEffect(() => {
+    void load();
+    const refresh = () => void load();
+    window.addEventListener("cs:push-changed", refresh);
+    return () => window.removeEventListener("cs:push-changed", refresh);
+  }, [load]);
+
+  async function allowDevice() {
+    setErr("");
+    setBusy(true);
+    try {
+      const keyInfo = await api.pushPublicKey();
+      if (!keyInfo.configured || !keyInfo.publicKey)
+        throw new Error("Notifications are not configured on the server yet");
+
+      const requested = await Notification.requestPermission();
+      setPermission(requested);
+      if (requested !== "granted")
+        throw new Error("Notification permission was not granted");
+
+      const reg = await getPushRegistration();
+      const existing = await reg.pushManager.getSubscription();
+      const sub =
+        existing ??
+        (await reg.pushManager.subscribe({
+          userVisibleOnly: true,
+          applicationServerKey: urlBase64ToUint8Array(keyInfo.publicKey),
+        }));
+
+      if (!existing) {
+        await api.savePushSubscription(pushSubscriptionPayload(sub), {
+          tradeEnabled: false,
+          chatEnabled: false,
+        });
+      } else {
+        const status = await api.pushSubscriptionStatus(existing.endpoint).catch(() => null);
+        if (!status) {
+          await api.savePushSubscription(pushSubscriptionPayload(existing), {
+            tradeEnabled: false,
+            chatEnabled: false,
+          });
+        }
+      }
+
+      setSubscribed(true);
+      toast("This device can now receive notifications. Choose your alerts below.");
+      window.dispatchEvent(new Event("cs:push-changed"));
+    } catch (e: any) {
+      const msg = e?.message ?? "Failed to allow notifications on this device";
+      setErr(msg);
+      toast(msg, "err");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function removeDevice() {
+    setErr("");
+    setBusy(true);
+    try {
+      const reg = await getPushRegistration();
+      const sub = await reg.pushManager.getSubscription();
+      if (sub) {
+        await api.deletePushSubscription(sub.endpoint).catch(() => null);
+        await sub.unsubscribe().catch(() => false);
+      }
+      setSubscribed(false);
+      toast("Notifications removed from this device");
+      window.dispatchEvent(new Event("cs:push-changed"));
+    } catch (e: any) {
+      const msg = e?.message ?? "Failed to remove this device";
+      setErr(msg);
+      toast(msg, "err");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  return (
+    <div className="notify-device-card">
+      <div className="notify-device-head">
+        <div>
+          <div className="notify-title">Device permission</div>
+          <div className="notify-sub">
+            Allow or remove browser notifications on this exact device/browser.
+          </div>
+        </div>
+        <div className={`permission-pill ${permission === "granted" && subscribed ? "ok" : permission === "denied" ? "bad" : "warn"}`}>
+          {pushPermissionText(permission)}{permission === "granted" ? subscribed ? " · subscribed" : " · not subscribed" : ""}
+        </div>
+      </div>
+      <div className="notify-sub notify-help">
+        {configured
+          ? pushPermissionHelp(permission, subscribed)
+          : "Server VAPID keys are missing, so users cannot subscribe for notifications yet."}
+      </div>
+      {err && <div className="err mini-err">{err}</div>}
+      <div className="notify-actions row-actions">
+        <button
+          className="primary inline"
+          onClick={allowDevice}
+          disabled={busy || !supported || !configured || permission === "denied"}
+        >
+          {busy ? <span className="spin" /> : subscribed ? "Re-allow this device" : "Allow this device"}
+        </button>
+        <button
+          className="ghost inline"
+          onClick={removeDevice}
+          disabled={busy || !supported || !subscribed}
+        >
+          Remove this device
+        </button>
+      </div>
+    </div>
+  );
+}
+
 function NotificationToggle() {
   const toast = useToast();
   const [supported, setSupported] = useState(true);
@@ -2837,8 +3027,11 @@ function NotificationToggle() {
     }
 
     load();
+    const refresh = () => void load();
+    window.addEventListener("cs:push-changed", refresh);
     return () => {
       stop = true;
+      window.removeEventListener("cs:push-changed", refresh);
     };
   }, []);
 
@@ -2852,6 +3045,7 @@ function NotificationToggle() {
       });
       setEnabled(true);
       toast("Snipe notifications enabled on this device");
+      window.dispatchEvent(new Event("cs:push-changed"));
     } catch (e: any) {
       const msg = e?.message ?? "Failed to enable notifications";
       setErr(msg);
@@ -2870,6 +3064,7 @@ function NotificationToggle() {
       if (sub) await api.updatePushPreferences(sub.endpoint, { tradeEnabled: false });
       setEnabled(false);
       toast("Snipe notifications disabled on this device");
+      window.dispatchEvent(new Event("cs:push-changed"));
     } catch (e: any) {
       const msg = e?.message ?? "Failed to disable notifications";
       setErr(msg);
@@ -2974,8 +3169,11 @@ function ChatNotificationToggle() {
     }
 
     load();
+    const refresh = () => void load();
+    window.addEventListener("cs:push-changed", refresh);
     return () => {
       stop = true;
+      window.removeEventListener("cs:push-changed", refresh);
     };
   }, []);
 
@@ -2989,6 +3187,7 @@ function ChatNotificationToggle() {
       });
       setEnabled(true);
       toast("Chat notifications enabled on this device");
+      window.dispatchEvent(new Event("cs:push-changed"));
     } catch (e: any) {
       const msg = e?.message ?? "Failed to enable chat notifications";
       setErr(msg);
@@ -3007,6 +3206,7 @@ function ChatNotificationToggle() {
       if (sub) await api.updatePushPreferences(sub.endpoint, { chatEnabled: false });
       setEnabled(false);
       toast("Chat notifications disabled on this device");
+      window.dispatchEvent(new Event("cs:push-changed"));
     } catch (e: any) {
       const msg = e?.message ?? "Failed to disable chat notifications";
       setErr(msg);
@@ -3042,6 +3242,51 @@ function ChatNotificationToggle() {
           "Enable chat alerts"
         )}
       </button>
+    </div>
+  );
+}
+
+function MobileNotificationGuide() {
+  return (
+    <div className="phone-guide">
+      <div className="phone-guide-head">
+        <div>
+          <div className="notify-title">Phone notifications</div>
+          <div className="notify-sub">
+            Use these steps on each phone you want alerts on. Phone notifications are still browser notifications, so the site needs permission on that device too.
+          </div>
+        </div>
+      </div>
+      <div className="phone-guide-grid">
+        <div className="phone-guide-card">
+          <h3>iPhone / iPad</h3>
+          <ol>
+            <li>Open <b>claimsniper.fun</b> in <b>Safari</b>.</li>
+            <li>Tap <b>Share</b>, then <b>Add to Home Screen</b>.</li>
+            <li>Open Claim Sniper from the Home Screen icon.</li>
+            <li>Go to <b>Settings → Notifications</b> in Claim Sniper.</li>
+            <li>Tap <b>Allow this device</b> and accept the iOS notification prompt.</li>
+            <li>Enable <b>Snipe alerts</b> and/or <b>Chat notifications</b>.</li>
+          </ol>
+          <div className="notify-sub">
+            If you accidentally block it, check iOS Settings → Notifications, then reopen the Home Screen app.
+          </div>
+        </div>
+        <div className="phone-guide-card">
+          <h3>Android</h3>
+          <ol>
+            <li>Open <b>claimsniper.fun</b> in <b>Chrome</b>.</li>
+            <li>Go to <b>Settings → Notifications</b> in Claim Sniper.</li>
+            <li>Tap <b>Allow this device</b> and accept the browser notification prompt.</li>
+            <li>Enable <b>Snipe alerts</b> and/or <b>Chat notifications</b>.</li>
+            <li>If nothing appears, open Chrome site settings for Claim Sniper and set Notifications to <b>Allow</b>.</li>
+            <li>Also check Android Settings → Apps → Chrome → Notifications.</li>
+          </ol>
+        </div>
+      </div>
+      <div className="phone-note">
+        Tip: keep the browser installed and notifications allowed in the phone OS. Private/incognito browsing will not keep a reliable push subscription.
+      </div>
     </div>
   );
 }
