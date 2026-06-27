@@ -2373,6 +2373,46 @@ body:has(.modal-overlay) {
   gap: 12px;
   align-items: flex-start;
 }
+.phone-guide-toggle {
+  width: 100%;
+  padding: 0;
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  align-items: flex-start;
+  text-align: left;
+}
+.phone-guide-toggle:hover {
+  border-color: transparent;
+}
+.phone-guide-toggle:active {
+  transform: none;
+}
+.phone-guide-arrow {
+  flex: 0 0 auto;
+  width: 30px;
+  height: 30px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  color: var(--green);
+  background: var(--surface-2);
+  transition: transform 0.15s, border-color 0.15s;
+}
+.phone-guide-toggle:hover .phone-guide-arrow {
+  border-color: var(--green);
+}
+.phone-guide-arrow.open {
+  transform: rotate(180deg);
+}
+.phone-guide-body {
+  animation: fadein 0.18s ease both;
+}
 .permission-pill {
   flex: 0 0 auto;
   padding: 7px 10px;
@@ -2445,7 +2485,8 @@ body:has(.modal-overlay) {
 }
 @media (max-width: 720px) {
   .notify-device-head,
-  .phone-guide-head {
+  .phone-guide-head,
+  .phone-guide-toggle {
     flex-direction: column;
   }
   .permission-pill {

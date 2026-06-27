@@ -2945,6 +2945,10 @@ function NotificationDeviceControl() {
     }
   }
 
+  const showAllowDevice =
+    supported && configured && permission !== "denied" && (permission !== "granted" || !subscribed);
+  const showRemoveDevice = subscribed;
+
   return (
     <div className="notify-device-card">
       <div className="notify-device-head">
@@ -2964,22 +2968,28 @@ function NotificationDeviceControl() {
           : "Server VAPID keys are missing, so users cannot subscribe for notifications yet."}
       </div>
       {err && <div className="err mini-err">{err}</div>}
-      <div className="notify-actions row-actions">
-        <button
-          className="primary inline"
-          onClick={allowDevice}
-          disabled={busy || !supported || !configured || permission === "denied"}
-        >
-          {busy ? <span className="spin" /> : subscribed ? "Re-allow this device" : "Allow this device"}
-        </button>
-        <button
-          className="ghost inline"
-          onClick={removeDevice}
-          disabled={busy || !supported || !subscribed}
-        >
-          Remove this device
-        </button>
-      </div>
+      {(showAllowDevice || showRemoveDevice) && (
+        <div className="notify-actions row-actions">
+          {showAllowDevice && (
+            <button
+              className="primary inline"
+              onClick={allowDevice}
+              disabled={busy}
+            >
+              {busy ? <span className="spin" /> : "Allow this device"}
+            </button>
+          )}
+          {showRemoveDevice && (
+            <button
+              className="ghost inline"
+              onClick={removeDevice}
+              disabled={busy || !supported}
+            >
+              Remove this device
+            </button>
+          )}
+        </div>
+      )}
     </div>
   );
 }
@@ -3247,46 +3257,59 @@ function ChatNotificationToggle() {
 }
 
 function MobileNotificationGuide() {
+  const [open, setOpen] = useState(false);
+
   return (
     <div className="phone-guide">
-      <div className="phone-guide-head">
+      <button
+        type="button"
+        className="phone-guide-toggle"
+        onClick={() => setOpen((v) => !v)}
+        aria-expanded={open}
+      >
         <div>
           <div className="notify-title">Phone notifications</div>
           <div className="notify-sub">
             Use these steps on each phone you want alerts on. Phone notifications are still browser notifications, so the site needs permission on that device too.
           </div>
         </div>
-      </div>
-      <div className="phone-guide-grid">
-        <div className="phone-guide-card">
-          <h3>iPhone / iPad</h3>
-          <ol>
-            <li>Open <b>claimsniper.fun</b> in <b>Safari</b>.</li>
-            <li>Tap <b>Share</b>, then <b>Add to Home Screen</b>.</li>
-            <li>Open Claim Sniper from the Home Screen icon.</li>
-            <li>Go to <b>Settings → Notifications</b> in Claim Sniper.</li>
-            <li>Tap <b>Allow this device</b> and accept the iOS notification prompt.</li>
-            <li>Enable <b>Snipe alerts</b> and/or <b>Chat notifications</b>.</li>
-          </ol>
-          <div className="notify-sub">
-            If you accidentally block it, check iOS Settings → Notifications, then reopen the Home Screen app.
+        <span className={`phone-guide-arrow ${open ? "open" : ""}`}>⌄</span>
+      </button>
+
+      {open && (
+        <div className="phone-guide-body">
+          <div className="phone-guide-grid">
+            <div className="phone-guide-card">
+              <h3>iPhone / iPad</h3>
+              <ol>
+                <li>Open <b>claimsniper.fun</b> in <b>Safari</b>.</li>
+                <li>Tap <b>Share</b>, then <b>Add to Home Screen</b>.</li>
+                <li>Open Claim Sniper from the Home Screen icon.</li>
+                <li>Go to <b>Settings → Notifications</b> in Claim Sniper.</li>
+                <li>Tap <b>Allow this device</b> and accept the iOS notification prompt.</li>
+                <li>Enable <b>Snipe alerts</b> and/or <b>Chat notifications</b>.</li>
+              </ol>
+              <div className="notify-sub">
+                If you accidentally block it, check iOS Settings → Notifications, then reopen the Home Screen app.
+              </div>
+            </div>
+            <div className="phone-guide-card">
+              <h3>Android</h3>
+              <ol>
+                <li>Open <b>claimsniper.fun</b> in <b>Chrome</b>.</li>
+                <li>Go to <b>Settings → Notifications</b> in Claim Sniper.</li>
+                <li>Tap <b>Allow this device</b> and accept the browser notification prompt.</li>
+                <li>Enable <b>Snipe alerts</b> and/or <b>Chat notifications</b>.</li>
+                <li>If nothing appears, open Chrome site settings for Claim Sniper and set Notifications to <b>Allow</b>.</li>
+                <li>Also check Android Settings → Apps → Chrome → Notifications.</li>
+              </ol>
+            </div>
+          </div>
+          <div className="phone-note">
+            Tip: keep the browser installed and notifications allowed in the phone OS. Private/incognito browsing will not keep a reliable push subscription.
           </div>
         </div>
-        <div className="phone-guide-card">
-          <h3>Android</h3>
-          <ol>
-            <li>Open <b>claimsniper.fun</b> in <b>Chrome</b>.</li>
-            <li>Go to <b>Settings → Notifications</b> in Claim Sniper.</li>
-            <li>Tap <b>Allow this device</b> and accept the browser notification prompt.</li>
-            <li>Enable <b>Snipe alerts</b> and/or <b>Chat notifications</b>.</li>
-            <li>If nothing appears, open Chrome site settings for Claim Sniper and set Notifications to <b>Allow</b>.</li>
-            <li>Also check Android Settings → Apps → Chrome → Notifications.</li>
-          </ol>
-        </div>
-      </div>
-      <div className="phone-note">
-        Tip: keep the browser installed and notifications allowed in the phone OS. Private/incognito browsing will not keep a reliable push subscription.
-      </div>
+      )}
     </div>
   );
 }
