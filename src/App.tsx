@@ -598,6 +598,7 @@ function SettingsPage({
           <label>Notifications</label>
           <div className="hint">Manage browser alerts for this device. Notification permissions and subscriptions are per browser, so enable them again on each desktop, phone, or tablet you use.</div>
           <NotificationDeviceControl />
+          <AlertSoundToggle />
           <NotificationToggle />
           <ChatNotificationToggle />
           <MobileNotificationGuide />
@@ -1600,7 +1601,25 @@ function Snipes({
 }
 
 /* ---------------- notification sound ---------------- */
+const ALERT_SOUND_KEY = "cs.alertSoundEnabled";
 let _audioCtx: AudioContext | null = null;
+
+function alertSoundEnabled() {
+  try {
+    return localStorage.getItem(ALERT_SOUND_KEY) === "true";
+  } catch {
+    return false;
+  }
+}
+
+function setAlertSoundEnabled(enabled: boolean) {
+  try {
+    localStorage.setItem(ALERT_SOUND_KEY, enabled ? "true" : "false");
+  } catch {
+    /* ignore storage errors */
+  }
+}
+
 function ensureCtx(): AudioContext | null {
   try {
     const Ctx = window.AudioContext || (window as any).webkitAudioContext;
@@ -1613,17 +1632,36 @@ function ensureCtx(): AudioContext | null {
   }
 }
 
+async function resumeAudioContext() {
+  const ctx = ensureCtx();
+  if (!ctx) throw new Error("This browser does not support alert sounds.");
+  if (ctx.state === "suspended") await ctx.resume();
+  if (ctx.state !== "running") throw new Error("Browser blocked sound. Click Enable alert sounds again.");
+  return ctx;
+}
+
 // Browsers block audio until the user interacts with the page. Call this once
 // from a real user gesture so later buy/fail chimes are allowed to play.
 export function unlockAudio() {
   ensureCtx();
 }
 
-function playChime(kind: "fill" | "fail") {
+async function enableAlertSound() {
+  await resumeAudioContext();
+  setAlertSoundEnabled(true);
+  playChime("fill", true);
+}
+
+function disableAlertSound() {
+  setAlertSoundEnabled(false);
+}
+
+function playChime(kind: "fill" | "fail", force = false) {
+  if (!force && !alertSoundEnabled()) return;
   try {
     const ctx = ensureCtx();
     if (!ctx) return;
-    const now = ctx.currentTime;
+    const now = ctx.currentTime + 0.01;
     // fill (a buy landed) = rising bright two-note; fail = descending low two-note.
     const notes = kind === "fill" ? [660, 990] : [300, 160];
     notes.forEach((f, i) => {
@@ -2990,6 +3028,65 @@ function NotificationDeviceControl() {
           )}
         </div>
       )}
+    </div>
+  );
+}
+
+function AlertSoundToggle() {
+  const toast = useToast();
+  const [enabled, setEnabled] = useState(() => alertSoundEnabled());
+  const [busy, setBusy] = useState(false);
+  const [err, setErr] = useState("");
+
+  async function enable() {
+    setErr("");
+    setBusy(true);
+    try {
+      await enableAlertSound();
+      setEnabled(true);
+      toast("Alert sounds enabled on this device");
+    } catch (e: any) {
+      const msg = e?.message ?? "Failed to enable alert sounds";
+      setErr(msg);
+      toast(msg, "err");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  function disable() {
+    disableAlertSound();
+    setEnabled(false);
+    toast("Alert sounds disabled on this device");
+  }
+
+  function test() {
+    playChime("fill", true);
+  }
+
+  return (
+    <div className="notify-row">
+      <div>
+        <div className="notify-title">Alert sounds</div>
+        <div className="notify-sub">
+          Plays a sound for fills/fails while Claim Sniper is open in another tab or window. It will not work after the tab is closed.
+        </div>
+        {err && <div className="err mini-err">{err}</div>}
+      </div>
+      <div className="notify-actions">
+        <button
+          className={`${enabled ? "ghost" : "primary"} inline`}
+          onClick={enabled ? disable : enable}
+          disabled={busy}
+        >
+          {busy ? <span className="spin" /> : enabled ? "Disable sounds" : "Enable sounds"}
+        </button>
+        {enabled && (
+          <button className="ghost inline" onClick={test} disabled={busy}>
+            Test sound
+          </button>
+        )}
+      </div>
     </div>
   );
 }
