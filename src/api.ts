@@ -37,6 +37,8 @@ export interface Profile {
   username: string;
   paid: boolean;
   admin: boolean;
+  whitelisted?: boolean;
+  subscriptionExpiresAt?: string | null;
   avatarDataUrl: string | null;
   chatColor: string;
   tradingPlatform: TradingPlatform;
@@ -107,6 +109,9 @@ export interface Snipe {
 }
 export interface BillingStatus {
   paid: boolean;
+  whitelisted?: boolean;
+  subscriptionExpiresAt?: string | null;
+  subscriptionDays?: number;
   depositAddress?: string | null;
   priceSol?: number;
   receivedSol?: number;
@@ -125,6 +130,9 @@ export interface AdminUser {
   id: string;
   username: string;
   paid: boolean;
+  priorityTx: boolean;
+  whitelist?: boolean;
+  subscriptionExpiresAt?: string | null;
   createdAt: string;
   snipeCount: number;
   walletCount: number;
@@ -302,21 +310,15 @@ export interface DiscoverMetadata {
 
 export const api = {
   register: (username: string, password: string) =>
-    req<{ token: string } & Profile>(
-      "/auth/register",
-      {
-        method: "POST",
-        body: JSON.stringify({ username, password }),
-      },
-    ),
+    req<{ token: string } & Profile>("/auth/register", {
+      method: "POST",
+      body: JSON.stringify({ username, password }),
+    }),
   login: (username: string, password: string) =>
-    req<{ token: string } & Profile>(
-      "/auth/login",
-      {
-        method: "POST",
-        body: JSON.stringify({ username, password }),
-      },
-    ),
+    req<{ token: string } & Profile>("/auth/login", {
+      method: "POST",
+      body: JSON.stringify({ username, password }),
+    }),
   me: () => req<Profile>("/auth/me"),
   profile: () => req<{ profile: Profile }>("/profile"),
   updateProfile: (body: {
@@ -340,9 +342,12 @@ export const api = {
   snipes: () => req<{ snipes: Snipe[] }>("/snipes"),
   stats: () => req<Stats>("/snipes/stats"),
   historyFills: (page = 0, pageSize = 10) =>
-    req<{ fills: PublicSnipe[]; total: number; page: number; pageSize: number }>(
-      `/snipes/history?page=${page}&pageSize=${pageSize}`,
-    ),
+    req<{
+      fills: PublicSnipe[];
+      total: number;
+      page: number;
+      pageSize: number;
+    }>(`/snipes/history?page=${page}&pageSize=${pageSize}`),
   createSnipe: (b: {
     mint: string;
     walletId: string;
@@ -385,6 +390,22 @@ export const api = {
       body: JSON.stringify({ walletId }),
     }),
   adminUsers: () => req<{ users: AdminUser[] }>("/admin/users"),
+  adminSetUserPriority: (id: string, priorityTx: boolean) =>
+    req<{ user: { id: string; username: string; priorityTx: boolean } }>(
+      `/admin/users/${id}/priority`,
+      {
+        method: "PATCH",
+        body: JSON.stringify({ priorityTx }),
+      },
+    ),
+  adminSetUserWhitelist: (id: string, whitelist: boolean) =>
+    req<{ user: { id: string; username: string; whitelist: boolean; paid: boolean; subscriptionExpiresAt?: string | null } }>(
+      `/admin/users/${id}/whitelist`,
+      {
+        method: "PATCH",
+        body: JSON.stringify({ whitelist }),
+      },
+    ),
   adminUserSnipes: (id: string) =>
     req<{
       username: string;
@@ -421,8 +442,7 @@ export const api = {
       body: JSON.stringify({ text }),
     }),
   pushPublicKey: () => req<PushPublicKey>("/push/public-key"),
-  pushTest: () =>
-    req<PushTestResult>("/push/test", { method: "POST" }),
+  pushTest: () => req<PushTestResult>("/push/test", { method: "POST" }),
   pushSubscriptionStatus: (endpoint: string) =>
     req<PushSubscriptionStatus>("/push/subscription/status", {
       method: "POST",
@@ -465,7 +485,9 @@ export const api = {
   discoverMetadata: (mint: string) =>
     req<DiscoverMetadata>(`/discover/${encodeURIComponent(mint)}/metadata`),
   resolveTokenMarket: (mint: string) =>
-    req<DiscoverCoin>(`/tokens/${encodeURIComponent(mint)}/market/resolve`, { method: "POST" }),
+    req<DiscoverCoin>(`/tokens/${encodeURIComponent(mint)}/market/resolve`, {
+      method: "POST",
+    }),
   discoverHide: (mint: string) =>
     req<{ ok: true }>("/discover/hide", {
       method: "POST",

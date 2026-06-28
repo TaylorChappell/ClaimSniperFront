@@ -2500,3 +2500,8 @@ body:has(.modal-overlay) {
     grid-template-columns: 1fr;
   }
 }
+button.ghost.mini.on {
+  color: #062a13;
+  border-color: transparent;
+  background: linear-gradient(150deg, var(--green), var(--green-2));
+}

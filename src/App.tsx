@@ -39,12 +39,13 @@ function defaultProfile(username: string, admin = false): Profile {
     username,
     paid: true,
     admin,
+    whitelisted: false,
+    subscriptionExpiresAt: null,
     avatarDataUrl: null,
     chatColor: DEFAULT_CHAT_COLOR,
     tradingPlatform: DEFAULT_PLATFORM,
   };
 }
-
 
 type TradeOpenTarget = {
   mint: string;
@@ -133,10 +134,15 @@ function isInteractiveClick(e: ReactMouseEvent<HTMLElement>) {
   return !!el?.closest("button,a,input,select,textarea,label");
 }
 
-function initialViewFromUrl(): "dashboard" | "history" | "social" | "discover" | "settings" | "admin" {
+function initialViewFromUrl():
+  "dashboard" | "history" | "social" | "discover" | "settings" | "admin" {
   if (typeof window === "undefined") return "dashboard";
   const view = new URLSearchParams(window.location.search).get("view");
-  return view === "history" || view === "social" || view === "discover" || view === "settings" || view === "admin"
+  return view === "history" ||
+    view === "social" ||
+    view === "discover" ||
+    view === "settings" ||
+    view === "admin"
     ? view
     : "dashboard";
 }
@@ -342,6 +348,8 @@ function PayScreen({
   const [addr, setAddr] = useState("");
   const [price, setPrice] = useState(2);
   const [received, setReceived] = useState(0);
+  const [subscriptionDays, setSubscriptionDays] = useState(30);
+  const [msg, setMsg] = useState<string | null>(null);
 
   useEffect(() => {
     let stop = false;
@@ -353,6 +361,8 @@ function PayScreen({
         setAddr(s.depositAddress ?? "");
         setPrice(s.priceSol ?? 2);
         setReceived(s.receivedSol ?? 0);
+        setSubscriptionDays(s.subscriptionDays ?? 30);
+        setMsg(s.message ?? null);
       } catch {
         /* keep polling */
       }
@@ -375,10 +385,10 @@ function PayScreen({
         <img className="auth-logo-img" src={BRAND_IMG} alt="Claim Sniper" />
         <h1>Unlock Claim Sniper</h1>
         <p className="sub">
-          One-time payment of {price} SOL unlocks the tool for good.
+          Monthly access costs {price} SOL every {subscriptionDays} days.
         </p>
         <div className="card">
-          <label>Send exactly {price} SOL in a single transaction to:</label>
+          <label>Send exactly {price} SOL in a single transaction to renew access:</label>
           <div className="deposit">
             <code>{addr || "…"}</code>
             <button className="ghost" onClick={copy} disabled={!addr}>
@@ -388,9 +398,10 @@ function PayScreen({
           <div className="paystatus">
             <span className="spin dark" />
             <span>
-              Waiting for payment… received {received.toFixed(3)} / {price} SOL
+              Waiting for monthly payment… received {received.toFixed(3)} / {price} SOL
             </span>
           </div>
+          {msg && <div className="hint">{msg}</div>}
         </div>
         <div className="toggle">
           <a onClick={onLogout}>Sign out</a>
@@ -399,7 +410,6 @@ function PayScreen({
     </div>
   );
 }
-
 
 function AvatarBubble({
   username,
@@ -412,7 +422,11 @@ function AvatarBubble({
 }) {
   const letter = username.trim().slice(0, 1).toUpperCase() || "?";
   return avatarDataUrl ? (
-    <img className={`avatar ${size}`} src={avatarDataUrl} alt={`${username} avatar`} />
+    <img
+      className={`avatar ${size}`}
+      src={avatarDataUrl}
+      alt={`${username} avatar`}
+    />
   ) : (
     <div className={`avatar ${size} avatar-fallback`}>{letter}</div>
   );
@@ -447,20 +461,35 @@ function ProfileMenu({
         aria-label="Profile menu"
         onClick={() => setOpen((v) => !v)}
       >
-        <span className="profile-trigger-name" style={{ color: profile.chatColor }}>
+        <span
+          className="profile-trigger-name"
+          style={{ color: profile.chatColor }}
+        >
           @{profile.username}
         </span>
-        <AvatarBubble username={profile.username} avatarDataUrl={profile.avatarDataUrl} />
+        <AvatarBubble
+          username={profile.username}
+          avatarDataUrl={profile.avatarDataUrl}
+        />
       </button>
       {open && (
         <div className="profile-dropdown">
           <div className="profile-card-head">
-            <AvatarBubble username={profile.username} avatarDataUrl={profile.avatarDataUrl} size="lg" />
+            <AvatarBubble
+              username={profile.username}
+              avatarDataUrl={profile.avatarDataUrl}
+              size="lg"
+            />
             <div>
-              <div className="profile-name" style={{ color: profile.chatColor }}>
+              <div
+                className="profile-name"
+                style={{ color: profile.chatColor }}
+              >
                 @{profile.username}
               </div>
-              <div className="profile-platform">{platformLabel(profile.tradingPlatform)}</div>
+              <div className="profile-platform">
+                {platformLabel(profile.tradingPlatform)}
+              </div>
             </div>
           </div>
           <button
@@ -503,8 +532,12 @@ function SettingsPage({
 }) {
   const toast = useToast();
   const fileRef = useRef<HTMLInputElement | null>(null);
-  const [avatarDataUrl, setAvatarDataUrl] = useState<string | null>(profile.avatarDataUrl ?? null);
-  const [chatColor, setChatColor] = useState(profile.chatColor || DEFAULT_CHAT_COLOR);
+  const [avatarDataUrl, setAvatarDataUrl] = useState<string | null>(
+    profile.avatarDataUrl ?? null,
+  );
+  const [chatColor, setChatColor] = useState(
+    profile.chatColor || DEFAULT_CHAT_COLOR,
+  );
   const [tradingPlatform, setTradingPlatform] = useState<TradingPlatform>(
     profile.tradingPlatform || DEFAULT_PLATFORM,
   );
@@ -552,8 +585,15 @@ function SettingsPage({
       <div className="card settings-card">
         <h2>Settings</h2>
         <div className="settings-profile-row">
-          <button className="avatar-edit" onClick={() => fileRef.current?.click()}>
-            <AvatarBubble username={profile.username} avatarDataUrl={avatarDataUrl} size="lg" />
+          <button
+            className="avatar-edit"
+            onClick={() => fileRef.current?.click()}
+          >
+            <AvatarBubble
+              username={profile.username}
+              avatarDataUrl={avatarDataUrl}
+              size="lg"
+            />
             <span className="avatar-edit-icon">✎</span>
           </button>
           <input
@@ -567,14 +607,22 @@ function SettingsPage({
             <div className="settings-name-line">
               <span style={{ color: chatColor }}>@{profile.username}</span>
               <label className="mini-color" title="Chat name colour">
-                <input type="color" value={chatColor} onChange={(e) => setChatColor(e.target.value)} />
-                <span className="mini-color-swatch" style={{ background: chatColor }} />
+                <input
+                  type="color"
+                  value={chatColor}
+                  onChange={(e) => setChatColor(e.target.value)}
+                />
+                <span
+                  className="mini-color-swatch"
+                  style={{ background: chatColor }}
+                />
               </label>
             </div>
-            <div className="hint">Your avatar and name colour show in chat.</div>
+            <div className="hint">
+              Your avatar and name colour show in chat.
+            </div>
           </div>
         </div>
-
 
         <div className="settings-section">
           <label>Trading platform of choice</label>
@@ -596,7 +644,11 @@ function SettingsPage({
 
         <div className="settings-section notifications-settings">
           <label>Notifications</label>
-          <div className="hint">Manage browser alerts for this device. Notification permissions and subscriptions are per browser, so enable them again on each desktop, phone, or tablet you use.</div>
+          <div className="hint">
+            Manage browser alerts for this device. Notification permissions and
+            subscriptions are per browser, so enable them again on each desktop,
+            phone, or tablet you use.
+          </div>
           <NotificationDeviceControl />
           <AlertSoundToggle />
           <NotificationToggle />
@@ -649,7 +701,13 @@ function resizeAvatar(file: File): Promise<string> {
 }
 
 function ChatAvatar({ message }: { message: ChatMessage }) {
-  return <AvatarBubble username={message.username} avatarDataUrl={message.avatarDataUrl} size="sm" />;
+  return (
+    <AvatarBubble
+      username={message.username}
+      avatarDataUrl={message.avatarDataUrl}
+      size="sm"
+    />
+  );
 }
 
 /* ---------------- dashboard ---------------- */
@@ -716,7 +774,9 @@ function Dashboard({
   const [view, setView] = useState<
     "dashboard" | "history" | "social" | "discover" | "settings" | "admin"
   >(() => initialViewFromUrl());
-  const [profile, setProfile] = useState<Profile>(() => defaultProfile(username, admin));
+  const [profile, setProfile] = useState<Profile>(() =>
+    defaultProfile(username, admin),
+  );
 
   useEffect(() => {
     let stop = false;
@@ -1636,7 +1696,8 @@ async function resumeAudioContext() {
   const ctx = ensureCtx();
   if (!ctx) throw new Error("This browser does not support alert sounds.");
   if (ctx.state === "suspended") await ctx.resume();
-  if (ctx.state !== "running") throw new Error("Browser blocked sound. Click Enable alert sounds again.");
+  if (ctx.state !== "running")
+    throw new Error("Browser blocked sound. Click Enable alert sounds again.");
   return ctx;
 }
 
@@ -1722,7 +1783,9 @@ function History({ tradingPlatform }: { tradingPlatform: TradingPlatform }) {
       <div className="disc-head">
         <div>
           <h1>Snipe history</h1>
-          <p className="sub">Every filled trade from your permanent fill history.</p>
+          <p className="sub">
+            Every filled trade from your permanent fill history.
+          </p>
         </div>
         {data.total > 0 && (
           <span className="dim">
@@ -1865,6 +1928,48 @@ function AdminPanel({ wallets }: { wallets: Wallet[] }) {
     }
   }
 
+  async function togglePriority(u: AdminUser) {
+    try {
+      const next = !u.priorityTx;
+      const res = await api.adminSetUserPriority(u.id, next);
+      setUsers((list) =>
+        list.map((x) =>
+          x.id === u.id ? { ...x, priorityTx: res.user.priorityTx } : x,
+        ),
+      );
+      toast(
+        `${res.user.priorityTx ? "Enabled" : "Disabled"} priority for @${u.username}`,
+      );
+    } catch (e: any) {
+      toast(e.message, "err");
+    }
+  }
+
+
+  async function toggleWhitelist(u: AdminUser) {
+    try {
+      const next = !u.whitelist;
+      const res = await api.adminSetUserWhitelist(u.id, next);
+      setUsers((list) =>
+        list.map((x) =>
+          x.id === u.id
+            ? {
+                ...x,
+                whitelist: res.user.whitelist,
+                paid: res.user.paid,
+                subscriptionExpiresAt: res.user.subscriptionExpiresAt ?? null,
+              }
+            : x,
+        ),
+      );
+      toast(
+        `${res.user.whitelist ? "Whitelisted" : "Removed whitelist for"} @${u.username}`,
+      );
+    } catch (e: any) {
+      toast(e.message, "err");
+    }
+  }
+
   return (
     <div className="discover rise">
       <div className="disc-head">
@@ -1972,7 +2077,34 @@ function AdminPanel({ wallets }: { wallets: Wallet[] }) {
             >
               <span className="admin-user">@{u.username}</span>
               <span className={`badge ${u.paid ? "FILLED" : "FAILED"}`}>
-                {u.paid ? "paid" : "unpaid"}
+                {u.whitelist ? "whitelist" : u.paid ? "active" : "expired"}
+              </span>
+              <button
+                className={`ghost mini ${u.whitelist ? "on" : ""}`}
+                title="Whitelisted users bypass monthly billing and always have access"
+                onClick={(e) => {
+                  e.stopPropagation();
+                  toggleWhitelist(u);
+                }}
+              >
+                {u.whitelist ? "whitelist on" : "whitelist off"}
+              </button>
+              <button
+                className={`ghost mini ${u.priorityTx ? "on" : ""}`}
+                title="Priority queue sends this user's transactions before normal users"
+                onClick={(e) => {
+                  e.stopPropagation();
+                  togglePriority(u);
+                }}
+              >
+                {u.priorityTx ? "priority on" : "priority off"}
+              </button>
+              <span className="dim">
+                {u.whitelist
+                  ? "always"
+                  : u.subscriptionExpiresAt
+                    ? `until ${new Date(u.subscriptionExpiresAt).toLocaleDateString()}`
+                    : "no sub"}
               </span>
               <span>{u.snipeCount} snipes</span>
               <span className="dim">spent {u.spentSol.toFixed(3)}</span>
@@ -2843,7 +2975,10 @@ function pushPermissionText(permission: BrowserPushPermission) {
   return "Not asked yet";
 }
 
-function pushPermissionHelp(permission: BrowserPushPermission, subscribed: boolean) {
+function pushPermissionHelp(
+  permission: BrowserPushPermission,
+  subscribed: boolean,
+) {
   if (permission === "unsupported") {
     return "This browser does not support web push. On iPhone/iPad, install Claim Sniper to the Home Screen using Safari first.";
   }
@@ -2864,7 +2999,9 @@ function NotificationDeviceControl() {
   const [supported, setSupported] = useState(true);
   const [configured, setConfigured] = useState(true);
   const [permission, setPermission] = useState<BrowserPushPermission>(
-    typeof window !== "undefined" && "Notification" in window ? Notification.permission : "unsupported",
+    typeof window !== "undefined" && "Notification" in window
+      ? Notification.permission
+      : "unsupported",
   );
   const [subscribed, setSubscribed] = useState(false);
   const [busy, setBusy] = useState(false);
@@ -2940,7 +3077,9 @@ function NotificationDeviceControl() {
           chatEnabled: false,
         });
       } else {
-        const status = await api.pushSubscriptionStatus(existing.endpoint).catch(() => null);
+        const status = await api
+          .pushSubscriptionStatus(existing.endpoint)
+          .catch(() => null);
         if (!status) {
           await api.savePushSubscription(pushSubscriptionPayload(existing), {
             tradeEnabled: false,
@@ -2950,7 +3089,9 @@ function NotificationDeviceControl() {
       }
 
       setSubscribed(true);
-      toast("This device can now receive notifications. Choose your alerts below.");
+      toast(
+        "This device can now receive notifications. Choose your alerts below.",
+      );
       window.dispatchEvent(new Event("cs:push-changed"));
     } catch (e: any) {
       const msg = e?.message ?? "Failed to allow notifications on this device";
@@ -2984,7 +3125,10 @@ function NotificationDeviceControl() {
   }
 
   const showAllowDevice =
-    supported && configured && permission !== "denied" && (permission !== "granted" || !subscribed);
+    supported &&
+    configured &&
+    permission !== "denied" &&
+    (permission !== "granted" || !subscribed);
   const showRemoveDevice = subscribed;
 
   return (
@@ -2996,8 +3140,15 @@ function NotificationDeviceControl() {
             Allow or remove browser notifications on this exact device/browser.
           </div>
         </div>
-        <div className={`permission-pill ${permission === "granted" && subscribed ? "ok" : permission === "denied" ? "bad" : "warn"}`}>
-          {pushPermissionText(permission)}{permission === "granted" ? subscribed ? " · subscribed" : " · not subscribed" : ""}
+        <div
+          className={`permission-pill ${permission === "granted" && subscribed ? "ok" : permission === "denied" ? "bad" : "warn"}`}
+        >
+          {pushPermissionText(permission)}
+          {permission === "granted"
+            ? subscribed
+              ? " · subscribed"
+              : " · not subscribed"
+            : ""}
         </div>
       </div>
       <div className="notify-sub notify-help">
@@ -3069,7 +3220,8 @@ function AlertSoundToggle() {
       <div>
         <div className="notify-title">Alert sounds</div>
         <div className="notify-sub">
-          Plays a sound for fills/fails while Claim Sniper is open in another tab or window. It will not work after the tab is closed.
+          Plays a sound for fills/fails while Claim Sniper is open in another
+          tab or window. It will not work after the tab is closed.
         </div>
         {err && <div className="err mini-err">{err}</div>}
       </div>
@@ -3079,7 +3231,13 @@ function AlertSoundToggle() {
           onClick={enabled ? disable : enable}
           disabled={busy}
         >
-          {busy ? <span className="spin" /> : enabled ? "Disable sounds" : "Enable sounds"}
+          {busy ? (
+            <span className="spin" />
+          ) : enabled ? (
+            "Disable sounds"
+          ) : (
+            "Enable sounds"
+          )}
         </button>
         {enabled && (
           <button className="ghost inline" onClick={test} disabled={busy}>
@@ -3124,9 +3282,9 @@ function NotificationToggle() {
           setEnabled(false);
           return;
         }
-        const status = await api.pushSubscriptionStatus(sub.endpoint).catch(
-          () => null,
-        );
+        const status = await api
+          .pushSubscriptionStatus(sub.endpoint)
+          .catch(() => null);
         if (!stop) setEnabled(!!status?.tradeEnabled);
       } catch {
         if (!stop) setSupported(false);
@@ -3168,7 +3326,8 @@ function NotificationToggle() {
     try {
       const reg = await getPushRegistration();
       const sub = await reg.pushManager.getSubscription();
-      if (sub) await api.updatePushPreferences(sub.endpoint, { tradeEnabled: false });
+      if (sub)
+        await api.updatePushPreferences(sub.endpoint, { tradeEnabled: false });
       setEnabled(false);
       toast("Snipe notifications disabled on this device");
       window.dispatchEvent(new Event("cs:push-changed"));
@@ -3186,7 +3345,10 @@ function NotificationToggle() {
     setBusy(true);
     try {
       const res = await api.pushTest();
-      toast(res.sent > 0 ? "Test notification sent" : "No subscribed devices found", res.sent > 0 ? "ok" : "err");
+      toast(
+        res.sent > 0 ? "Test notification sent" : "No subscribed devices found",
+        res.sent > 0 ? "ok" : "err",
+      );
     } catch (e: any) {
       const msg = e?.message ?? "Failed to send test notification";
       setErr(msg);
@@ -3266,9 +3428,9 @@ function ChatNotificationToggle() {
           setEnabled(false);
           return;
         }
-        const status = await api.pushSubscriptionStatus(sub.endpoint).catch(
-          () => null,
-        );
+        const status = await api
+          .pushSubscriptionStatus(sub.endpoint)
+          .catch(() => null);
         if (!stop) setEnabled(!!status?.chatEnabled);
       } catch {
         if (!stop) setSupported(false);
@@ -3310,7 +3472,8 @@ function ChatNotificationToggle() {
     try {
       const reg = await getPushRegistration();
       const sub = await reg.pushManager.getSubscription();
-      if (sub) await api.updatePushPreferences(sub.endpoint, { chatEnabled: false });
+      if (sub)
+        await api.updatePushPreferences(sub.endpoint, { chatEnabled: false });
       setEnabled(false);
       toast("Chat notifications disabled on this device");
       window.dispatchEvent(new Event("cs:push-changed"));
@@ -3367,7 +3530,9 @@ function MobileNotificationGuide() {
         <div>
           <div className="notify-title">Phone notifications</div>
           <div className="notify-sub">
-            Use these steps on each phone you want alerts on. Phone notifications are still browser notifications, so the site needs permission on that device too.
+            Use these steps on each phone you want alerts on. Phone
+            notifications are still browser notifications, so the site needs
+            permission on that device too.
           </div>
         </div>
         <span className={`phone-guide-arrow ${open ? "open" : ""}`}>⌄</span>
@@ -3379,31 +3544,59 @@ function MobileNotificationGuide() {
             <div className="phone-guide-card">
               <h3>iPhone / iPad</h3>
               <ol>
-                <li>Open <b>claimsniper.fun</b> in <b>Safari</b>.</li>
-                <li>Tap <b>Share</b>, then <b>Add to Home Screen</b>.</li>
+                <li>
+                  Open <b>claimsniper.fun</b> in <b>Safari</b>.
+                </li>
+                <li>
+                  Tap <b>Share</b>, then <b>Add to Home Screen</b>.
+                </li>
                 <li>Open Claim Sniper from the Home Screen icon.</li>
-                <li>Go to <b>Settings → Notifications</b> in Claim Sniper.</li>
-                <li>Tap <b>Allow this device</b> and accept the iOS notification prompt.</li>
-                <li>Enable <b>Snipe alerts</b> and/or <b>Chat notifications</b>.</li>
+                <li>
+                  Go to <b>Settings → Notifications</b> in Claim Sniper.
+                </li>
+                <li>
+                  Tap <b>Allow this device</b> and accept the iOS notification
+                  prompt.
+                </li>
+                <li>
+                  Enable <b>Snipe alerts</b> and/or <b>Chat notifications</b>.
+                </li>
               </ol>
               <div className="notify-sub">
-                If you accidentally block it, check iOS Settings → Notifications, then reopen the Home Screen app.
+                If you accidentally block it, check iOS Settings →
+                Notifications, then reopen the Home Screen app.
               </div>
             </div>
             <div className="phone-guide-card">
               <h3>Android</h3>
               <ol>
-                <li>Open <b>claimsniper.fun</b> in <b>Chrome</b>.</li>
-                <li>Go to <b>Settings → Notifications</b> in Claim Sniper.</li>
-                <li>Tap <b>Allow this device</b> and accept the browser notification prompt.</li>
-                <li>Enable <b>Snipe alerts</b> and/or <b>Chat notifications</b>.</li>
-                <li>If nothing appears, open Chrome site settings for Claim Sniper and set Notifications to <b>Allow</b>.</li>
-                <li>Also check Android Settings → Apps → Chrome → Notifications.</li>
+                <li>
+                  Open <b>claimsniper.fun</b> in <b>Chrome</b>.
+                </li>
+                <li>
+                  Go to <b>Settings → Notifications</b> in Claim Sniper.
+                </li>
+                <li>
+                  Tap <b>Allow this device</b> and accept the browser
+                  notification prompt.
+                </li>
+                <li>
+                  Enable <b>Snipe alerts</b> and/or <b>Chat notifications</b>.
+                </li>
+                <li>
+                  If nothing appears, open Chrome site settings for Claim Sniper
+                  and set Notifications to <b>Allow</b>.
+                </li>
+                <li>
+                  Also check Android Settings → Apps → Chrome → Notifications.
+                </li>
               </ol>
             </div>
           </div>
           <div className="phone-note">
-            Tip: keep the browser installed and notifications allowed in the phone OS. Private/incognito browsing will not keep a reliable push subscription.
+            Tip: keep the browser installed and notifications allowed in the
+            phone OS. Private/incognito browsing will not keep a reliable push
+            subscription.
           </div>
         </div>
       )}
@@ -3421,7 +3614,9 @@ function Social({
   onCopied: () => void;
 }) {
   const toast = useToast();
-  const [tab, setTab] = useState<"trending" | "traders" | "chat">(() => initialSocialTabFromUrl());
+  const [tab, setTab] = useState<"trending" | "traders" | "chat">(() =>
+    initialSocialTabFromUrl(),
+  );
   const [users, setUsers] = useState<SocialUser[]>([]);
   const [trending, setTrending] = useState<TrendingCoin[]>([]);
   const [openUserId, setOpenUserId] = useState<string | null>(null);
@@ -3657,7 +3852,10 @@ function ChatBox() {
           <div className="chat-msg" key={m.id}>
             <ChatAvatar message={m} />
             <div className="chat-bubble">
-              <span className="chat-user" style={{ color: m.chatColor || DEFAULT_CHAT_COLOR }}>
+              <span
+                className="chat-user"
+                style={{ color: m.chatColor || DEFAULT_CHAT_COLOR }}
+              >
                 @{m.username}
               </span>
               <span className="chat-text">{m.text}</span>
@@ -3975,12 +4173,7 @@ function ago(iso: string | null): string {
 }
 
 type DiscoverSort =
-  | "mc_desc"
-  | "mc_asc"
-  | "vol_desc"
-  | "vol_asc"
-  | "new"
-  | "old";
+  "mc_desc" | "mc_asc" | "vol_desc" | "vol_asc" | "new" | "old";
 type DiscFilters = {
   mcMin: string;
   mcMax: string;
@@ -4047,7 +4240,10 @@ function Discover({
     localStorage.setItem("cs.discFilters", JSON.stringify(f));
   }, [f]);
   useEffect(() => {
-    localStorage.setItem("cs.discIncludeSpecial", includeSpecial ? "true" : "false");
+    localStorage.setItem(
+      "cs.discIncludeSpecial",
+      includeSpecial ? "true" : "false",
+    );
   }, [includeSpecial]);
 
   function hide(mint: string) {
@@ -4163,7 +4359,9 @@ function Discover({
   const pages = Math.max(1, Math.ceil(sorted.length / PAGE));
   const pageClamped = Math.min(page, pages - 1);
   const visible = sorted.slice(pageClamped * PAGE, pageClamped * PAGE + PAGE);
-  const specialCount = coins.filter((c) => c.isLikelyAgent || c.isLikelyCharity).length;
+  const specialCount = coins.filter(
+    (c) => c.isLikelyAgent || c.isLikelyCharity,
+  ).length;
   const metadataCoin = coins.find((c) => c.mint === selectedMetaMint) ?? null;
 
   return (
@@ -4173,7 +4371,8 @@ function Discover({
           <div>
             <h2>Discover</h2>
             <div className="hint">
-              DB-backed redirect index. This page does not check every token on-chain.
+              DB-backed redirect index. This page does not check every token
+              on-chain.
             </div>
           </div>
           <div className="disc-controls">
@@ -4300,7 +4499,8 @@ function Discover({
                   <option value="">Select a redirected token…</option>
                   {coins.map((c) => (
                     <option key={c.mint} value={c.mint}>
-                      {c.ticker ? `$${c.ticker}` : short(c.mint)} · {short(c.mint)}
+                      {c.ticker ? `$${c.ticker}` : short(c.mint)} ·{" "}
+                      {short(c.mint)}
                     </option>
                   ))}
                 </select>
@@ -4315,37 +4515,93 @@ function Discover({
               )}
             </div>
             {!selectedMetaMint && (
-              <div className="empty">Pick a token to inspect all saved metadata.</div>
+              <div className="empty">
+                Pick a token to inspect all saved metadata.
+              </div>
             )}
-            {selectedMetaMint && metadataLoading && <div className="empty">Loading metadata…</div>}
-            {selectedMetaMint && metadataError && <div className="err">{metadataError}</div>}
+            {selectedMetaMint && metadataLoading && (
+              <div className="empty">Loading metadata…</div>
+            )}
+            {selectedMetaMint && metadataError && (
+              <div className="err">{metadataError}</div>
+            )}
             {selectedMetaMint && metadata && !metadataLoading && (
               <div className="meta-grid">
                 <div className="meta-summary">
-                  {metadata.image ? <img className="disc-img" src={metadata.image} alt="" /> : null}
+                  {metadata.image ? (
+                    <img className="disc-img" src={metadata.image} alt="" />
+                  ) : null}
                   <div>
                     <div className="disc-name">
                       <span className="disc-tk">
-                        {metadata.ticker ? `$${metadata.ticker}` : short(metadata.mint)}
+                        {metadata.ticker
+                          ? `$${metadata.ticker}`
+                          : short(metadata.mint)}
                       </span>
-                      {metadata.isLikelyAgent && <span className="tp-chip">agent?</span>}
-                      {metadata.isLikelyCharity && <span className="tp-chip">charity?</span>}
+                      {metadata.isLikelyAgent && (
+                        <span className="tp-chip">agent?</span>
+                      )}
+                      {metadata.isLikelyCharity && (
+                        <span className="tp-chip">charity?</span>
+                      )}
                     </div>
                     <div className="hint">{metadata.name ?? metadata.mint}</div>
                     <CopyCA mint={metadata.mint} />
                   </div>
                 </div>
                 <div className="meta-kv">
-                  <div><span>MC</span><b>{compactUsd(metadata.marketCapUsd)}</b></div>
-                  <div><span>Vol 24h</span><b>{compactUsd(metadata.volumeUsd)}</b></div>
-                  <div><span>Liquidity</span><b>{compactUsd(metadata.liquidityUsd)}</b></div>
-                  <div><span>Price</span><b>{metadata.priceUsd != null ? `$${metadata.priceUsd.toExponential(3)}` : "—"}</b></div>
-                  <div><span>Pair</span><b>{metadata.pairDexId ?? "—"}</b></div>
-                  <div><span>Market updated</span><b>{metadata.marketDataUpdatedAt ? ago(metadata.marketDataUpdatedAt) : "—"}</b></div>
-                  <div><span>Redirect source</span><b>{metadata.source ?? "—"}</b></div>
-                  <div><span>Fee owner</span><b>{metadata.creator ? short(metadata.creator) : "—"}</b></div>
-                  <div><span>Updated</span><b>{metadata.metadataUpdatedAt ? ago(metadata.metadataUpdatedAt) : "—"}</b></div>
-                  <div><span>Classification</span><b>{metadata.classificationReason ?? "none"}</b></div>
+                  <div>
+                    <span>MC</span>
+                    <b>{compactUsd(metadata.marketCapUsd)}</b>
+                  </div>
+                  <div>
+                    <span>Vol 24h</span>
+                    <b>{compactUsd(metadata.volumeUsd)}</b>
+                  </div>
+                  <div>
+                    <span>Liquidity</span>
+                    <b>{compactUsd(metadata.liquidityUsd)}</b>
+                  </div>
+                  <div>
+                    <span>Price</span>
+                    <b>
+                      {metadata.priceUsd != null
+                        ? `$${metadata.priceUsd.toExponential(3)}`
+                        : "—"}
+                    </b>
+                  </div>
+                  <div>
+                    <span>Pair</span>
+                    <b>{metadata.pairDexId ?? "—"}</b>
+                  </div>
+                  <div>
+                    <span>Market updated</span>
+                    <b>
+                      {metadata.marketDataUpdatedAt
+                        ? ago(metadata.marketDataUpdatedAt)
+                        : "—"}
+                    </b>
+                  </div>
+                  <div>
+                    <span>Redirect source</span>
+                    <b>{metadata.source ?? "—"}</b>
+                  </div>
+                  <div>
+                    <span>Fee owner</span>
+                    <b>{metadata.creator ? short(metadata.creator) : "—"}</b>
+                  </div>
+                  <div>
+                    <span>Updated</span>
+                    <b>
+                      {metadata.metadataUpdatedAt
+                        ? ago(metadata.metadataUpdatedAt)
+                        : "—"}
+                    </b>
+                  </div>
+                  <div>
+                    <span>Classification</span>
+                    <b>{metadata.classificationReason ?? "none"}</b>
+                  </div>
                 </div>
                 <pre className="debug-out meta-json">
                   {JSON.stringify(metadata, null, 2)}
@@ -4359,8 +4615,8 @@ function Discover({
             {!loading && msg && <div className="empty">{msg}</div>}
             {!loading && !msg && coins.length === 0 && (
               <div className="empty">
-                No redirected coins yet. This list fills live as coins have their
-                fees redirected to another wallet.
+                No redirected coins yet. This list fills live as coins have
+                their fees redirected to another wallet.
               </div>
             )}
             {!loading && !msg && coins.length > 0 && sorted.length === 0 && (
@@ -4394,16 +4650,30 @@ function Discover({
                           </span>
                         )}
                         {c.isLikelyAgent && (
-                          <span className="tp-chip" title={c.classificationReason ?? "Metadata matched agent keywords"}>
+                          <span
+                            className="tp-chip"
+                            title={
+                              c.classificationReason ??
+                              "Metadata matched agent keywords"
+                            }
+                          >
                             agent?
                           </span>
                         )}
                         {c.isLikelyCharity && (
-                          <span className="tp-chip" title={c.classificationReason ?? "Metadata matched charity keywords"}>
+                          <span
+                            className="tp-chip"
+                            title={
+                              c.classificationReason ??
+                              "Metadata matched charity keywords"
+                            }
+                          >
                             charity?
                           </span>
                         )}
-                        {c.migrated && <span className="tp-chip">migrated</span>}
+                        {c.migrated && (
+                          <span className="tp-chip">migrated</span>
+                        )}
                       </div>
                       <CopyCA mint={c.mint} />
                     </div>
