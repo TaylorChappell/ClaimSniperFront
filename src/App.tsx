@@ -283,23 +283,6 @@ function isInteractiveClick(e: ReactMouseEvent<HTMLElement>) {
   return !!el?.closest("button,a,input,select,textarea,label");
 }
 
-async function copyToClipboard(text: string) {
-  if (navigator.clipboard?.writeText) {
-    await navigator.clipboard.writeText(text);
-    return;
-  }
-
-  const textarea = document.createElement("textarea");
-  textarea.value = text;
-  textarea.setAttribute("readonly", "true");
-  textarea.style.position = "fixed";
-  textarea.style.left = "-9999px";
-  document.body.appendChild(textarea);
-  textarea.select();
-  document.execCommand("copy");
-  textarea.remove();
-}
-
 function initialViewFromUrl(): AppView {
   if (typeof window === "undefined") return "dashboard";
   const view = new URLSearchParams(window.location.search).get("view");
@@ -2335,57 +2318,6 @@ function Snipes({
     }
   }
 
-  function snipeDebugPayload(snipe: Snipe) {
-    return {
-      id: snipe.id,
-      status: snipe.status,
-      ticker: snipe.ticker ?? null,
-      mint: snipe.mint,
-      amountSol: snipe.amountSol,
-      wallet: {
-        name: snipe.wallet.name,
-        publicKey: snipe.wallet.publicKey,
-      },
-      triggerMode: snipe.triggerMode ?? "CLAIM",
-      execMode: snipe.execMode ?? "PUMPPORTAL",
-      watchWallet: snipe.watchWallet ?? null,
-      onlyRedirected: snipe.onlyRedirected,
-      marketCapUsd: snipe.liveMarketCapUsd ?? null,
-      marketCapLabel: snipeMarketCapLabel(snipe),
-      marketCapUpdatedAt: snipe.liveMarketCapUpdatedAt ?? null,
-      marketCapSource: snipe.liveMarketCapSource ?? null,
-      mcMinUsd: snipe.mcMinUsd ?? null,
-      mcMaxUsd: snipe.mcMaxUsd ?? null,
-      slippagePct: snipe.slippagePct,
-      priorityFee: snipe.priorityFee,
-      bribe: snipe.bribe,
-      signature: snipe.signature ?? null,
-      error: snipe.error ?? null,
-      claimCheck: {
-        status: snipe.claimCheckStatus ?? null,
-        wallet: snipe.claimCheckWallet ?? null,
-        tx: snipe.claimCheckTx ?? null,
-        instruction: snipe.claimCheckInstruction ?? null,
-        recipient: snipe.claimCheckRecipient ?? null,
-        signer: snipe.claimCheckSigner ?? null,
-        claimedAt: snipe.claimCheckClaimedAt ?? null,
-        checkedAt: snipe.claimCheckCheckedAt ?? null,
-        error: snipe.claimCheckError ?? null,
-      },
-      createdAt: snipe.createdAt,
-      copiedAt: new Date().toISOString(),
-    };
-  }
-
-  async function copyDebug(snipe: Snipe) {
-    try {
-      await copyToClipboard(JSON.stringify(snipeDebugPayload(snipe), null, 2));
-      toast("Copied debug info");
-    } catch {
-      toast("Could not copy debug info", "err");
-    }
-  }
-
   return (
     <div className={`card snipes-card ${pausedCount > 0 ? "paused" : ""}`}>
       <div className="snipes-top">
@@ -2527,22 +2459,8 @@ function Snipes({
             {s.error && s.status !== "FAILED" && <span style={{ color: "var(--red)" }}>{s.error}</span>}
           </div>
           <div className="snipe-actions">
-            {(s.status === "ARMED" || s.status === "PAUSED") && (
-              <button
-                className="snipe-pause-one"
-                onClick={() => toggleOnePause(s)}
-                disabled={pauseOneBusy.has(s.id)}
-                title={s.status === "ARMED" ? "Pause this snipe" : "Unpause this snipe"}
-                aria-label={s.status === "ARMED" ? "Pause this snipe" : "Unpause this snipe"}
-              >
-                {pauseOneBusy.has(s.id) ? <span className="spin" /> : s.status === "ARMED" ? "⏸" : "▶"}
-              </button>
-            )}
             <button className="ghost" onClick={() => setEdit(s)}>
               Edit
-            </button>
-            <button className="ghost debug-copy-btn" onClick={() => copyDebug(s)}>
-              Copy Debug
             </button>
             {s.status === "FILLED" &&
               s.tpStatus === "PENDING" &&
@@ -2562,6 +2480,17 @@ function Snipes({
             <button className="ghost" onClick={() => remove(s.id)}>
               {s.status === "ARMED" || s.status === "PAUSED" ? "Disarm" : "Remove"}
             </button>
+            {(s.status === "ARMED" || s.status === "PAUSED") && (
+              <button
+                className="snipe-pause-one"
+                onClick={() => toggleOnePause(s)}
+                disabled={pauseOneBusy.has(s.id)}
+                title={s.status === "ARMED" ? "Pause this snipe" : "Unpause this snipe"}
+                aria-label={s.status === "ARMED" ? "Pause this snipe" : "Unpause this snipe"}
+              >
+                {pauseOneBusy.has(s.id) ? <span className="spin" /> : s.status === "ARMED" ? "⏸" : "▶"}
+              </button>
+            )}
           </div>
         </div>
       ))}
@@ -4784,6 +4713,10 @@ function ChatBox({ tradingPlatform }: { tradingPlatform: TradingPlatform }) {
         top: el.scrollHeight,
         behavior: smooth ? "smooth" : "auto",
       });
+      window.scrollTo({
+        top: document.documentElement.scrollHeight,
+        behavior: smooth ? "smooth" : "auto",
+      });
     });
   }, []);
 
@@ -4930,7 +4863,6 @@ function ChatBox({ tradingPlatform }: { tradingPlatform: TradingPlatform }) {
       <div className="chat-head">
         <div>
           <h3>Chat</h3>
-          <p className="sub">Paid traders only · Telegram-style feed</p>
         </div>
       </div>
 
@@ -5062,20 +4994,6 @@ function ChatBox({ tradingPlatform }: { tradingPlatform: TradingPlatform }) {
         </div>
       )}
       <div className="chat-input telegram-input">
-        <button
-          className="chat-tool"
-          type="button"
-          onClick={() => {
-            setReactingTo(null);
-            setEmojiOpen((v) => !v);
-          }}
-          title="Emoji"
-        >
-          ☺
-        </button>
-        <button className="chat-tool" type="button" onClick={() => fileRef.current?.click()} title="Upload image">
-          📎
-        </button>
         <input
           ref={inputRef}
           value={text}
@@ -5086,6 +5004,27 @@ function ChatBox({ tradingPlatform }: { tradingPlatform: TradingPlatform }) {
             if (e.key === "Enter" && !e.shiftKey) send();
           }}
         />
+        <button
+          className="chat-tool"
+          type="button"
+          onClick={() => {
+            setReactingTo(null);
+            setEmojiOpen((v) => !v);
+          }}
+          title="Emoji"
+          aria-label="Open emoji keyboard"
+        >
+          ☺
+        </button>
+        <button
+          className="chat-tool"
+          type="button"
+          onClick={() => fileRef.current?.click()}
+          title="Upload image"
+          aria-label="Attach image"
+        >
+          📎
+        </button>
         <input
           ref={fileRef}
           type="file"

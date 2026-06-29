@@ -3157,7 +3157,7 @@ button.ghost.mini.on {
   }
 }
 
-/* ============ per-snipe pause + debug actions ============ */
+/* ============ per-snipe pause action ============ */
 .snipe-pause-one {
   flex: 0 0 42px;
   width: 42px;
@@ -3177,6 +3177,8 @@ button.ghost.mini.on {
   font-size: 15px;
   font-weight: 900;
   line-height: 1;
+  margin-left: auto;
+  order: 99;
   transition:
     transform 0.16s ease,
     filter 0.16s ease,
@@ -3194,18 +3196,12 @@ button.ghost.mini.on {
   opacity: 0.64;
   transform: none;
 }
-.debug-copy-btn {
-  white-space: nowrap;
-}
 @media (max-width: 640px) {
   .snipe-actions {
     flex-wrap: wrap;
   }
   .snipe-pause-one {
     flex: 0 0 44px;
-  }
-  .debug-copy-btn {
-    flex: 1 1 130px;
   }
 }
 
@@ -3701,4 +3697,49 @@ button.ghost.mini.on {
     grid-template-columns: repeat(7, minmax(34px, 1fr));
   }
   .telegram-msg .chat-actions-row { opacity: 1; }
+}
+
+/* ---------- Chat layout fixes ---------- */
+.telegram-chat .chat-head h3 {
+  margin-bottom: 0;
+}
+.telegram-input {
+  display: flex;
+  align-items: center;
+}
+.telegram-input input[type="text"],
+.telegram-input input:not([type]) {
+  flex: 1 1 auto;
+  min-width: 0;
+}
+.telegram-input .chat-tool {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0;
+  line-height: 1;
+  text-align: center;
+}
+.telegram-emoji-panel {
+  position: absolute;
+  left: 12px;
+  right: 12px;
+  bottom: 76px;
+  z-index: 30;
+  max-height: min(430px, calc(100% - 138px));
+  margin: 0;
+  animation: emojiPanelUp 0.14s ease-out;
+}
+@keyframes emojiPanelUp {
+  from { opacity: 0; transform: translateY(8px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+@media (max-width: 700px) {
+  .telegram-emoji-panel {
+    left: 0;
+    right: 0;
+    bottom: 66px;
+    max-height: min(480px, calc(100% - 118px));
+    margin: 0;
+  }
 }
