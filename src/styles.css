@@ -12,10 +12,10 @@
   --green-2: #16c45f;
   --green-soft: rgba(32, 224, 112, 0.12);
   --green-glow: rgba(32, 224, 112, 0.35);
-  --blue: #7ddfff;
-  --blue-2: #38bdf8;
-  --blue-soft: rgba(125, 223, 255, 0.14);
-  --blue-glow: rgba(125, 223, 255, 0.32);
+  --blue: #a9ecff;
+  --blue-2: #68d8ff;
+  --blue-soft: rgba(169, 236, 255, 0.14);
+  --blue-glow: rgba(169, 236, 255, 0.3);
   --amber: #ffce4d;
   --red: #ff5468;
   --radius: 16px;
@@ -509,7 +509,7 @@ button.danger:hover {
 }
 .preset-btn {
   min-height: 32px;
-  padding: 7px 10px;
+  padding: 7px 11px;
   border-radius: 999px;
   color: var(--muted);
   font-size: 11px;
@@ -519,19 +519,25 @@ button.danger:hover {
   border-color: rgba(234, 243, 239, 0.09);
 }
 .preset-btn.saved {
-  color: rgba(234, 243, 239, 0.82);
-  border-color: rgba(32, 224, 112, 0.22);
+  color: rgba(234, 243, 239, 0.86);
+  border-color: rgba(32, 224, 112, 0.26);
 }
 .preset-btn:hover {
   color: var(--text);
-  border-color: rgba(125, 223, 255, 0.48);
-  background: rgba(125, 223, 255, 0.08);
+  border-color: rgba(32, 224, 112, 0.5);
+  background: rgba(32, 224, 112, 0.08);
 }
 .preset-btn.on {
-  color: #04131c;
+  color: var(--green);
+  border-color: rgba(32, 224, 112, 0.46);
+  background: rgba(32, 224, 112, 0.1);
+  box-shadow: 0 8px 22px rgba(32, 224, 112, 0.08);
+}
+.preset-btn.on.dirty {
+  color: #041f0d;
   border-color: transparent;
-  background: linear-gradient(150deg, var(--blue), var(--blue-2));
-  box-shadow: 0 8px 22px rgba(125, 223, 255, 0.18);
+  background: linear-gradient(150deg, var(--green), var(--green-2));
+  box-shadow: 0 8px 24px rgba(32, 224, 112, 0.18);
 }
 
 /* ---------- searchable combo ---------- */
@@ -574,11 +580,11 @@ button.danger:hover {
 
 /* ---------- snipes ---------- */
 .snipes-card.paused {
-  border-color: rgba(125, 223, 255, 0.72);
+  border-color: rgba(169, 236, 255, 0.72);
   box-shadow:
-    0 0 0 1px rgba(125, 223, 255, 0.18),
+    0 0 0 1px rgba(169, 236, 255, 0.18),
     0 18px 48px rgba(0, 0, 0, 0.28),
-    0 0 26px rgba(125, 223, 255, 0.08);
+    0 0 26px rgba(169, 236, 255, 0.08);
 }
 .snipes-top {
   display: flex;
@@ -594,12 +600,27 @@ button.danger:hover {
   color: var(--blue);
 }
 .pause-all-btn {
-  color: #04131c;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  color: #031722;
   border: none;
   background: linear-gradient(150deg, var(--blue), var(--blue-2));
   box-shadow: 0 6px 22px var(--blue-glow);
   padding: 9px 13px;
   white-space: nowrap;
+}
+.pause-icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 18px;
+  height: 18px;
+  border-radius: 999px;
+  background: rgba(3, 23, 34, 0.1);
+  font-size: 11px;
+  line-height: 1;
 }
 .pause-all-btn:hover {
   filter: brightness(1.06);
@@ -631,10 +652,10 @@ button.danger:hover {
   pointer-events: none;
 }
 .snipe.PAUSED {
-  border-color: rgba(125, 223, 255, 0.72);
+  border-color: rgba(169, 236, 255, 0.72);
   background: linear-gradient(
     180deg,
-    rgba(125, 223, 255, 0.08),
+    rgba(169, 236, 255, 0.08),
     var(--surface-2)
   );
 }
@@ -674,6 +695,21 @@ button.danger:hover {
 .snipe .meta b {
   color: var(--text);
   font-weight: 500;
+}
+
+.market-cap-chip {
+  color: var(--green);
+  background: rgba(32, 224, 112, 0.1);
+  border: 1px solid rgba(32, 224, 112, 0.28);
+  border-radius: 999px;
+  padding: 2px 9px;
+  font-weight: 700;
+}
+.market-cap-chip.loading {
+  color: var(--muted);
+  background: rgba(255, 255, 255, 0.035);
+  border-color: var(--line);
+  font-weight: 600;
 }
 
 .badge {

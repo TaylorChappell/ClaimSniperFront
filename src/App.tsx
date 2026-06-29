@@ -27,13 +27,48 @@ import {
   type TakeProfitEntry,
   type Profile,
   type TradingPlatform,
+  type LiveMarketCapSnapshot,
 } from "./api";
 import { useLeaderPolling } from "./sync";
 
 const BRAND_IMG = `${import.meta.env.BASE_URL}sniper.png`;
+const SNIPE_SOUND = `${import.meta.env.BASE_URL}snipe.mp3`;
 const DEFAULT_CHAT_COLOR = "#20e070";
 const DEFAULT_PLATFORM: TradingPlatform = "AXIOM";
 const short = (s: string) => `${s.slice(0, 4)}…${s.slice(-4)}`;
+const compactNumber = new Intl.NumberFormat("en", {
+  notation: "compact",
+  maximumFractionDigits: 2,
+});
+
+function formatMarketCapValue(value: number | null | undefined, suffix = "") {
+  if (value == null || !Number.isFinite(value)) return null;
+  return `${compactNumber.format(value)}${suffix}`;
+}
+
+function snipeMarketCapLabel(s: Pick<Snipe, "liveMarketCapUsd" | "liveMarketCapSol">) {
+  const usd = formatMarketCapValue(s.liveMarketCapUsd, "");
+  if (usd) return `$${usd}`;
+  const sol = formatMarketCapValue(s.liveMarketCapSol, " SOL");
+  return sol ?? "loading";
+}
+
+function mergeLiveMarketCaps(snipes: Snipe[], caps: Record<string, LiveMarketCapSnapshot | null>) {
+  if (!Object.keys(caps).length) return snipes;
+  return snipes.map((s) => {
+    const cap = caps[s.mint];
+    if (!cap) return s;
+    return {
+      ...s,
+      liveMarketCapSol: cap.marketCapSol,
+      liveMarketCapUsd: cap.marketCapUsd,
+      livePriceSol: cap.priceSol,
+      livePriceUsd: cap.priceUsd,
+      liveMarketCapUpdatedAt: cap.updatedAt,
+      liveMarketCapSource: cap.source,
+    };
+  });
+}
 function defaultProfile(username: string, admin = false): Profile {
   return {
     username,
@@ -114,6 +149,40 @@ function writeArmPreset(slot: PresetSlot, preset: ArmSnipePreset) {
   const next = { ...readArmPresets(), [slot]: preset };
   localStorage.setItem(ARM_PRESETS_KEY, JSON.stringify(next));
   return next;
+}
+
+function presetFingerprint(preset?: Partial<ArmSnipePreset> | null) {
+  const exit = (preset?.exit ?? {}) as Partial<ExitPresetDraft>;
+  return JSON.stringify({
+    walletId: preset?.walletId ?? "",
+    amount: preset?.amount ?? "",
+    slippage: preset?.slippage ?? "15",
+    priority: preset?.priority ?? "0.0005",
+    bribe: preset?.bribe ?? "0",
+    onlyRedirected: !!preset?.onlyRedirected,
+    watchWallet: preset?.watchWallet ?? "",
+    execMode: preset?.execMode === "LOCAL" ? "LOCAL" : "PUMPPORTAL",
+    triggerMode: preset?.triggerMode === "REDIRECT" ? "REDIRECT" : "CLAIM",
+    exit: {
+      tpOn: !!exit.tpOn,
+      tpTrail: !!exit.tpTrail,
+      takeProfits: (exit.takeProfits ?? []).slice(0, 3).map((tp) => ({
+        multiplier: tp.multiplier ?? "",
+        sellPct: tp.sellPct ?? "",
+        slippagePct: tp.slippagePct ?? "",
+      })),
+      tpTrailPct: exit.tpTrailPct ?? "20",
+      slOn: !!exit.slOn,
+      slTrail: !!exit.slTrail,
+      slPct: exit.slPct ?? "30",
+      slTrailPct: exit.slTrailPct ?? "20",
+      slSlip: exit.slSlip ?? "25",
+    },
+  });
+}
+
+function presetsEqual(a?: Partial<ArmSnipePreset> | null, b?: Partial<ArmSnipePreset> | null) {
+  return presetFingerprint(a) === presetFingerprint(b);
 }
 
 function tradingPlatformLabel(platform: TradingPlatform) {
@@ -856,8 +925,16 @@ function Dashboard({
   }, [toast]);
 
   const { data, refresh } = useLeaderPolling("dash", fetchAll, 30000);
+  const { data: marketCapData } = useLeaderPolling(
+    "snipe-market-caps",
+    () => api.snipeMarketCaps(),
+    5000,
+  );
   const wallets = data?.wallets ?? [];
-  const snipes = data?.snipes ?? [];
+  const snipes = useMemo(
+    () => mergeLiveMarketCaps(data?.snipes ?? [], marketCapData?.caps ?? {}),
+    [data?.snipes, marketCapData?.caps],
+  );
   const stats = data?.stats ?? null;
 
   const [view, setView] = useState<AppView>(() => initialViewFromUrl());
@@ -1334,6 +1411,9 @@ function SnipeForm({
   const [err, setErr] = useState("");
   const [busy, setBusy] = useState(false);
   const [activePreset, setActivePreset] = useState<PresetSlot | null>(null);
+  const [presetBaseline, setPresetBaseline] = useState<ArmSnipePreset | null>(
+    null,
+  );
   const [presets, setPresets] = useState<Partial<Record<PresetSlot, ArmSnipePreset>>>(() =>
     readArmPresets(),
   );
@@ -1368,8 +1448,12 @@ function SnipeForm({
 
   function handlePreset(slot: PresetSlot) {
     if (activePreset === slot) {
-      const next = writeArmPreset(slot, buildPreset());
+      const current = buildPreset();
+      if (!presetBaseline || presetsEqual(current, presetBaseline)) return;
+
+      const next = writeArmPreset(slot, current);
       setPresets(next);
+      setPresetBaseline(current);
       toast(`Preset ${slot} saved`);
       return;
     }
@@ -1378,11 +1462,16 @@ function SnipeForm({
     const preset = presets[slot];
     if (preset) {
       applyPreset(preset);
+      setPresetBaseline(preset);
       toast(`Preset ${slot} loaded`);
     } else {
-      toast(`Preset ${slot} selected. Set your options, then press Save.`);
+      setPresetBaseline(buildPreset());
+      toast(`Preset ${slot} selected. Change options, then press Save.`);
     }
   }
+
+  const activePresetDirty =
+    !!activePreset && !!presetBaseline && !presetsEqual(buildPreset(), presetBaseline);
 
   async function arm() {
     setErr("");
@@ -1436,17 +1525,19 @@ function SnipeForm({
             <button
               key={slot}
               type="button"
-              className={`preset-btn ${activePreset === slot ? "on" : ""} ${presets[slot] ? "saved" : ""}`}
+              className={`preset-btn ${activePreset === slot ? "on" : ""} ${activePreset === slot && activePresetDirty ? "dirty" : ""} ${presets[slot] ? "saved" : ""}`}
               onClick={() => handlePreset(slot)}
               title={
                 activePreset === slot
-                  ? `Save current options to preset ${slot}`
+                  ? activePresetDirty
+                    ? `Save current options to preset ${slot}`
+                    : `Preset ${slot} is selected`
                   : presets[slot]
                     ? `Load preset ${slot}`
                     : `Select preset ${slot}`
               }
             >
-              {activePreset === slot ? "Save" : `Preset ${slot}`}
+              {activePreset === slot && activePresetDirty ? "Save" : `Preset ${slot}`}
             </button>
           ))}
         </div>
@@ -1773,10 +1864,13 @@ function Snipes({
         >
           {pauseBusy ? (
             <span className="spin" />
-          ) : pauseMode === "pause" ? (
-            "Pause All"
           ) : (
-            "Unpause All"
+            <>
+              <span className="pause-icon" aria-hidden="true">
+                {pauseMode === "pause" ? "⏸" : "▶"}
+              </span>
+              {pauseMode === "pause" ? "Pause All" : "Unpause All"}
+            </>
           )}
         </button>
       </div>
@@ -1853,6 +1947,16 @@ function Snipes({
             <span>
               <b>{s.amountSol}</b> SOL
             </span>
+            <span
+              className={`market-cap-chip ${s.liveMarketCapSol == null && s.liveMarketCapUsd == null ? "loading" : ""}`}
+              title={
+                s.liveMarketCapUpdatedAt
+                  ? `Updated ${new Date(s.liveMarketCapUpdatedAt).toLocaleTimeString()} from ${s.liveMarketCapSource ?? "live feed"}`
+                  : "Waiting for live Pump market-cap update"
+              }
+            >
+              Market Cap {snipeMarketCapLabel(s)}
+            </span>
             <span>{s.wallet.name}</span>
             <span>slip {s.slippagePct}%</span>
             <span>prio {s.priorityFee}</span>
@@ -1925,6 +2029,7 @@ function Snipes({
 /* ---------------- notification sound ---------------- */
 const ALERT_SOUND_KEY = "cs.alertSoundEnabled";
 let _audioCtx: AudioContext | null = null;
+let _snipeAudio: HTMLAudioElement | null = null;
 
 function alertSoundEnabled() {
   try {
@@ -1939,6 +2044,18 @@ function setAlertSoundEnabled(enabled: boolean) {
     localStorage.setItem(ALERT_SOUND_KEY, enabled ? "true" : "false");
   } catch {
     /* ignore storage errors */
+  }
+}
+
+function ensureSnipeAudio(): HTMLAudioElement | null {
+  try {
+    if (typeof Audio === "undefined") return null;
+    _snipeAudio = _snipeAudio || new Audio(SNIPE_SOUND);
+    _snipeAudio.preload = "auto";
+    _snipeAudio.volume = 0.85;
+    return _snipeAudio;
+  } catch {
+    return null;
   }
 }
 
@@ -1967,25 +2084,38 @@ async function resumeAudioContext() {
 // from a real user gesture so later buy/fail chimes are allowed to play.
 export function unlockAudio() {
   ensureCtx();
+  ensureSnipeAudio()?.load();
 }
 
 async function enableAlertSound() {
   await resumeAudioContext();
   setAlertSoundEnabled(true);
-  playChime("fill", true);
+  await playSnipeSound(true);
 }
 
 function disableAlertSound() {
   setAlertSoundEnabled(false);
 }
 
-function playChime(kind: "fill" | "fail", force = false) {
+async function playSnipeSound(force = false) {
+  if (!force && !alertSoundEnabled()) return;
+  try {
+    const audio = ensureSnipeAudio();
+    if (!audio) throw new Error("no audio element");
+    audio.currentTime = 0;
+    await audio.play();
+  } catch {
+    playTone("fill", true);
+  }
+}
+
+function playTone(kind: "fill" | "fail", force = false) {
   if (!force && !alertSoundEnabled()) return;
   try {
     const ctx = ensureCtx();
     if (!ctx) return;
     const now = ctx.currentTime + 0.01;
-    // fill (a buy landed) = rising bright two-note; fail = descending low two-note.
+    // Fill fallback = rising bright two-note; fail = descending low two-note.
     const notes = kind === "fill" ? [660, 990] : [300, 160];
     notes.forEach((f, i) => {
       const osc = ctx.createOscillator();
@@ -2005,6 +2135,14 @@ function playChime(kind: "fill" | "fail", force = false) {
   }
 }
 
+function playChime(kind: "fill" | "fail", force = false) {
+  if (!force && !alertSoundEnabled()) return;
+  if (kind === "fill") {
+    void playSnipeSound(force);
+    return;
+  }
+  playTone("fail", force);
+}
 /* ---------------- history (permanent fill history) ---------------- */
 function History({ tradingPlatform }: { tradingPlatform: TradingPlatform }) {
   const toast = useToast();

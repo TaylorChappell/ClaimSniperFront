@@ -69,12 +69,28 @@ export interface ExitCfg {
   slTrailPct?: number;
   slSlippagePct?: number;
 }
+export interface LiveMarketCapSnapshot {
+  mint: string;
+  marketCapSol: number | null;
+  marketCapUsd: number | null;
+  priceSol: number | null;
+  priceUsd: number | null;
+  updatedAt: string | null;
+  source: "pumpdev" | "rpc" | "unknown" | null;
+}
+
 export interface Snipe {
   id: string;
   mint: string;
   pairAddress?: string | null;
   pairDexId?: string | null;
   pairUrl?: string | null;
+  liveMarketCapSol?: number | null;
+  liveMarketCapUsd?: number | null;
+  livePriceSol?: number | null;
+  livePriceUsd?: number | null;
+  liveMarketCapUpdatedAt?: string | null;
+  liveMarketCapSource?: "pumpdev" | "rpc" | "unknown" | null;
   amountSol: number;
   slippagePct: number;
   priorityFee: number;
@@ -169,6 +185,12 @@ export interface PublicSnipe {
   pairAddress?: string | null;
   pairDexId?: string | null;
   pairUrl?: string | null;
+  liveMarketCapSol?: number | null;
+  liveMarketCapUsd?: number | null;
+  livePriceSol?: number | null;
+  livePriceUsd?: number | null;
+  liveMarketCapUpdatedAt?: string | null;
+  liveMarketCapSource?: "pumpdev" | "rpc" | "unknown" | null;
   ticker?: string | null;
   amountSol: number;
   soldSol: number;
@@ -349,6 +371,8 @@ export const api = {
   deleteWallet: (id: string) =>
     req<{ ok: true }>(`/wallets/${id}`, { method: "DELETE" }),
   snipes: () => req<{ snipes: Snipe[] }>("/snipes"),
+  snipeMarketCaps: () =>
+    req<{ caps: Record<string, LiveMarketCapSnapshot | null> }>("/snipes/market-caps"),
   pauseAllSnipes: () =>
     req<{ ok: true; paused: number }>("/snipes/pause-all", { method: "POST" }),
   unpauseAllSnipes: () =>
