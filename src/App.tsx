@@ -283,6 +283,23 @@ function isInteractiveClick(e: ReactMouseEvent<HTMLElement>) {
   return !!el?.closest("button,a,input,select,textarea,label");
 }
 
+async function copyToClipboard(text: string) {
+  if (navigator.clipboard?.writeText) {
+    await navigator.clipboard.writeText(text);
+    return;
+  }
+
+  const textarea = document.createElement("textarea");
+  textarea.value = text;
+  textarea.setAttribute("readonly", "true");
+  textarea.style.position = "fixed";
+  textarea.style.left = "-9999px";
+  document.body.appendChild(textarea);
+  textarea.select();
+  document.execCommand("copy");
+  textarea.remove();
+}
+
 function initialViewFromUrl(): AppView {
   if (typeof window === "undefined") return "dashboard";
   const view = new URLSearchParams(window.location.search).get("view");
@@ -795,7 +812,7 @@ function SettingsPage({
               </label>
             </div>
             <div className="hint">
-              Your avatar and name colour show in chat.
+              Your avatar and name colour show in chat. Max profile picture upload is 2MB.
             </div>
           </div>
         </div>
@@ -849,6 +866,9 @@ function normalizeHexInput(value: string) {
 
 function resizeAvatar(file: File): Promise<string> {
   return new Promise((resolve, reject) => {
+    if (!file.type.startsWith("image/")) return reject(new Error("Pick an image file"));
+    if (file.size > AVATAR_IMAGE_MAX_RAW_BYTES) return reject(new Error("Profile picture is too large. Max upload is 2MB."));
+
     const reader = new FileReader();
     reader.onerror = () => reject(new Error("Could not read avatar"));
     reader.onload = () => {
@@ -868,12 +888,281 @@ function resizeAvatar(file: File): Promise<string> {
         const y = (size - h) / 2;
         ctx.clearRect(0, 0, size, size);
         ctx.drawImage(img, x, y, w, h);
-        resolve(canvas.toDataURL("image/webp", 0.82));
+        let quality = 0.86;
+        let data = canvas.toDataURL("image/webp", quality);
+        while (data.length > 260_000 && quality > 0.48) {
+          quality -= 0.08;
+          data = canvas.toDataURL("image/webp", quality);
+        }
+        if (data.length > 260_000) return reject(new Error("Profile picture is still too large after compression"));
+        resolve(data);
       };
       img.src = String(reader.result);
     };
     reader.readAsDataURL(file);
   });
+}
+
+
+type EmojiCategory = {
+  id: string;
+  icon: string;
+  label: string;
+  emojis: string[];
+};
+
+const EMOJI_CATEGORIES: EmojiCategory[] = [
+  {
+    id: "recent",
+    icon: "🕘",
+    label: "Recent",
+    emojis: [],
+  },
+  {
+    id: "smileys",
+    icon: "😀",
+    label: "Smileys",
+    emojis: [
+      "😀", "😃", "😄", "😁", "😆", "😅", "😂", "🤣", "😊", "😇", "🙂", "🙃", "😉", "😌", "😍", "🥰", "😘", "😗", "😙", "😚",
+      "😋", "😛", "😝", "😜", "🤪", "🤨", "🧐", "🤓", "😎", "🥸", "🤩", "🥳", "😏", "😒", "😞", "😔", "😟", "😕", "🙁", "☹️",
+      "😣", "😖", "😫", "😩", "🥺", "😢", "😭", "😤", "😠", "😡", "🤬", "🤯", "😳", "🥵", "🥶", "😱", "😨", "😰", "😥", "😓",
+      "🤗", "🤔", "🤭", "🤫", "🤥", "😶", "😐", "😑", "😬", "🙄", "😯", "😦", "😧", "😮", "😲", "🥱", "😴", "🤤", "😪", "😵",
+      "🤐", "🥴", "🤢", "🤮", "🤧", "😷", "🤒", "🤕", "🤑", "🤠", "😈", "👿", "👹", "👺", "🤡", "💩", "👻", "💀", "☠️", "👽",
+      "👾", "🤖", "🎃", "😺", "😸", "😹", "😻", "😼", "😽", "🙀", "😿", "😾",
+    ],
+  },
+  {
+    id: "people",
+    icon: "👍",
+    label: "People",
+    emojis: [
+      "👋", "🤚", "🖐️", "✋", "🖖", "👌", "🤌", "🤏", "✌️", "🤞", "🤟", "🤘", "🤙", "👈", "👉", "👆", "🖕", "👇", "☝️", "👍",
+      "👎", "✊", "👊", "🤛", "🤜", "👏", "🙌", "👐", "🤲", "🤝", "🙏", "✍️", "💅", "🤳", "💪", "🦾", "🦿", "🦵", "🦶", "👂",
+      "🦻", "👃", "🧠", "🫀", "🫁", "🦷", "🦴", "👀", "👁️", "👅", "👄", "💋", "🩸", "👶", "🧒", "👦", "👧", "🧑", "👱", "👨",
+      "🧔", "👩", "🧓", "👴", "👵", "🙍", "🙎", "🙅", "🙆", "💁", "🙋", "🧏", "🙇", "🤦", "🤷", "👮", "🕵️", "💂", "🥷", "👷",
+      "🤴", "👸", "👳", "👲", "🧕", "🤵", "👰", "🤰", "🤱", "👼", "🎅", "🤶", "🦸", "🦹", "🧙", "🧚", "🧛", "🧜", "🧝", "🧞",
+      "🧟", "💆", "💇", "🚶", "🏃", "💃", "🕺", "🕴️", "👯", "🧖", "🧗", "🤺", "🏇", "⛷️", "🏂", "🏌️", "🏄", "🚣", "🏊", "⛹️",
+      "🏋️", "🚴", "🚵", "🤸", "🤼", "🤽", "🤾", "🤹", "🧘", "🛀", "🛌",
+    ],
+  },
+  {
+    id: "nature",
+    icon: "🐻",
+    label: "Animals & Nature",
+    emojis: [
+      "🐶", "🐱", "🐭", "🐹", "🐰", "🦊", "🐻", "🐼", "🐻‍❄️", "🐨", "🐯", "🦁", "🐮", "🐷", "🐽", "🐸", "🐵", "🙈", "🙉", "🙊",
+      "🐒", "🐔", "🐧", "🐦", "🐤", "🐣", "🐥", "🦆", "🦅", "🦉", "🦇", "🐺", "🐗", "🐴", "🦄", "🐝", "🪱", "🐛", "🦋", "🐌",
+      "🐞", "🐜", "🪰", "🪲", "🪳", "🦟", "🦗", "🕷️", "🕸️", "🦂", "🐢", "🐍", "🦎", "🦖", "🦕", "🐙", "🦑", "🦐", "🦞", "🦀",
+      "🐡", "🐠", "🐟", "🐬", "🐳", "🐋", "🦈", "🐊", "🐅", "🐆", "🦓", "🦍", "🦧", "🦣", "🐘", "🦛", "🦏", "🐪", "🐫", "🦒",
+      "🦘", "🦬", "🐃", "🐂", "🐄", "🐎", "🐖", "🐏", "🐑", "🦙", "🐐", "🦌", "🐕", "🐩", "🦮", "🐕‍🦺", "🐈", "🐈‍⬛", "🪶", "🐓",
+      "🦃", "🦤", "🦚", "🦜", "🦢", "🦩", "🕊️", "🐇", "🦝", "🦨", "🦡", "🦫", "🦦", "🦥", "🐁", "🐀", "🐿️", "🦔", "🌵", "🎄",
+      "🌲", "🌳", "🌴", "🪵", "🌱", "🌿", "☘️", "🍀", "🎍", "🪴", "🎋", "🍃", "🍂", "🍁", "🍄", "🐚", "🪨", "🌾", "💐", "🌷",
+      "🌹", "🥀", "🌺", "🌸", "🌼", "🌻", "🌞", "🌝", "🌛", "🌜", "🌚", "🌕", "🌖", "🌗", "🌘", "🌑", "🌒", "🌓", "🌔", "🌙",
+      "🌎", "🌍", "🌏", "🪐", "💫", "⭐", "🌟", "✨", "⚡", "☄️", "💥", "🔥", "🌪️", "🌈", "☀️", "🌤️", "⛅", "🌦️", "🌧️", "⛈️",
+      "🌩️", "🌨️", "❄️", "☃️", "⛄", "🌬️", "💨", "💧", "💦", "☔", "☂️", "🌊", "🌫️",
+    ],
+  },
+  {
+    id: "food",
+    icon: "🍔",
+    label: "Food & Drink",
+    emojis: [
+      "🍏", "🍎", "🍐", "🍊", "🍋", "🍌", "🍉", "🍇", "🍓", "🫐", "🍈", "🍒", "🍑", "🥭", "🍍", "🥥", "🥝", "🍅", "🍆", "🥑",
+      "🥦", "🥬", "🥒", "🌶️", "🫑", "🌽", "🥕", "🫒", "🧄", "🧅", "🥔", "🍠", "🥐", "🥯", "🍞", "🥖", "🥨", "🧀", "🥚", "🍳",
+      "🧈", "🥞", "🧇", "🥓", "🥩", "🍗", "🍖", "🦴", "🌭", "🍔", "🍟", "🍕", "🫓", "🥪", "🥙", "🧆", "🌮", "🌯", "🫔", "🥗",
+      "🥘", "🫕", "🥫", "🍝", "🍜", "🍲", "🍛", "🍣", "🍱", "🥟", "🦪", "🍤", "🍙", "🍚", "🍘", "🍥", "🥠", "🥮", "🍢", "🍡",
+      "🍧", "🍨", "🍦", "🥧", "🧁", "🍰", "🎂", "🍮", "🍭", "🍬", "🍫", "🍿", "🍩", "🍪", "🌰", "🥜", "🍯", "🥛", "🍼", "☕",
+      "🫖", "🍵", "🧃", "🥤", "🧋", "🍶", "🍺", "🍻", "🥂", "🍷", "🥃", "🍸", "🍹", "🧉", "🍾", "🧊", "🥄", "🍴", "🍽️", "🥣",
+      "🥡", "🥢", "🧂",
+    ],
+  },
+  {
+    id: "activity",
+    icon: "⚽",
+    label: "Activity",
+    emojis: [
+      "⚽", "🏀", "🏈", "⚾", "🥎", "🎾", "🏐", "🏉", "🥏", "🎱", "🪀", "🏓", "🏸", "🏒", "🏑", "🥍", "🏏", "🪃", "🥅", "⛳",
+      "🪁", "🏹", "🎣", "🤿", "🥊", "🥋", "🎽", "🛹", "🛼", "🛷", "⛸️", "🥌", "🎿", "⛷️", "🏂", "🪂", "🏋️", "🤼", "🤸", "⛹️",
+      "🤺", "🤾", "🏌️", "🏇", "🧘", "🏄", "🏊", "🤽", "🚣", "🧗", "🚵", "🚴", "🏆", "🥇", "🥈", "🥉", "🏅", "🎖️", "🏵️", "🎗️",
+      "🎫", "🎟️", "🎪", "🤹", "🎭", "🩰", "🎨", "🎬", "🎤", "🎧", "🎼", "🎹", "🥁", "🪘", "🎷", "🎺", "🪗", "🎸", "🪕", "🎻",
+      "🎲", "♟️", "🎯", "🎳", "🎮", "🎰", "🧩",
+    ],
+  },
+  {
+    id: "objects",
+    icon: "💡",
+    label: "Objects",
+    emojis: [
+      "⌚", "📱", "📲", "💻", "⌨️", "🖥️", "🖨️", "🖱️", "🖲️", "🕹️", "🗜️", "💽", "💾", "💿", "📀", "📼", "📷", "📸", "📹", "🎥",
+      "📽️", "🎞️", "📞", "☎️", "📟", "📠", "📺", "📻", "🎙️", "🎚️", "🎛️", "🧭", "⏱️", "⏲️", "⏰", "🕰️", "⌛", "⏳", "📡", "🔋",
+      "🔌", "💡", "🔦", "🕯️", "🪔", "🧯", "🛢️", "💸", "💵", "💴", "💶", "💷", "🪙", "💰", "💳", "💎", "⚖️", "🪜", "🧰", "🪛",
+      "🔧", "🔨", "⚒️", "🛠️", "⛏️", "🪚", "🔩", "⚙️", "🪤", "🧱", "⛓️", "🧲", "🔫", "💣", "🧨", "🪓", "🔪", "🗡️", "⚔️", "🛡️",
+      "🚬", "⚰️", "🪦", "⚱️", "🏺", "🔮", "📿", "🧿", "💈", "⚗️", "🔭", "🔬", "🕳️", "🩹", "🩺", "💊", "💉", "🩸", "🧬", "🦠",
+      "🧫", "🧪", "🌡️", "🧹", "🪠", "🧺", "🧻", "🚽", "🚰", "🚿", "🛁", "🛀", "🧼", "🪥", "🪒", "🧽", "🪣", "🧴", "🛎️", "🔑",
+      "🗝️", "🚪", "🪑", "🛋️", "🛏️", "🛌", "🧸", "🖼️", "🛍️", "🛒", "🎁", "🎈", "🎏", "🎀", "🪄", "🪅", "🎊", "🎉", "🎎", "🏮",
+      "🎐", "🧧", "✉️", "📩", "📨", "📧", "💌", "📥", "📤", "📦", "🏷️", "🪧", "📪", "📫", "📬", "📭", "📮", "📯", "📜", "📃",
+      "📄", "📑", "🧾", "📊", "📈", "📉", "🗒️", "🗓️", "📆", "📅", "🗑️", "📇", "🗃️", "🗳️", "🗄️", "📋", "📁", "📂", "🗂️", "🗞️",
+      "📰", "📓", "📔", "📒", "📕", "📗", "📘", "📙", "📚", "📖", "🔖", "🧷", "🔗", "📎", "🖇️", "📐", "📏", "🧮", "📌", "📍",
+      "✂️", "🖊️", "🖋️", "✒️", "🖌️", "🖍️", "📝", "✏️", "🔍", "🔎", "🔏", "🔐", "🔒", "🔓",
+    ],
+  },
+  {
+    id: "symbols",
+    icon: "💚",
+    label: "Symbols",
+    emojis: [
+      "❤️", "🧡", "💛", "💚", "💙", "💜", "🖤", "🤍", "🤎", "💔", "❣️", "💕", "💞", "💓", "💗", "💖", "💘", "💝", "💟", "☮️",
+      "✝️", "☪️", "🕉️", "☸️", "✡️", "🔯", "🕎", "☯️", "☦️", "🛐", "⛎", "♈", "♉", "♊", "♋", "♌", "♍", "♎", "♏", "♐",
+      "♑", "♒", "♓", "🆔", "⚛️", "🉑", "☢️", "☣️", "📴", "📳", "🈶", "🈚", "🈸", "🈺", "🈷️", "✴️", "🆚", "💮", "🉐", "㊙️",
+      "㊗️", "🈴", "🈵", "🈹", "🈲", "🅰️", "🅱️", "🆎", "🆑", "🅾️", "🆘", "❌", "⭕", "🛑", "⛔", "📛", "🚫", "💯", "💢", "♨️",
+      "🚷", "🚯", "🚳", "🚱", "🔞", "📵", "🚭", "❗", "❕", "❓", "❔", "‼️", "⁉️", "🔅", "🔆", "〽️", "⚠️", "🚸", "🔱", "⚜️",
+      "🔰", "♻️", "✅", "🈯", "💹", "❇️", "✳️", "❎", "🌐", "💠", "Ⓜ️", "🌀", "💤", "🏧", "🚾", "♿", "🅿️", "🛗", "🈳", "🈂️",
+      "🛂", "🛃", "🛄", "🛅", "🚹", "🚺", "🚼", "⚧️", "🚻", "🚮", "🎦", "📶", "🈁", "🔣", "ℹ️", "🔤", "🔡", "🔠", "🆖", "🆗",
+      "🆙", "🆒", "🆕", "🆓", "0️⃣", "1️⃣", "2️⃣", "3️⃣", "4️⃣", "5️⃣", "6️⃣", "7️⃣", "8️⃣", "9️⃣", "🔟", "🔢", "▶️", "⏸️", "⏯️", "⏹️",
+      "⏺️", "⏭️", "⏮️", "⏩", "⏪", "⏫", "⏬", "◀️", "🔼", "🔽", "➡️", "⬅️", "⬆️", "⬇️", "↗️", "↘️", "↙️", "↖️", "↕️", "↔️",
+      "🔄", "🔃", "🎵", "🎶", "➕", "➖", "➗", "✖️", "🟰", "♾️", "💲", "💱", "™️", "©️", "®️", "〰️", "➰", "➿", "🔚", "🔙",
+      "🔛", "🔝", "🔜", "✔️", "☑️", "🔘", "🔴", "🟠", "🟡", "🟢", "🔵", "🟣", "⚫", "⚪", "🟤", "🔺", "🔻", "🔸", "🔹", "🔶",
+      "🔷", "🔳", "🔲", "▪️", "▫️", "◾", "◽", "◼️", "◻️", "🟥", "🟧", "🟨", "🟩", "🟦", "🟪", "⬛", "⬜", "🟫",
+    ],
+  },
+];
+
+const DEFAULT_REACTION_EMOJIS = ["👍", "🔥", "😂", "💎", "🚀", "👀", "❤️", "🤝"];
+const EMOJI_STORAGE_KEY = "cs.chat.recentEmojis";
+const CHAT_IMAGE_MAX_RAW_BYTES = 5 * 1024 * 1024;
+const AVATAR_IMAGE_MAX_RAW_BYTES = 2 * 1024 * 1024;
+
+function allEmojiList() {
+  return EMOJI_CATEGORIES.flatMap((c) => c.emojis);
+}
+
+function readRecentEmojis() {
+  try {
+    const parsed = JSON.parse(localStorage.getItem(EMOJI_STORAGE_KEY) || "[]");
+    return Array.isArray(parsed) ? parsed.filter((v) => typeof v === "string").slice(0, 40) : [];
+  } catch {
+    return [];
+  }
+}
+
+function rememberEmoji(emoji: string) {
+  try {
+    const recent = [emoji, ...readRecentEmojis().filter((e) => e !== emoji)].slice(0, 40);
+    localStorage.setItem(EMOJI_STORAGE_KEY, JSON.stringify(recent));
+    return recent;
+  } catch {
+    return [emoji];
+  }
+}
+
+function resizeChatImage(file: File): Promise<string> {
+  return new Promise((resolve, reject) => {
+    if (!file.type.startsWith("image/")) return reject(new Error("Pick an image file"));
+    if (file.size > CHAT_IMAGE_MAX_RAW_BYTES) return reject(new Error("Image is too large. Max upload is 5MB."));
+
+    const reader = new FileReader();
+    reader.onerror = () => reject(new Error("Could not read image"));
+    reader.onload = () => {
+      const img = new Image();
+      img.onerror = () => reject(new Error("Could not load image"));
+      img.onload = () => {
+        const maxSide = 1280;
+        const scale = Math.min(1, maxSide / Math.max(img.width, img.height));
+        const w = Math.max(1, Math.round(img.width * scale));
+        const h = Math.max(1, Math.round(img.height * scale));
+        const canvas = document.createElement("canvas");
+        canvas.width = w;
+        canvas.height = h;
+        const ctx = canvas.getContext("2d");
+        if (!ctx) return reject(new Error("Could not process image"));
+        ctx.drawImage(img, 0, 0, w, h);
+
+        let quality = 0.82;
+        let data = canvas.toDataURL("image/webp", quality);
+        while (data.length > 820_000 && quality > 0.45) {
+          quality -= 0.08;
+          data = canvas.toDataURL("image/webp", quality);
+        }
+        if (data.length > 820_000) return reject(new Error("Image is still too large after compression"));
+        resolve(data);
+      };
+      img.src = String(reader.result);
+    };
+    reader.readAsDataURL(file);
+  });
+}
+
+function chatStamp(value: string) {
+  return new Date(value).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
+}
+
+function chatTokenLabel(m: ChatMessage | { tokenMint?: string | null; tokenTicker?: string | null }) {
+  if (!m.tokenMint) return null;
+  return m.tokenTicker ? `$${m.tokenTicker}` : short(m.tokenMint);
+}
+
+function ChatTokenButton({
+  message,
+  tradingPlatform,
+}: {
+  message: ChatMessage;
+  tradingPlatform: TradingPlatform;
+}) {
+  const toast = useToast();
+  if (!message.tokenMint) return null;
+  const label = chatTokenLabel(message) ?? short(message.tokenMint);
+  return (
+    <button
+      className="chat-token-pill"
+      type="button"
+      title={`Open ${message.tokenMint} in ${tradingPlatformLabel(tradingPlatform)}`}
+      onClick={() =>
+        openInTradingPlatform(
+          tradingPlatform,
+          {
+            mint: message.tokenMint!,
+            ticker: message.tokenTicker,
+            pairAddress: message.tokenPairAddress,
+            pairUrl: message.tokenPairUrl,
+          },
+          toast,
+        )
+      }
+    >
+      {label}
+    </button>
+  );
+}
+
+function ChatTextContent({
+  message,
+  tradingPlatform,
+}: {
+  message: ChatMessage;
+  tradingPlatform: TradingPlatform;
+}) {
+  const text = message.text || "";
+  if (!text && message.tokenMint) return <ChatTokenButton message={message} tradingPlatform={tradingPlatform} />;
+  if (!message.tokenMint || !text.includes(message.tokenMint)) {
+    return (
+      <>
+        {text && <span>{text}</span>}
+        {message.tokenMint && <ChatTokenButton message={message} tradingPlatform={tradingPlatform} />}
+      </>
+    );
+  }
+
+  const parts = text.split(message.tokenMint);
+  return (
+    <>
+      {parts.map((part, idx) => (
+        <span key={idx}>
+          {part}
+          {idx < parts.length - 1 && <ChatTokenButton message={message} tradingPlatform={tradingPlatform} />}
+        </span>
+      ))}
+    </>
+  );
 }
 
 function ChatAvatar({ message }: { message: ChatMessage }) {
@@ -2008,6 +2297,8 @@ function Snipes({
     }
   }
 
+  const [pauseOneBusy, setPauseOneBusy] = useState<Set<string>>(new Set());
+
   function remove(id: string) {
     setExiting((s) => new Set(s).add(id));
     setTimeout(
@@ -2018,6 +2309,81 @@ function Snipes({
           .catch((e) => toast(e.message, "err")),
       330,
     );
+  }
+
+  async function toggleOnePause(snipe: Snipe) {
+    if (snipe.status !== "ARMED" && snipe.status !== "PAUSED") return;
+    setPauseOneBusy((current) => new Set(current).add(snipe.id));
+    try {
+      if (snipe.status === "ARMED") {
+        await api.pauseSnipe(snipe.id);
+        toast("Snipe paused");
+      } else {
+        await api.unpauseSnipe(snipe.id);
+        toast("Snipe unpaused");
+      }
+      onChange();
+    } catch (e: any) {
+      toast(e.message, "err");
+      onChange();
+    } finally {
+      setPauseOneBusy((current) => {
+        const next = new Set(current);
+        next.delete(snipe.id);
+        return next;
+      });
+    }
+  }
+
+  function snipeDebugPayload(snipe: Snipe) {
+    return {
+      id: snipe.id,
+      status: snipe.status,
+      ticker: snipe.ticker ?? null,
+      mint: snipe.mint,
+      amountSol: snipe.amountSol,
+      wallet: {
+        name: snipe.wallet.name,
+        publicKey: snipe.wallet.publicKey,
+      },
+      triggerMode: snipe.triggerMode ?? "CLAIM",
+      execMode: snipe.execMode ?? "PUMPPORTAL",
+      watchWallet: snipe.watchWallet ?? null,
+      onlyRedirected: snipe.onlyRedirected,
+      marketCapUsd: snipe.liveMarketCapUsd ?? null,
+      marketCapLabel: snipeMarketCapLabel(snipe),
+      marketCapUpdatedAt: snipe.liveMarketCapUpdatedAt ?? null,
+      marketCapSource: snipe.liveMarketCapSource ?? null,
+      mcMinUsd: snipe.mcMinUsd ?? null,
+      mcMaxUsd: snipe.mcMaxUsd ?? null,
+      slippagePct: snipe.slippagePct,
+      priorityFee: snipe.priorityFee,
+      bribe: snipe.bribe,
+      signature: snipe.signature ?? null,
+      error: snipe.error ?? null,
+      claimCheck: {
+        status: snipe.claimCheckStatus ?? null,
+        wallet: snipe.claimCheckWallet ?? null,
+        tx: snipe.claimCheckTx ?? null,
+        instruction: snipe.claimCheckInstruction ?? null,
+        recipient: snipe.claimCheckRecipient ?? null,
+        signer: snipe.claimCheckSigner ?? null,
+        claimedAt: snipe.claimCheckClaimedAt ?? null,
+        checkedAt: snipe.claimCheckCheckedAt ?? null,
+        error: snipe.claimCheckError ?? null,
+      },
+      createdAt: snipe.createdAt,
+      copiedAt: new Date().toISOString(),
+    };
+  }
+
+  async function copyDebug(snipe: Snipe) {
+    try {
+      await copyToClipboard(JSON.stringify(snipeDebugPayload(snipe), null, 2));
+      toast("Copied debug info");
+    } catch {
+      toast("Could not copy debug info", "err");
+    }
   }
 
   return (
@@ -2161,8 +2527,22 @@ function Snipes({
             {s.error && s.status !== "FAILED" && <span style={{ color: "var(--red)" }}>{s.error}</span>}
           </div>
           <div className="snipe-actions">
+            {(s.status === "ARMED" || s.status === "PAUSED") && (
+              <button
+                className="snipe-pause-one"
+                onClick={() => toggleOnePause(s)}
+                disabled={pauseOneBusy.has(s.id)}
+                title={s.status === "ARMED" ? "Pause this snipe" : "Unpause this snipe"}
+                aria-label={s.status === "ARMED" ? "Pause this snipe" : "Unpause this snipe"}
+              >
+                {pauseOneBusy.has(s.id) ? <span className="spin" /> : s.status === "ARMED" ? "⏸" : "▶"}
+              </button>
+            )}
             <button className="ghost" onClick={() => setEdit(s)}>
               Edit
+            </button>
+            <button className="ghost debug-copy-btn" onClick={() => copyDebug(s)}>
+              Copy Debug
             </button>
             {s.status === "FILLED" &&
               s.tpStatus === "PENDING" &&
@@ -4340,7 +4720,7 @@ function Social({
           </div>
         </div>
       ) : (
-        <ChatBox />
+        <ChatBox tradingPlatform={tradingPlatform} />
       )}
 
       {openUserId && (
@@ -4377,10 +4757,20 @@ function Social({
   );
 }
 
-function ChatBox() {
+function ChatBox({ tradingPlatform }: { tradingPlatform: TradingPlatform }) {
+  const toast = useToast();
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [text, setText] = useState("");
   const [busy, setBusy] = useState(false);
+  const [imageDataUrl, setImageDataUrl] = useState<string | null>(null);
+  const [replyTo, setReplyTo] = useState<ChatMessage | null>(null);
+  const [emojiOpen, setEmojiOpen] = useState(false);
+  const [emojiCategory, setEmojiCategory] = useState("smileys");
+  const [emojiSearch, setEmojiSearch] = useState("");
+  const [recentEmojis, setRecentEmojis] = useState<string[]>(() => readRecentEmojis());
+  const [reactingTo, setReactingTo] = useState<ChatMessage | null>(null);
+  const fileRef = useRef<HTMLInputElement | null>(null);
+  const inputRef = useRef<HTMLInputElement | null>(null);
   const lastRef = useRef<string | undefined>(undefined);
   const pollingRef = useRef(false);
   const sendingRef = useRef(false);
@@ -4397,38 +4787,34 @@ function ChatBox() {
     });
   }, []);
 
+  function mergeMessages(incoming: ChatMessage[]) {
+    setMessages((prev) => {
+      const byId = new Map(prev.map((m) => [m.id, m]));
+      for (const m of incoming) byId.set(m.id, m);
+      const merged = [...byId.values()]
+        .sort((a, b) =>
+          a.createdAt < b.createdAt ? -1 : a.createdAt > b.createdAt ? 1 : 0,
+        )
+        .slice(-200);
+      lastRef.current = merged.length ? merged[merged.length - 1].createdAt : lastRef.current;
+      return merged;
+    });
+  }
+
   function poll() {
-    if (pollingRef.current) return; // never run two polls at once
+    if (pollingRef.current) return;
     pollingRef.current = true;
     api
       .socialChat(lastRef.current)
       .then((r) => {
-        if (r.messages.length) {
-          setMessages((prev) => {
-            // Merge by id so an overlapping/repeated message can never render twice.
-            const byId = new Map(prev.map((m) => [m.id, m]));
-            for (const m of r.messages) byId.set(m.id, m);
-            const merged = [...byId.values()]
-              .sort((a, b) =>
-                a.createdAt < b.createdAt
-                  ? -1
-                  : a.createdAt > b.createdAt
-                    ? 1
-                    : 0,
-              )
-              .slice(-200);
-            lastRef.current = merged.length
-              ? merged[merged.length - 1].createdAt
-              : lastRef.current;
-            return merged;
-          });
-        }
+        if (r.messages.length) mergeMessages(r.messages);
       })
       .catch(() => {})
       .finally(() => {
         pollingRef.current = false;
       });
   }
+
   useEffect(() => {
     poll();
     const t = setInterval(poll, 5000);
@@ -4440,59 +4826,279 @@ function ChatBox() {
     scrollToBottom(messages.length > 1);
   }, [messages.length, scrollToBottom]);
 
+  const emojiOptions = useMemo(() => {
+    const q = emojiSearch.trim().toLowerCase();
+    if (q) {
+      return EMOJI_CATEGORIES
+        .filter((c) => c.id !== "recent")
+        .flatMap((c) => c.emojis.map((emoji) => ({ emoji, label: c.label.toLowerCase() })))
+        .filter((entry) => entry.emoji.includes(q) || entry.label.includes(q))
+        .map((entry) => entry.emoji);
+    }
+    if (emojiCategory === "recent") {
+      return recentEmojis.length ? recentEmojis : DEFAULT_REACTION_EMOJIS;
+    }
+    return EMOJI_CATEGORIES.find((c) => c.id === emojiCategory)?.emojis ?? allEmojiList();
+  }, [emojiCategory, emojiSearch, recentEmojis]);
+
+  function insertEmoji(emoji: string) {
+    const input = inputRef.current;
+    const nextRecent = rememberEmoji(emoji);
+    setRecentEmojis(nextRecent);
+    if (!input) {
+      setText((v) => `${v}${emoji}`);
+      return;
+    }
+    const start = input.selectionStart ?? text.length;
+    const end = input.selectionEnd ?? text.length;
+    const next = `${text.slice(0, start)}${emoji}${text.slice(end)}`;
+    setText(next);
+    requestAnimationFrame(() => {
+      input.focus();
+      const pos = start + emoji.length;
+      input.setSelectionRange(pos, pos);
+    });
+  }
+
+  function closeEmojiPanel() {
+    setEmojiOpen(false);
+    setReactingTo(null);
+    setEmojiSearch("");
+  }
+
+  async function chooseEmoji(emoji: string) {
+    const nextRecent = rememberEmoji(emoji);
+    setRecentEmojis(nextRecent);
+    if (reactingTo) {
+      await react(reactingTo, emoji);
+      closeEmojiPanel();
+      return;
+    }
+    insertEmoji(emoji);
+  }
+
+  async function pickImage(file?: File | null) {
+    if (!file) return;
+    try {
+      const data = await resizeChatImage(file);
+      setImageDataUrl(data);
+    } catch (e: any) {
+      toast(e?.message ?? "Could not attach image", "err");
+    } finally {
+      if (fileRef.current) fileRef.current.value = "";
+    }
+  }
+
   async function send() {
     const t = text.trim();
-    if (!t || sendingRef.current) return; // block double-send (fast Enter/click)
+    if ((!t && !imageDataUrl) || sendingRef.current) return;
     sendingRef.current = true;
     setBusy(true);
     try {
-      await api.socialSend(t);
+      const r = await api.socialSend({
+        text: t,
+        imageDataUrl,
+        replyToId: replyTo?.id ?? null,
+      });
       setText("");
+      setImageDataUrl(null);
+      setReplyTo(null);
+      closeEmojiPanel();
+      mergeMessages([r.message]);
       poll();
-    } catch {
-      /* ignore */
+    } catch (e: any) {
+      toast(e?.message ?? "Failed to send message", "err");
     } finally {
       setBusy(false);
       sendingRef.current = false;
     }
   }
 
+  async function react(message: ChatMessage, emoji: string) {
+    try {
+      const r = await api.socialReact(message.id, emoji);
+      setMessages((prev) =>
+        prev.map((m) => (m.id === message.id ? { ...m, reactions: r.reactions } : m)),
+      );
+    } catch (e: any) {
+      toast(e?.message ?? "Failed to react", "err");
+    }
+  }
+
   return (
-    <div className="card rise d1 chat">
-      <h3>Chat</h3>
-      <div className="chat-feed" ref={feedRef}>
-        {messages.length === 0 && (
-          <p className="sub">No messages yet. Say hi.</p>
-        )}
+    <div className="card rise d1 chat telegram-chat">
+      <div className="chat-head">
+        <div>
+          <h3>Chat</h3>
+          <p className="sub">Paid traders only · Telegram-style feed</p>
+        </div>
+      </div>
+
+      <div className="chat-feed telegram-feed" ref={feedRef}>
+        {messages.length === 0 && <p className="sub">No messages yet. Say hi.</p>}
         {messages.map((m) => (
-          <div className="chat-msg" key={m.id}>
+          <div className="chat-msg telegram-msg" key={m.id}>
             <ChatAvatar message={m} />
-            <div className="chat-bubble">
-              <span
-                className="chat-user"
-                style={{ color: m.chatColor || DEFAULT_CHAT_COLOR }}
-              >
-                @{m.username}
-              </span>
-              <span className="chat-text">{m.text}</span>
+            <div className="chat-stack">
+              <div className="chat-bubble telegram-bubble">
+                <div className="chat-meta-line">
+                  <span
+                    className="chat-user"
+                    style={{ color: m.chatColor || DEFAULT_CHAT_COLOR }}
+                  >
+                    @{m.username}
+                  </span>
+                  <span className="chat-time">{chatStamp(m.createdAt)}</span>
+                </div>
+                {m.replyTo && (
+                  <button
+                    className="chat-reply-preview"
+                    type="button"
+                    onClick={() => setReplyTo(null)}
+                    title="Reply context"
+                  >
+                    <b>@{m.replyTo.username}</b>
+                    <span>
+                      {m.replyTo.text || (m.replyTo.imageDataUrl ? "Image" : chatTokenLabel(m.replyTo) ?? "Message")}
+                    </span>
+                  </button>
+                )}
+                {m.imageDataUrl && (
+                  <img className="chat-image" src={m.imageDataUrl} alt="chat upload" />
+                )}
+                <span className="chat-text">
+                  <ChatTextContent message={m} tradingPlatform={tradingPlatform} />
+                </span>
+                <div className="chat-actions-row">
+                  <button className="chat-action" type="button" onClick={() => setReplyTo(m)}>
+                    ↩ Reply
+                  </button>
+                  <span className="chat-action-sep">·</span>
+                  <button
+                    className="chat-action"
+                    type="button"
+                    onClick={() => {
+                      setReactingTo(m);
+                      setEmojiOpen(true);
+                      setEmojiCategory("recent");
+                    }}
+                  >
+                    ☺ React
+                  </button>
+                </div>
+              </div>
+              {!!m.reactions?.length && (
+                <div className="chat-reactions">
+                  {m.reactions.map((r) => (
+                    <button
+                      key={r.emoji}
+                      className={r.reacted ? "on" : ""}
+                      type="button"
+                      onClick={() => react(m, r.emoji)}
+                    >
+                      {r.emoji} {r.count}
+                    </button>
+                  ))}
+                </div>
+              )}
             </div>
           </div>
         ))}
       </div>
-      <div className="chat-input">
+
+      {replyTo && (
+        <div className="chat-compose-context">
+          <div>
+            <b>Replying to @{replyTo.username}</b>
+            <span>{replyTo.text || (replyTo.imageDataUrl ? "Image" : chatTokenLabel(replyTo) ?? "Message")}</span>
+          </div>
+          <button type="button" onClick={() => setReplyTo(null)}>×</button>
+        </div>
+      )}
+      {imageDataUrl && (
+        <div className="chat-image-preview">
+          <img src={imageDataUrl} alt="upload preview" />
+          <button type="button" onClick={() => setImageDataUrl(null)}>Remove</button>
+        </div>
+      )}
+      {emojiOpen && (
+        <div className="chat-emoji-panel telegram-emoji-panel">
+          <div className="emoji-panel-head">
+            <div>
+              <b>{reactingTo ? `Reacting to @${reactingTo.username}` : "Emoji"}</b>
+              <span>{reactingTo ? "Pick any emoji reaction" : "Search or browse the full emoji keyboard"}</span>
+            </div>
+            <button type="button" className="emoji-close" onClick={closeEmojiPanel}>×</button>
+          </div>
+          <input
+            className="emoji-search"
+            value={emojiSearch}
+            placeholder="Search emoji"
+            onChange={(e) => setEmojiSearch(e.target.value)}
+          />
+          <div className="emoji-tabs" role="tablist" aria-label="Emoji categories">
+            {EMOJI_CATEGORIES.map((category) => (
+              <button
+                key={category.id}
+                type="button"
+                className={emojiCategory === category.id ? "on" : ""}
+                title={category.label}
+                onClick={() => {
+                  setEmojiCategory(category.id);
+                  setEmojiSearch("");
+                }}
+              >
+                {category.icon}
+              </button>
+            ))}
+          </div>
+          <div className="emoji-grid" role="listbox">
+            {emojiOptions.map((emoji, i) => (
+              <button key={`${emoji}-${i}`} type="button" onClick={() => void chooseEmoji(emoji)}>
+                {emoji}
+              </button>
+            ))}
+          </div>
+        </div>
+      )}
+      <div className="chat-input telegram-input">
+        <button
+          className="chat-tool"
+          type="button"
+          onClick={() => {
+            setReactingTo(null);
+            setEmojiOpen((v) => !v);
+          }}
+          title="Emoji"
+        >
+          ☺
+        </button>
+        <button className="chat-tool" type="button" onClick={() => fileRef.current?.click()} title="Upload image">
+          📎
+        </button>
         <input
+          ref={inputRef}
           value={text}
           maxLength={500}
           placeholder="Message the traders..."
           onChange={(e) => setText(e.target.value)}
-          onKeyDown={(e) => e.key === "Enter" && send()}
+          onKeyDown={(e) => {
+            if (e.key === "Enter" && !e.shiftKey) send();
+          }}
+        />
+        <input
+          ref={fileRef}
+          type="file"
+          accept="image/png,image/jpeg,image/webp,image/gif"
+          hidden
+          onChange={(e) => pickImage(e.target.files?.[0])}
         />
         <button
-          className="primary inline"
+          className="primary inline send-btn"
           onClick={send}
-          disabled={busy || !text.trim()}
+          disabled={busy || (!text.trim() && !imageDataUrl)}
         >
-          Send
+          {busy ? <span className="spin" /> : "Send"}
         </button>
       </div>
     </div>

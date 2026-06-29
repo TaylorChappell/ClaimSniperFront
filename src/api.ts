@@ -233,11 +233,33 @@ export interface TrendingCoin {
   snipeCount: number;
   redirectCount: number;
 }
+export interface ChatReaction {
+  emoji: string;
+  count: number;
+  reacted: boolean;
+}
+export interface ChatReplyPreview {
+  id: string;
+  username: string;
+  text: string;
+  imageDataUrl?: string | null;
+  tokenMint?: string | null;
+  tokenTicker?: string | null;
+}
 export interface ChatMessage {
   id: string;
   userId: string;
   username: string;
   text: string;
+  imageDataUrl?: string | null;
+  tokenMint?: string | null;
+  tokenTicker?: string | null;
+  tokenPairAddress?: string | null;
+  tokenPairDexId?: string | null;
+  tokenPairUrl?: string | null;
+  replyToId?: string | null;
+  replyTo?: ChatReplyPreview | null;
+  reactions?: ChatReaction[];
   createdAt: string;
   avatarDataUrl?: string | null;
   chatColor?: string | null;
@@ -381,6 +403,10 @@ export const api = {
     req<{ ok: true; paused: number }>("/snipes/pause-all", { method: "POST" }),
   unpauseAllSnipes: () =>
     req<{ ok: true; unpaused: number }>("/snipes/unpause-all", { method: "POST" }),
+  pauseSnipe: (id: string) =>
+    req<{ snipe: Snipe }>(`/snipes/${id}/pause`, { method: "POST" }),
+  unpauseSnipe: (id: string) =>
+    req<{ snipe: Snipe }>(`/snipes/${id}/unpause`, { method: "POST" }),
   stats: () => req<Stats>("/snipes/stats"),
   historyFills: (page = 0, pageSize = 10) =>
     req<{
@@ -481,10 +507,15 @@ export const api = {
       `/social/chat${after ? `?after=${encodeURIComponent(after)}` : ""}`,
     ),
   socialChatLatest: () => req<{ latest: string | null }>("/social/chat/latest"),
-  socialSend: (text: string) =>
+  socialSend: (input: { text?: string; imageDataUrl?: string | null; replyToId?: string | null }) =>
     req<{ message: ChatMessage }>("/social/chat", {
       method: "POST",
-      body: JSON.stringify({ text }),
+      body: JSON.stringify(input),
+    }),
+  socialReact: (id: string, emoji: string) =>
+    req<{ reactions: ChatReaction[] }>(`/social/chat/${id}/reactions`, {
+      method: "POST",
+      body: JSON.stringify({ emoji }),
     }),
   pushPublicKey: () => req<PushPublicKey>("/push/public-key"),
   pushTest: () => req<PushTestResult>("/push/test", { method: "POST" }),
