@@ -46,7 +46,7 @@ function formatMarketCapValue(value: number | null | undefined, suffix = "") {
   return `${compactNumber.format(value)}${suffix}`;
 }
 
-function snipeMarketCapLabel(s: Pick<Snipe, "liveMarketCapUsd">) {
+function snipeMarketCapLabel(s: Pick<Snipe | PublicSnipe, "liveMarketCapUsd">) {
   const usd = formatMarketCapValue(s.liveMarketCapUsd, "");
   return usd ? `$${usd}` : "—";
 }
@@ -4331,10 +4331,21 @@ function UserSnipesModal({
   const PAGE = 5;
 
   useEffect(() => {
-    api
-      .socialUserSnipes(userId)
-      .then(setData)
-      .catch(() => {});
+    let alive = true;
+    const load = () => {
+      api
+        .socialUserSnipes(userId)
+        .then((r) => {
+          if (alive) setData(r);
+        })
+        .catch(() => {});
+    };
+    load();
+    const t = setInterval(load, 5000);
+    return () => {
+      alive = false;
+      clearInterval(t);
+    };
   }, [userId]);
   useEffect(() => setPage(0), [tab]);
 
@@ -4363,8 +4374,21 @@ function UserSnipesModal({
         <div className="admin-list">
           {rows.length === 0 && <p className="sub">Nothing here.</p>}
           {rows.map((s) => (
-            <div className="admin-row" key={s.id}>
+            <div className="admin-row trader-coin-row" key={s.id}>
               <CopyCA mint={s.mint} ticker={s.ticker} />
+              {tab === "active" && (
+                <span
+                  className={`trader-market-cap ${s.liveMarketCapUsd == null ? "loading" : ""}`}
+                  title={
+                    s.liveMarketCapUpdatedAt
+                      ? `Market cap updated ${new Date(s.liveMarketCapUpdatedAt).toLocaleTimeString()} from ${s.liveMarketCapSource ?? "live feed"}`
+                      : "Waiting for live Pump market-cap update"
+                  }
+                >
+                  <em>Market Cap</em>
+                  <b>{snipeMarketCapLabel(s)}</b>
+                </span>
+              )}
               <span className="dim">{s.amountSol} SOL</span>
               {s.triggerMode === "REDIRECT" && (
                 <span className="tp-chip">redirect</span>
