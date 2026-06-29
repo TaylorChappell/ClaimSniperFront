@@ -54,6 +54,68 @@ type TradeOpenTarget = {
   ticker?: string | null;
 };
 
+type AppView = "dashboard" | "history" | "social" | "discover" | "settings" | "admin";
+type DashTab = "arm" | "snipes" | "wallets";
+type SocialTab = "trending" | "traders" | "chat";
+type AdminTab = "armed" | "users" | "logs" | "notify";
+type PresetSlot = "1" | "2" | "3";
+type ArmSnipePreset = {
+  walletId: string;
+  amount: string;
+  slippage: string;
+  priority: string;
+  bribe: string;
+  onlyRedirected: boolean;
+  watchWallet: string;
+  execMode: "PUMPPORTAL" | "LOCAL";
+  triggerMode: "CLAIM" | "REDIRECT";
+  exit: ExitPresetDraft;
+};
+
+const NAV_VIEW_KEY = "cs.nav.view";
+const NAV_DASH_TAB_KEY = "cs.nav.dashboardTab";
+const NAV_SOCIAL_TAB_KEY = "cs.nav.socialTab";
+const NAV_ADMIN_TAB_KEY = "cs.nav.adminTab";
+const ARM_PRESETS_KEY = "cs.armSnipePresets";
+
+function readSavedChoice<T extends string>(
+  key: string,
+  allowed: readonly T[],
+  fallback: T,
+): T {
+  if (typeof window === "undefined") return fallback;
+  try {
+    const saved = localStorage.getItem(key) as T | null;
+    return saved && allowed.includes(saved) ? saved : fallback;
+  } catch {
+    return fallback;
+  }
+}
+
+function saveChoice(key: string, value: string) {
+  try {
+    localStorage.setItem(key, value);
+  } catch {
+    /* ignore storage errors */
+  }
+}
+
+function readArmPresets(): Partial<Record<PresetSlot, ArmSnipePreset>> {
+  try {
+    const raw = localStorage.getItem(ARM_PRESETS_KEY);
+    const parsed = raw ? JSON.parse(raw) : {};
+    return parsed && typeof parsed === "object" ? parsed : {};
+  } catch {
+    return {};
+  }
+}
+
+function writeArmPreset(slot: PresetSlot, preset: ArmSnipePreset) {
+  const next = { ...readArmPresets(), [slot]: preset };
+  localStorage.setItem(ARM_PRESETS_KEY, JSON.stringify(next));
+  return next;
+}
+
 function tradingPlatformLabel(platform: TradingPlatform) {
   if (platform === "GMGN") return "GMGN";
   if (platform === "TERMINAL") return "Terminal";
@@ -134,23 +196,50 @@ function isInteractiveClick(e: ReactMouseEvent<HTMLElement>) {
   return !!el?.closest("button,a,input,select,textarea,label");
 }
 
-function initialViewFromUrl():
-  "dashboard" | "history" | "social" | "discover" | "settings" | "admin" {
+function initialViewFromUrl(): AppView {
   if (typeof window === "undefined") return "dashboard";
   const view = new URLSearchParams(window.location.search).get("view");
-  return view === "history" ||
+  if (
+    view === "history" ||
     view === "social" ||
     view === "discover" ||
     view === "settings" ||
     view === "admin"
-    ? view
-    : "dashboard";
+  ) {
+    return view;
+  }
+  return readSavedChoice<AppView>(
+    NAV_VIEW_KEY,
+    ["dashboard", "history", "social", "discover", "settings", "admin"],
+    "dashboard",
+  );
 }
 
-function initialSocialTabFromUrl(): "trending" | "traders" | "chat" {
+function initialDashTabFromStorage(): DashTab {
+  return readSavedChoice<DashTab>(
+    NAV_DASH_TAB_KEY,
+    ["arm", "snipes", "wallets"],
+    "arm",
+  );
+}
+
+function initialSocialTabFromUrl(): SocialTab {
   if (typeof window === "undefined") return "trending";
   const tab = new URLSearchParams(window.location.search).get("socialTab");
-  return tab === "traders" || tab === "chat" ? tab : "trending";
+  if (tab === "traders" || tab === "chat") return tab;
+  return readSavedChoice<SocialTab>(
+    NAV_SOCIAL_TAB_KEY,
+    ["trending", "traders", "chat"],
+    "trending",
+  );
+}
+
+function initialAdminTabFromStorage(): AdminTab {
+  return readSavedChoice<AdminTab>(
+    NAV_ADMIN_TAB_KEY,
+    ["armed", "users", "logs", "notify"],
+    "armed",
+  );
 }
 
 type ToastKind = "ok" | "err" | "fill";
@@ -771,9 +860,7 @@ function Dashboard({
   const snipes = data?.snipes ?? [];
   const stats = data?.stats ?? null;
 
-  const [view, setView] = useState<
-    "dashboard" | "history" | "social" | "discover" | "settings" | "admin"
-  >(() => initialViewFromUrl());
+  const [view, setView] = useState<AppView>(() => initialViewFromUrl());
   const [profile, setProfile] = useState<Profile>(() =>
     defaultProfile(username, admin),
   );
@@ -793,15 +880,25 @@ function Dashboard({
     };
   }, []);
   const [menuOpen, setMenuOpen] = useState(false);
-  const [dashTab, setDashTab] = useState<"arm" | "snipes" | "wallets">("arm");
+  const [dashTab, setDashTab] = useState<DashTab>(() =>
+    initialDashTabFromStorage(),
+  );
   const filled = useMemo(
     () => snipes.filter((s) => s.status === "FILLED"),
     [snipes],
   );
-  const go = (v: typeof view) => {
+  const go = (v: AppView) => {
     setView(v);
     setMenuOpen(false);
   };
+
+  useEffect(() => {
+    saveChoice(NAV_VIEW_KEY, view);
+  }, [view]);
+
+  useEffect(() => {
+    saveChoice(NAV_DASH_TAB_KEY, dashTab);
+  }, [dashTab]);
 
   // Unread-chat dot on the Social tab.
   const [chatUnread, setChatUnread] = useState(false);
@@ -1236,6 +1333,56 @@ function SnipeForm({
   const ex = useExit();
   const [err, setErr] = useState("");
   const [busy, setBusy] = useState(false);
+  const [activePreset, setActivePreset] = useState<PresetSlot | null>(null);
+  const [presets, setPresets] = useState<Partial<Record<PresetSlot, ArmSnipePreset>>>(() =>
+    readArmPresets(),
+  );
+
+  function buildPreset(): ArmSnipePreset {
+    return {
+      walletId,
+      amount,
+      slippage,
+      priority,
+      bribe,
+      onlyRedirected,
+      watchWallet,
+      execMode,
+      triggerMode,
+      exit: ex.snapshot(),
+    };
+  }
+
+  function applyPreset(preset: ArmSnipePreset) {
+    setWalletId(preset.walletId ?? "");
+    setAmount(preset.amount ?? "");
+    setSlippage(preset.slippage ?? "15");
+    setPriority(preset.priority ?? "0.0005");
+    setBribe(preset.bribe ?? "0");
+    setOnlyRedirected(!!preset.onlyRedirected);
+    setWatchWallet(preset.watchWallet ?? "");
+    setExecMode(preset.execMode === "LOCAL" ? "LOCAL" : "PUMPPORTAL");
+    setTriggerMode(preset.triggerMode === "REDIRECT" ? "REDIRECT" : "CLAIM");
+    ex.applyPreset(preset.exit);
+  }
+
+  function handlePreset(slot: PresetSlot) {
+    if (activePreset === slot) {
+      const next = writeArmPreset(slot, buildPreset());
+      setPresets(next);
+      toast(`Preset ${slot} saved`);
+      return;
+    }
+
+    setActivePreset(slot);
+    const preset = presets[slot];
+    if (preset) {
+      applyPreset(preset);
+      toast(`Preset ${slot} loaded`);
+    } else {
+      toast(`Preset ${slot} selected. Set your options, then press Save.`);
+    }
+  }
 
   async function arm() {
     setErr("");
@@ -1262,8 +1409,10 @@ function SnipeForm({
           : "Snipe armed, watching for the fee claim",
       );
       setMint("");
-      setAmount("");
-      setWatchWallet("");
+      if (!activePreset) {
+        setAmount("");
+        setWatchWallet("");
+      }
       onCreated();
     } catch (e: any) {
       setErr(e.message);
@@ -1279,8 +1428,29 @@ function SnipeForm({
     (!onlyRedirected || watchWallet.trim().length >= 32);
 
   return (
-    <div className="card">
-      <h2>Arm a snipe</h2>
+    <div className="card snipe-form-card">
+      <div className="form-head">
+        <h2>Arm a snipe</h2>
+        <div className="preset-actions" aria-label="Snipe presets">
+          {(["1", "2", "3"] as PresetSlot[]).map((slot) => (
+            <button
+              key={slot}
+              type="button"
+              className={`preset-btn ${activePreset === slot ? "on" : ""} ${presets[slot] ? "saved" : ""}`}
+              onClick={() => handlePreset(slot)}
+              title={
+                activePreset === slot
+                  ? `Save current options to preset ${slot}`
+                  : presets[slot]
+                    ? `Load preset ${slot}`
+                    : `Select preset ${slot}`
+              }
+            >
+              {activePreset === slot ? "Save" : `Preset ${slot}`}
+            </button>
+          ))}
+        </div>
+      </div>
       <label>Coin CA (mint)</label>
       <input
         value={mint}
@@ -1588,7 +1758,7 @@ function Snipes({
   }
 
   return (
-    <div className="card snipes-card">
+    <div className={`card snipes-card ${pausedCount > 0 ? "paused" : ""}`}>
       <div className="snipes-top">
         <h2 className="snipes-title">Snipes</h2>
         <button
@@ -1642,7 +1812,6 @@ function Snipes({
               </span>
             </span>
             <span className={`badge ${s.status}`}>
-              {s.status === "ARMED" && <span className="dot" />}
               {s.status}
             </span>
           </div>
@@ -1967,9 +2136,7 @@ function History({ tradingPlatform }: { tradingPlatform: TradingPlatform }) {
 /* ---------------- admin panel (MrKnowBody / Rich) ---------------- */
 function AdminPanel({ wallets }: { wallets: Wallet[] }) {
   const toast = useToast();
-  const [tab, setTab] = useState<"armed" | "users" | "logs" | "notify">(
-    "armed",
-  );
+  const [tab, setTab] = useState<AdminTab>(() => initialAdminTabFromStorage());
   const [armed, setArmed] = useState<AdminSnipe[]>([]);
   const [users, setUsers] = useState<AdminUser[]>([]);
   const [sel, setSel] = useState<{
@@ -2007,6 +2174,10 @@ function AdminPanel({ wallets }: { wallets: Wallet[] }) {
       .finally(() => setLoading(false));
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
+
+  useEffect(() => {
+    saveChoice(NAV_ADMIN_TAB_KEY, tab);
+  }, [tab]);
 
   useEffect(() => {
     if (tab === "logs") loadLogs(logUser, logLevel);
@@ -2466,6 +2637,17 @@ function CopyCA({
 
 /* ---------------- shared exit strategy (TP + stop loss) ---------------- */
 type TpDraft = { multiplier: string; sellPct: string; slippagePct: string };
+type ExitPresetDraft = {
+  tpOn: boolean;
+  tpTrail: boolean;
+  takeProfits: TpDraft[];
+  tpTrailPct: string;
+  slOn: boolean;
+  slTrail: boolean;
+  slPct: string;
+  slTrailPct: string;
+  slSlip: string;
+};
 
 function snipeTakeProfits(
   s: Partial<Snipe> | Partial<PublicSnipe>,
@@ -2575,6 +2757,35 @@ function useExit(initial?: Partial<Snipe>) {
     );
   };
 
+  const snapshot = (): ExitPresetDraft => ({
+    tpOn,
+    tpTrail,
+    takeProfits: takeProfits.slice(0, 3).map((tp) => ({ ...tp })),
+    tpTrailPct,
+    slOn,
+    slTrail,
+    slPct,
+    slTrailPct,
+    slSlip,
+  });
+
+  const applyPreset = (preset?: ExitPresetDraft) => {
+    if (!preset) return;
+    setTpOn(!!preset.tpOn);
+    setTpTrail(!!preset.tpTrail);
+    setTakeProfits(
+      preset.takeProfits?.length
+        ? preset.takeProfits.slice(0, 3).map((tp) => ({ ...tp }))
+        : initialTpDrafts(),
+    );
+    setTpTrailPct(preset.tpTrailPct ?? "20");
+    setSlOn(!!preset.slOn);
+    setSlTrail(!!preset.slTrail);
+    setSlPct(preset.slPct ?? "30");
+    setSlTrailPct(preset.slTrailPct ?? "20");
+    setSlSlip(preset.slSlip ?? "25");
+  };
+
   const build = () => {
     const cleanTakeProfits = takeProfits.slice(0, 3).map((tp) => ({
       multiplier: Number(tp.multiplier),
@@ -2628,6 +2839,8 @@ function useExit(initial?: Partial<Snipe>) {
     setSlTrailPct,
     slSlip,
     setSlSlip,
+    snapshot,
+    applyPreset,
     build,
   };
 }
@@ -3707,9 +3920,7 @@ function Social({
   onCopied: () => void;
 }) {
   const toast = useToast();
-  const [tab, setTab] = useState<"trending" | "traders" | "chat">(() =>
-    initialSocialTabFromUrl(),
-  );
+  const [tab, setTab] = useState<SocialTab>(() => initialSocialTabFromUrl());
   const [users, setUsers] = useState<SocialUser[]>([]);
   const [trending, setTrending] = useState<TrendingCoin[]>([]);
   const [openUserId, setOpenUserId] = useState<string | null>(null);
@@ -3735,6 +3946,10 @@ function Social({
     const t = setInterval(load, 30000);
     return () => clearInterval(t);
   }, []);
+
+  useEffect(() => {
+    saveChoice(NAV_SOCIAL_TAB_KEY, tab);
+  }, [tab]);
 
   return (
     <div className="social">

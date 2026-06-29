@@ -12,10 +12,10 @@
   --green-2: #16c45f;
   --green-soft: rgba(32, 224, 112, 0.12);
   --green-glow: rgba(32, 224, 112, 0.35);
-  --blue: #2f8cff;
-  --blue-2: #176eea;
-  --blue-soft: rgba(47, 140, 255, 0.13);
-  --blue-glow: rgba(47, 140, 255, 0.38);
+  --blue: #7ddfff;
+  --blue-2: #38bdf8;
+  --blue-soft: rgba(125, 223, 255, 0.14);
+  --blue-glow: rgba(125, 223, 255, 0.32);
   --amber: #ffce4d;
   --red: #ff5468;
   --radius: 16px;
@@ -328,14 +328,6 @@ a:hover {
   align-items: center;
   gap: 8px;
 }
-.card h2::before {
-  content: "";
-  width: 6px;
-  height: 6px;
-  border-radius: 2px;
-  background: var(--green);
-  box-shadow: 0 0 8px var(--green-glow);
-}
 
 /* ---------- forms ---------- */
 label {
@@ -498,6 +490,50 @@ button.danger:hover {
   pointer-events: none;
 }
 
+/* ---------- form headers + presets ---------- */
+.form-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 16px;
+}
+.form-head h2 {
+  margin-bottom: 0;
+}
+.preset-actions {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: 7px;
+}
+.preset-btn {
+  min-height: 32px;
+  padding: 7px 10px;
+  border-radius: 999px;
+  color: var(--muted);
+  font-size: 11px;
+  font-weight: 800;
+  letter-spacing: 0.02em;
+  background: rgba(255, 255, 255, 0.025);
+  border-color: rgba(234, 243, 239, 0.09);
+}
+.preset-btn.saved {
+  color: rgba(234, 243, 239, 0.82);
+  border-color: rgba(32, 224, 112, 0.22);
+}
+.preset-btn:hover {
+  color: var(--text);
+  border-color: rgba(125, 223, 255, 0.48);
+  background: rgba(125, 223, 255, 0.08);
+}
+.preset-btn.on {
+  color: #04131c;
+  border-color: transparent;
+  background: linear-gradient(150deg, var(--blue), var(--blue-2));
+  box-shadow: 0 8px 22px rgba(125, 223, 255, 0.18);
+}
+
 /* ---------- searchable combo ---------- */
 .combo {
   position: relative;
@@ -537,12 +573,12 @@ button.danger:hover {
 }
 
 /* ---------- snipes ---------- */
-.snipes-card {
-  border-color: var(--blue);
+.snipes-card.paused {
+  border-color: rgba(125, 223, 255, 0.72);
   box-shadow:
-    0 0 0 1px rgba(47, 140, 255, 0.16),
+    0 0 0 1px rgba(125, 223, 255, 0.18),
     0 18px 48px rgba(0, 0, 0, 0.28),
-    0 0 26px rgba(47, 140, 255, 0.08);
+    0 0 26px rgba(125, 223, 255, 0.08);
 }
 .snipes-top {
   display: flex;
@@ -552,15 +588,13 @@ button.danger:hover {
   margin-bottom: 16px;
 }
 .card h2.snipes-title {
-  color: var(--blue);
   margin-bottom: 0;
 }
-.card h2.snipes-title::before {
-  background: var(--blue);
-  box-shadow: 0 0 8px var(--blue-glow);
+.snipes-card.paused h2.snipes-title {
+  color: var(--blue);
 }
 .pause-all-btn {
-  color: #06172d;
+  color: #04131c;
   border: none;
   background: linear-gradient(150deg, var(--blue), var(--blue-2));
   box-shadow: 0 6px 22px var(--blue-glow);
@@ -597,10 +631,10 @@ button.danger:hover {
   pointer-events: none;
 }
 .snipe.PAUSED {
-  border-color: rgba(47, 140, 255, 0.72);
+  border-color: rgba(125, 223, 255, 0.72);
   background: linear-gradient(
     180deg,
-    rgba(47, 140, 255, 0.08),
+    rgba(125, 223, 255, 0.08),
     var(--surface-2)
   );
 }
@@ -700,6 +734,19 @@ button.danger:hover {
 @media (prefers-reduced-motion: reduce) {
   .dot {
     animation: none;
+  }
+}
+
+@media (max-width: 650px) {
+  .form-head {
+    align-items: stretch;
+    flex-direction: column;
+  }
+  .preset-actions {
+    justify-content: stretch;
+  }
+  .preset-btn {
+    flex: 1;
   }
 }
 
