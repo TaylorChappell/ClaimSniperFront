@@ -46,11 +46,9 @@ function formatMarketCapValue(value: number | null | undefined, suffix = "") {
   return `${compactNumber.format(value)}${suffix}`;
 }
 
-function snipeMarketCapLabel(s: Pick<Snipe, "liveMarketCapUsd" | "liveMarketCapSol">) {
+function snipeMarketCapLabel(s: Pick<Snipe, "liveMarketCapUsd">) {
   const usd = formatMarketCapValue(s.liveMarketCapUsd, "");
-  if (usd) return `$${usd}`;
-  const sol = formatMarketCapValue(s.liveMarketCapSol, " SOL");
-  return sol ?? "loading";
+  return usd ? `$${usd}` : "—";
 }
 
 function mergeLiveMarketCaps(snipes: Snipe[], caps: Record<string, LiveMarketCapSnapshot | null>) {
@@ -1905,9 +1903,20 @@ function Snipes({
                 {s.triggerMode === "REDIRECT" ? "REDIRECT" : "CLAIM"}
               </span>
             </span>
-            <span className={`badge ${s.status}`}>
-              {s.status}
-            </span>
+            <div className="snipe-status-cluster">
+              <span
+                className={`market-cap-value ${s.liveMarketCapUsd == null ? "loading" : ""}`}
+                title={
+                  s.liveMarketCapUpdatedAt
+                    ? `Market cap updated ${new Date(s.liveMarketCapUpdatedAt).toLocaleTimeString()} from ${s.liveMarketCapSource ?? "live feed"}`
+                    : "Waiting for live Pump market-cap update"
+                }
+              >
+                <span className="market-cap-label">Market Cap</span>
+                <span>{snipeMarketCapLabel(s)}</span>
+              </span>
+              <span className={`badge ${s.status}`}>{s.status}</span>
+            </div>
           </div>
           <CopyCA mint={s.mint} ticker={s.ticker} className="mint-sub" />
           {s.claimCheckStatus === "CLAIMED" && (
@@ -1943,42 +1952,13 @@ function Snipes({
               Claim-history check failed: {s.claimCheckError}
             </div>
           )}
-          <div className="meta">
+          <div className="meta clean-snipe-meta">
             <span>
-              <b>{s.amountSol}</b> SOL
+              <em>Buy</em> <b>{s.amountSol}</b> SOL
             </span>
-            <span
-              className={`market-cap-chip ${s.liveMarketCapSol == null && s.liveMarketCapUsd == null ? "loading" : ""}`}
-              title={
-                s.liveMarketCapUpdatedAt
-                  ? `Updated ${new Date(s.liveMarketCapUpdatedAt).toLocaleTimeString()} from ${s.liveMarketCapSource ?? "live feed"}`
-                  : "Waiting for live Pump market-cap update"
-              }
-            >
-              Market Cap {snipeMarketCapLabel(s)}
+            <span>
+              <em>Wallet</em> <b>{s.wallet.name}</b>
             </span>
-            <span>{s.wallet.name}</span>
-            <span>slip {s.slippagePct}%</span>
-            <span>prio {s.priorityFee}</span>
-            {s.bribe > 0 && <span>bribe {s.bribe}</span>}
-            {s.watchWallet && (
-              <span className="tp-chip">
-                {s.triggerMode === "REDIRECT" ? "to " : "watch "}
-                {short(s.watchWallet)}
-              </span>
-            )}
-            {s.tpEnabled &&
-              s.tpStatus !== "CANCELLED" &&
-              takeProfitLabel(s).map((label) => (
-                <span className="tp-chip" key={label}>
-                  {label}
-                </span>
-              ))}
-            {s.slEnabled && s.tpStatus !== "CANCELLED" && (
-              <span className="tp-chip">
-                SL{s.slTrailing ? ` trail -${s.slTrailPct}%` : ` -${s.slPct}%`}
-              </span>
-            )}
             {s.signature && (
               <a
                 href={`https://solscan.io/tx/${s.signature}`}
