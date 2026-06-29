@@ -847,8 +847,9 @@ function Dashboard({
         </div>
         <div className="top-actions">
           <button
-            className="hamburger"
+            className={`hamburger ${menuOpen ? "open" : ""}`}
             aria-label="Menu"
+            aria-expanded={menuOpen}
             onClick={() => setMenuOpen((v) => !v)}
           >
             <span />
@@ -856,6 +857,13 @@ function Dashboard({
             <span />
             {chatUnread && <span className="nav-dot ham-dot" />}
           </button>
+          {menuOpen && (
+            <button
+              className="nav-backdrop"
+              aria-label="Close navigation"
+              onClick={() => setMenuOpen(false)}
+            />
+          )}
           <div className={`who ${menuOpen ? "open" : ""}`}>
             <button
               className={`nav-btn ${view === "dashboard" ? "on" : ""}`}
@@ -1381,6 +1389,7 @@ function EditSnipeModal({
 }) {
   const toast = useToast();
   const armed = snipe.status === "ARMED";
+  const editableLiveConfig = snipe.status === "ARMED" || snipe.status === "PAUSED";
   const [amount, setAmount] = useState(String(snipe.amountSol));
   const [slippage, setSlippage] = useState(String(snipe.slippagePct));
   const [priority, setPriority] = useState(String(snipe.priorityFee));
@@ -1413,7 +1422,7 @@ function EditSnipeModal({
         triggerMode,
         exit: ex.build(),
       });
-      toast(armed ? "Snipe updated & re-armed" : "Snipe updated");
+      toast(armed ? "Snipe updated & re-armed" : snipe.status === "PAUSED" ? "Paused snipe updated" : "Snipe updated");
       onChange();
       onClose();
     } catch (e: any) {
@@ -1431,7 +1440,7 @@ function EditSnipeModal({
           {short(snipe.mint)} · {snipe.status.toLowerCase()}
         </p>
 
-        {armed ? (
+        {editableLiveConfig ? (
           <>
             <div className="row">
               <div>
@@ -1537,6 +1546,34 @@ function Snipes({
   const toast = useToast();
   const [exiting, setExiting] = useState<Set<string>>(new Set());
   const [edit, setEdit] = useState<Snipe | null>(null);
+  const [pauseBusy, setPauseBusy] = useState(false);
+  const armedCount = snipes.filter((s) => s.status === "ARMED").length;
+  const pausedCount = snipes.filter((s) => s.status === "PAUSED").length;
+  const canTogglePause = armedCount > 0 || pausedCount > 0;
+  const pauseMode: "pause" | "unpause" = armedCount > 0 ? "pause" : "unpause";
+
+  async function togglePauseAll() {
+    if (!canTogglePause || pauseBusy) return;
+    setPauseBusy(true);
+    try {
+      if (pauseMode === "pause") {
+        const res = await api.pauseAllSnipes();
+        toast(
+          `Paused ${res.paused} active snipe${res.paused === 1 ? "" : "s"}`,
+        );
+      } else {
+        const res = await api.unpauseAllSnipes();
+        toast(
+          `Unpaused ${res.unpaused} snipe${res.unpaused === 1 ? "" : "s"}`,
+        );
+      }
+      onChange();
+    } catch (e: any) {
+      toast(e.message, "err");
+    } finally {
+      setPauseBusy(false);
+    }
+  }
 
   function remove(id: string) {
     setExiting((s) => new Set(s).add(id));
@@ -1551,8 +1588,28 @@ function Snipes({
   }
 
   return (
-    <div className="card">
-      <h2>Snipes</h2>
+    <div className="card snipes-card">
+      <div className="snipes-top">
+        <h2 className="snipes-title">Snipes</h2>
+        <button
+          className="pause-all-btn"
+          onClick={togglePauseAll}
+          disabled={!canTogglePause || pauseBusy}
+          title={
+            pauseMode === "pause"
+              ? "Pause every armed snipe so they do not fire"
+              : "Unpause every paused snipe and arm them again"
+          }
+        >
+          {pauseBusy ? (
+            <span className="spin" />
+          ) : pauseMode === "pause" ? (
+            "Pause All"
+          ) : (
+            "Unpause All"
+          )}
+        </button>
+      </div>
       {snipes.length === 0 && (
         <div className="empty">
           No snipes yet. Arm one with a coin CA, a wallet, and a SOL amount.
@@ -1680,7 +1737,7 @@ function Snipes({
                 </button>
               )}
             <button className="ghost" onClick={() => remove(s.id)}>
-              {s.status === "ARMED" ? "Disarm" : "Remove"}
+              {s.status === "ARMED" || s.status === "PAUSED" ? "Disarm" : "Remove"}
             </button>
           </div>
         </div>

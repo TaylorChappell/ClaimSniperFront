@@ -84,7 +84,7 @@ export interface Snipe {
   ticker?: string | null;
   onlyRedirected: boolean;
   watchWallet?: string | null;
-  status: "ARMED" | "TRIGGERED" | "FILLED" | "FAILED" | "CANCELLED";
+  status: "ARMED" | "PAUSED" | "TRIGGERED" | "FILLED" | "FAILED" | "CANCELLED";
   signature?: string | null;
   error?: string | null;
   createdAt: string;
@@ -349,6 +349,10 @@ export const api = {
   deleteWallet: (id: string) =>
     req<{ ok: true }>(`/wallets/${id}`, { method: "DELETE" }),
   snipes: () => req<{ snipes: Snipe[] }>("/snipes"),
+  pauseAllSnipes: () =>
+    req<{ ok: true; paused: number }>("/snipes/pause-all", { method: "POST" }),
+  unpauseAllSnipes: () =>
+    req<{ ok: true; unpaused: number }>("/snipes/unpause-all", { method: "POST" }),
   stats: () => req<Stats>("/snipes/stats"),
   historyFills: (page = 0, pageSize = 10) =>
     req<{
