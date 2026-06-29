@@ -106,6 +106,15 @@ export interface Snipe {
   entryMcSol?: number | null;
   peakMcSol?: number | null;
   soldSol: number;
+  claimCheckStatus?: "UNKNOWN" | "CHECKING" | "CLAIMED" | "NOT_FOUND" | "FAILED" | "SKIPPED";
+  claimCheckWallet?: string | null;
+  claimCheckTx?: string | null;
+  claimCheckInstruction?: string | null;
+  claimCheckRecipient?: string | null;
+  claimCheckSigner?: boolean;
+  claimCheckClaimedAt?: string | null;
+  claimCheckCheckedAt?: string | null;
+  claimCheckError?: string | null;
 }
 export interface BillingStatus {
   paid: boolean;

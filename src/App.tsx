@@ -958,6 +958,9 @@ function Dashboard({
                 wallets={wallets}
                 onCreated={() => {
                   refresh();
+                  setTimeout(refresh, 6000);
+                  setTimeout(refresh, 20000);
+                  setTimeout(refresh, 45000);
                   setDashTab("snipes");
                 }}
               />
@@ -1586,7 +1589,40 @@ function Snipes({
               {s.status}
             </span>
           </div>
-          <CopyCA mint={s.mint} className="mint-sub" />
+          <CopyCA mint={s.mint} ticker={s.ticker} className="mint-sub" />
+          {s.claimCheckStatus === "CLAIMED" && (
+            <div className="claim-warning" onClick={(e) => e.stopPropagation()}>
+              <strong>Already claimed</strong>
+              <span>
+                This wallet already claimed fees for this CA
+                {s.claimCheckClaimedAt
+                  ? ` on ${new Date(s.claimCheckClaimedAt).toLocaleString()}`
+                  : ""}
+                .
+              </span>
+              {s.claimCheckWallet && <code>{short(s.claimCheckWallet)}</code>}
+              {s.claimCheckInstruction && <span>{s.claimCheckInstruction}</span>}
+              {s.claimCheckTx && (
+                <a
+                  href={`https://solscan.io/tx/${s.claimCheckTx}`}
+                  target="_blank"
+                  rel="noreferrer"
+                >
+                  view claim ↗
+                </a>
+              )}
+            </div>
+          )}
+          {s.claimCheckStatus === "CHECKING" && (
+            <div className="claim-checking">
+              Checking this wallet's previous 1000 txs for old claims…
+            </div>
+          )}
+          {s.claimCheckStatus === "FAILED" && s.claimCheckError && (
+            <div className="claim-checking err-text">
+              Claim-history check failed: {s.claimCheckError}
+            </div>
+          )}
           <div className="meta">
             <span>
               <b>{s.amountSol}</b> SOL

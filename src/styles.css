@@ -2526,3 +2526,41 @@ button.ghost.mini.on {
   margin: 0 auto;
   line-height: 1.6;
 }
+
+
+.claim-warning {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  margin: 11px 0 2px;
+  padding: 10px 12px;
+  border: 1px solid rgba(255, 84, 104, 0.45);
+  border-radius: var(--radius-sm);
+  background: rgba(255, 84, 104, 0.1);
+  color: var(--red);
+  font-size: 12px;
+  line-height: 1.35;
+}
+.claim-warning strong {
+  font-size: 12px;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+}
+.claim-warning code {
+  color: var(--text);
+  font-size: 11px;
+}
+.claim-warning a {
+  color: var(--red);
+  font-weight: 800;
+}
+.claim-checking {
+  margin: 9px 0 2px;
+  color: var(--amber);
+  font-size: 12px;
+  font-family: var(--mono);
+}
+.err-text {
+  color: var(--red);
+}
