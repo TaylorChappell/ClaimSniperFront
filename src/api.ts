@@ -91,6 +91,8 @@ export interface Snipe {
   livePriceUsd?: number | null;
   liveMarketCapUpdatedAt?: string | null;
   liveMarketCapSource?: "pumpdev" | "rpc" | "unknown" | null;
+  mcMinUsd?: number | null;
+  mcMaxUsd?: number | null;
   amountSol: number;
   slippagePct: number;
   priorityFee: number;
@@ -191,6 +193,8 @@ export interface PublicSnipe {
   livePriceUsd?: number | null;
   liveMarketCapUpdatedAt?: string | null;
   liveMarketCapSource?: "pumpdev" | "rpc" | "unknown" | null;
+  mcMinUsd?: number | null;
+  mcMaxUsd?: number | null;
   ticker?: string | null;
   amountSol: number;
   soldSol: number;
@@ -396,6 +400,8 @@ export const api = {
     triggerMode?: "CLAIM" | "REDIRECT";
     onlyRedirected?: boolean;
     watchWallet?: string | null;
+    mcMinUsd?: number | null;
+    mcMaxUsd?: number | null;
     exit?: ExitCfg;
   }) =>
     req<{ snipe: Snipe }>("/snipes", {
@@ -413,6 +419,8 @@ export const api = {
       triggerMode?: "CLAIM" | "REDIRECT";
       onlyRedirected?: boolean;
       watchWallet?: string | null;
+      mcMinUsd?: number | null;
+      mcMaxUsd?: number | null;
       exit?: ExitCfg;
     },
   ) =>

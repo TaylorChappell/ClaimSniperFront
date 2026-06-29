@@ -3052,3 +3052,107 @@ button.ghost.mini.on {
     font-size: 19px;
   }
 }
+
+.global-pause-bar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 14px;
+  padding: 12px 14px;
+  border: 1px solid rgba(125, 221, 255, 0.45);
+  border-radius: 16px;
+  background: linear-gradient(135deg, rgba(125, 221, 255, 0.14), rgba(125, 221, 255, 0.04));
+  box-shadow: 0 0 0 1px rgba(125, 221, 255, 0.08) inset;
+  color: #dff8ff;
+}
+.global-pause-bar strong {
+  color: #9ee9ff;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  font-size: 12px;
+}
+.global-pause-bar span {
+  color: var(--muted);
+  font-size: 13px;
+  text-align: right;
+}
+
+.market-filter-box,
+.duplicate-mint-warning,
+.failed-reason {
+  margin-top: 12px;
+  padding: 12px;
+  border-radius: 14px;
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  background: rgba(255, 255, 255, 0.035);
+}
+.market-filter-box.compact {
+  margin: 12px 0;
+}
+.market-filter-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  margin-bottom: 10px;
+}
+.market-filter-head strong,
+.duplicate-mint-warning strong,
+.failed-reason strong {
+  font-size: 12px;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+}
+.market-filter-head span {
+  color: var(--muted);
+  font-size: 12px;
+}
+.duplicate-mint-warning {
+  display: grid;
+  gap: 4px;
+  border-color: rgba(255, 191, 87, 0.35);
+  background: rgba(255, 191, 87, 0.08);
+}
+.duplicate-mint-warning strong {
+  color: #ffd28a;
+}
+.duplicate-mint-warning span {
+  color: var(--muted);
+  font-size: 13px;
+}
+.failed-reason {
+  display: grid;
+  gap: 5px;
+  border-color: rgba(255, 98, 98, 0.35);
+  background: rgba(255, 98, 98, 0.08);
+}
+.failed-reason strong {
+  color: var(--red);
+}
+.failed-reason span {
+  color: #ffd2d2;
+  font-size: 13px;
+  line-height: 1.4;
+  word-break: break-word;
+}
+.mc-change {
+  margin-left: 7px;
+  font-size: 11px;
+  font-weight: 800;
+  letter-spacing: 0.02em;
+}
+.mc-change.up {
+  color: var(--green);
+}
+.mc-change.down {
+  color: var(--red);
+}
+@media (max-width: 760px) {
+  .global-pause-bar {
+    align-items: flex-start;
+    flex-direction: column;
+  }
+  .global-pause-bar span {
+    text-align: left;
+  }
+}

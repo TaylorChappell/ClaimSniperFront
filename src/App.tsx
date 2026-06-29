@@ -51,6 +51,22 @@ function snipeMarketCapLabel(s: Pick<Snipe | PublicSnipe, "liveMarketCapUsd">) {
   return usd ? `$${usd}` : "—";
 }
 
+function marketCapInputToNumber(value: string): number | null {
+  const cleaned = value.replace(/[$,]/g, "").trim();
+  if (!cleaned) return null;
+  const n = Number(cleaned);
+  return Number.isFinite(n) && n >= 0 ? n : null;
+}
+
+function marketCapFilterLabel(s: Pick<Snipe, "mcMinUsd" | "mcMaxUsd">) {
+  const min = s.mcMinUsd ?? null;
+  const max = s.mcMaxUsd ?? null;
+  if (min == null && max == null) return null;
+  if (min != null && max != null) return `MC ${snipeMarketCapLabel({ liveMarketCapUsd: min })}–${snipeMarketCapLabel({ liveMarketCapUsd: max })}`;
+  if (min != null) return `MC ≥ ${snipeMarketCapLabel({ liveMarketCapUsd: min })}`;
+  return `MC ≤ ${snipeMarketCapLabel({ liveMarketCapUsd: max })}`;
+}
+
 function mergeLiveMarketCaps(snipes: Snipe[], caps: Record<string, LiveMarketCapSnapshot | null>) {
   if (!Object.keys(caps).length) return snipes;
   return snipes.map((s) => {
@@ -98,6 +114,8 @@ type ArmSnipePreset = {
   slippage: string;
   priority: string;
   bribe: string;
+  mcMinUsd: string;
+  mcMaxUsd: string;
   onlyRedirected: boolean;
   watchWallet: string;
   execMode: "PUMPPORTAL" | "LOCAL";
@@ -157,6 +175,8 @@ function presetFingerprint(preset?: Partial<ArmSnipePreset> | null) {
     slippage: preset?.slippage ?? "15",
     priority: preset?.priority ?? "0.0005",
     bribe: preset?.bribe ?? "0",
+    mcMinUsd: preset?.mcMinUsd ?? "",
+    mcMaxUsd: preset?.mcMaxUsd ?? "",
     onlyRedirected: !!preset?.onlyRedirected,
     watchWallet: preset?.watchWallet ?? "",
     execMode: preset?.execMode === "LOCAL" ? "LOCAL" : "PUMPPORTAL",
@@ -934,6 +954,7 @@ function Dashboard({
     [data?.snipes, marketCapData?.caps],
   );
   const stats = data?.stats ?? null;
+  const pausedSnipes = useMemo(() => snipes.filter((s) => s.status === "PAUSED"), [snipes]);
 
   const [view, setView] = useState<AppView>(() => initialViewFromUrl());
   const [profile, setProfile] = useState<Profile>(() =>
@@ -1112,6 +1133,12 @@ function Dashboard({
         <AdminPanel wallets={wallets} />
       ) : (
         <div className="dash">
+          {pausedSnipes.length > 0 && (
+            <div className="global-pause-bar">
+              <strong>Snipes paused</strong>
+              <span>{pausedSnipes.length} snipe{pausedSnipes.length === 1 ? "" : "s"} will not fire until unpaused.</span>
+            </div>
+          )}
           <div className="seg dash-tabs">
             <button
               className={`seg-btn ${dashTab === "arm" ? "on" : ""}`}
@@ -1136,6 +1163,7 @@ function Dashboard({
             <div className="rise d1">
               <SnipeForm
                 wallets={wallets}
+                snipes={snipes}
                 onCreated={() => {
                   refresh();
                   setTimeout(refresh, 6000);
@@ -1378,11 +1406,13 @@ function WalletSelect({
 /* ---------------- snipe form ---------------- */
 function SnipeForm({
   wallets,
+  snipes = [],
   onCreated,
   initialMint,
   mintLocked,
 }: {
   wallets: Wallet[];
+  snipes?: Snipe[];
   onCreated: () => void;
   initialMint?: string;
   mintLocked?: boolean;
@@ -1399,6 +1429,8 @@ function SnipeForm({
   const [bribe, setBribe] = useState(
     () => localStorage.getItem("cs.bribe") ?? "0",
   );
+  const [mcMinUsd, setMcMinUsd] = useState("");
+  const [mcMaxUsd, setMcMaxUsd] = useState("");
   const [onlyRedirected, setOnlyRedirected] = useState(false);
   const [watchWallet, setWatchWallet] = useState("");
   const [execMode, setExecMode] = useState<"PUMPPORTAL" | "LOCAL">(
@@ -1423,6 +1455,8 @@ function SnipeForm({
       slippage,
       priority,
       bribe,
+      mcMinUsd,
+      mcMaxUsd,
       onlyRedirected,
       watchWallet,
       execMode,
@@ -1437,6 +1471,8 @@ function SnipeForm({
     setSlippage(preset.slippage ?? "15");
     setPriority(preset.priority ?? "0.0005");
     setBribe(preset.bribe ?? "0");
+    setMcMinUsd(preset.mcMinUsd ?? "");
+    setMcMaxUsd(preset.mcMaxUsd ?? "");
     setOnlyRedirected(!!preset.onlyRedirected);
     setWatchWallet(preset.watchWallet ?? "");
     setExecMode(preset.execMode === "LOCAL" ? "LOCAL" : "PUMPPORTAL");
@@ -1484,6 +1520,8 @@ function SnipeForm({
         slippagePct: Number(slippage),
         priorityFee: Number(priority),
         bribe: Number(bribe),
+        mcMinUsd: marketCapInputToNumber(mcMinUsd),
+        mcMaxUsd: marketCapInputToNumber(mcMaxUsd),
         execMode,
         triggerMode,
         onlyRedirected,
@@ -1508,10 +1546,28 @@ function SnipeForm({
     }
   }
 
+  const mcMinNumber = marketCapInputToNumber(mcMinUsd);
+  const mcMaxNumber = marketCapInputToNumber(mcMaxUsd);
+  const mcMinInvalid = mcMinUsd.trim().length > 0 && mcMinNumber == null;
+  const mcMaxInvalid = mcMaxUsd.trim().length > 0 && mcMaxNumber == null;
+  const mcRangeInvalid =
+    mcMinNumber != null && mcMaxNumber != null && mcMinNumber > mcMaxNumber;
+  const mcFilterInvalid = mcMinInvalid || mcMaxInvalid || mcRangeInvalid;
+  const duplicateMintSnipes = useMemo(() => {
+    const clean = mint.trim();
+    if (!clean) return [] as Snipe[];
+    return snipes.filter(
+      (s) =>
+        s.mint === clean &&
+        ["ARMED", "PAUSED", "TRIGGERED"].includes(s.status),
+    );
+  }, [mint, snipes]);
+
   const ready =
     mint &&
     walletId &&
     Number(amount) > 0 &&
+    !mcFilterInvalid &&
     (!onlyRedirected || watchWallet.trim().length >= 32);
 
   return (
@@ -1579,6 +1635,47 @@ function SnipeForm({
           <input value={bribe} onChange={(e) => setBribe(e.target.value)} />
         </div>
       </div>
+      <div className="market-filter-box">
+        <div className="market-filter-head">
+          <strong>Market cap filter</strong>
+          <span>Optional</span>
+        </div>
+        <div className="row">
+          <div>
+            <label>Min MC $</label>
+            <input
+              value={mcMinUsd}
+              onChange={(e) => setMcMinUsd(e.target.value)}
+              placeholder="5000"
+            />
+          </div>
+          <div>
+            <label>Max MC $</label>
+            <input
+              value={mcMaxUsd}
+              onChange={(e) => setMcMaxUsd(e.target.value)}
+              placeholder="25000"
+            />
+          </div>
+        </div>
+        <div className={`hint ${mcFilterInvalid ? "err-text" : ""}`}>
+          {mcMinInvalid || mcMaxInvalid
+            ? "Enter valid numbers for the MC filter."
+            : mcRangeInvalid
+              ? "Minimum MC cannot be higher than maximum MC."
+              : "If set, the backend checks live USD MC right before buying and blocks the snipe if it is outside range."}
+        </div>
+      </div>
+
+      {duplicateMintSnipes.length > 0 && (
+        <div className="duplicate-mint-warning">
+          <strong>Duplicate mint warning</strong>
+          <span>
+            You already have {duplicateMintSnipes.length} active snipe{duplicateMintSnipes.length === 1 ? "" : "s"} on this CA.
+          </span>
+        </div>
+      )}
+
       <ExecModeSelect value={execMode} onChange={setExecMode} />
       <TriggerModeSelect value={triggerMode} onChange={setTriggerMode} />
 
@@ -1653,6 +1750,8 @@ function EditSnipeModal({
   const [slippage, setSlippage] = useState(String(snipe.slippagePct));
   const [priority, setPriority] = useState(String(snipe.priorityFee));
   const [bribe, setBribe] = useState(String(snipe.bribe));
+  const [mcMinUsd, setMcMinUsd] = useState(snipe.mcMinUsd == null ? "" : String(snipe.mcMinUsd));
+  const [mcMaxUsd, setMcMaxUsd] = useState(snipe.mcMaxUsd == null ? "" : String(snipe.mcMaxUsd));
   const [redir, setRedir] = useState(snipe.onlyRedirected);
   const [watchWallet, setWatchWallet] = useState(snipe.watchWallet ?? "");
   const [execMode, setExecMode] = useState<"PUMPPORTAL" | "LOCAL">(
@@ -1664,8 +1763,15 @@ function EditSnipeModal({
   const ex = useExit(snipe);
   const [busy, setBusy] = useState(false);
 
+  const mcMinNumber = marketCapInputToNumber(mcMinUsd);
+  const mcMaxNumber = marketCapInputToNumber(mcMaxUsd);
+  const mcMinInvalid = mcMinUsd.trim().length > 0 && mcMinNumber == null;
+  const mcMaxInvalid = mcMaxUsd.trim().length > 0 && mcMaxNumber == null;
+  const mcRangeInvalid =
+    mcMinNumber != null && mcMaxNumber != null && mcMinNumber > mcMaxNumber;
+  const mcFilterInvalid = mcMinInvalid || mcMaxInvalid || mcRangeInvalid;
   const ready =
-    Number(amount) > 0 && (!redir || watchWallet.trim().length >= 32);
+    Number(amount) > 0 && !mcFilterInvalid && (!redir || watchWallet.trim().length >= 32);
 
   async function save() {
     setBusy(true);
@@ -1675,6 +1781,8 @@ function EditSnipeModal({
         slippagePct: Number(slippage),
         priorityFee: Number(priority),
         bribe: Number(bribe),
+        mcMinUsd: marketCapInputToNumber(mcMinUsd),
+        mcMaxUsd: marketCapInputToNumber(mcMaxUsd),
         onlyRedirected: redir,
         watchWallet: redir ? watchWallet.trim() : null,
         execMode,
@@ -1733,6 +1841,38 @@ function EditSnipeModal({
                 />
               </div>
             </div>
+            <div className="market-filter-box compact">
+              <div className="market-filter-head">
+                <strong>Market cap filter</strong>
+                <span>Optional</span>
+              </div>
+              <div className="row">
+                <div>
+                  <label>Min MC $</label>
+                  <input
+                    value={mcMinUsd}
+                    onChange={(e) => setMcMinUsd(e.target.value)}
+                    placeholder="5000"
+                  />
+                </div>
+                <div>
+                  <label>Max MC $</label>
+                  <input
+                    value={mcMaxUsd}
+                    onChange={(e) => setMcMaxUsd(e.target.value)}
+                    placeholder="25000"
+                  />
+                </div>
+              </div>
+              {mcFilterInvalid && (
+                <div className="hint err-text">
+                  {mcMinInvalid || mcMaxInvalid
+                    ? "Enter valid numbers for the MC filter."
+                    : "Minimum MC cannot be higher than maximum MC."}
+                </div>
+              )}
+            </div>
+
             <ExecModeSelect value={execMode} onChange={setExecMode} />
             <TriggerModeSelect value={triggerMode} onChange={setTriggerMode} />
             <label className="switch-row" onClick={() => setRedir((v) => !v)}>
@@ -1810,6 +1950,40 @@ function Snipes({
   const pausedCount = snipes.filter((s) => s.status === "PAUSED").length;
   const canTogglePause = armedCount > 0 || pausedCount > 0;
   const pauseMode: "pause" | "unpause" = armedCount > 0 ? "pause" : "unpause";
+  const previousMarketCaps = useRef<Record<string, number>>({});
+  const [marketCapChanges, setMarketCapChanges] = useState<Record<string, { delta: number; pct: number }>>({});
+
+  useEffect(() => {
+    setMarketCapChanges((current) => {
+      let changed = false;
+      const next = { ...current };
+      const seen = new Set<string>();
+
+      for (const s of snipes) {
+        seen.add(s.id);
+        const value = s.liveMarketCapUsd;
+        if (value == null || !Number.isFinite(value)) continue;
+        const previous = previousMarketCaps.current[s.id];
+        if (previous != null && previous > 0 && previous !== value) {
+          next[s.id] = {
+            delta: value - previous,
+            pct: ((value - previous) / previous) * 100,
+          };
+          changed = true;
+        }
+        previousMarketCaps.current[s.id] = value;
+      }
+
+      for (const id of Object.keys(next)) {
+        if (!seen.has(id)) {
+          delete next[id];
+          changed = true;
+        }
+      }
+
+      return changed ? next : current;
+    });
+  }, [snipes]);
 
   async function togglePauseAll() {
     if (!canTogglePause || pauseBusy) return;
@@ -1914,6 +2088,11 @@ function Snipes({
               >
                 <span className="market-cap-label">Market Cap</span>
                 <span>{snipeMarketCapLabel(s)}</span>
+                {marketCapChanges[s.id] && (
+                  <b className={`mc-change ${marketCapChanges[s.id].delta >= 0 ? "up" : "down"}`}>
+                    {marketCapChanges[s.id].delta >= 0 ? "▲" : "▼"} {Math.abs(marketCapChanges[s.id].pct).toFixed(1)}%
+                  </b>
+                )}
               </span>
               <span className={`badge ${s.status}`}>{s.status}</span>
             </div>
@@ -1952,6 +2131,12 @@ function Snipes({
               Claim-history check failed: {s.claimCheckError}
             </div>
           )}
+          {s.status === "FAILED" && s.error && (
+            <div className="failed-reason">
+              <strong>Failed reason</strong>
+              <span>{s.error}</span>
+            </div>
+          )}
           <div className="meta clean-snipe-meta">
             <span>
               <em>Buy</em> <b>{s.amountSol}</b> SOL
@@ -1968,7 +2153,12 @@ function Snipes({
                 view tx ↗
               </a>
             )}
-            {s.error && <span style={{ color: "var(--red)" }}>{s.error}</span>}
+            {marketCapFilterLabel(s) && (
+              <span>
+                <em>Filter</em> <b>{marketCapFilterLabel(s)}</b>
+              </span>
+            )}
+            {s.error && s.status !== "FAILED" && <span style={{ color: "var(--red)" }}>{s.error}</span>}
           </div>
           <div className="snipe-actions">
             <button className="ghost" onClick={() => setEdit(s)}>
@@ -4385,7 +4575,7 @@ function UserSnipesModal({
                       : "Waiting for live Pump market-cap update"
                   }
                 >
-                  <em>mc</em>
+                  <em>Market Cap</em>
                   <b>{snipeMarketCapLabel(s)}</b>
                 </span>
               )}
