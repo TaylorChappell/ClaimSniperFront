@@ -887,9 +887,76 @@ function resizeAvatar(file: File): Promise<string> {
 }
 
 
+type IconName =
+  | "clock"
+  | "smile"
+  | "hand"
+  | "leaf"
+  | "food"
+  | "activity"
+  | "bulb"
+  | "heart"
+  | "paperclip"
+  | "image"
+  | "reply"
+  | "reaction"
+  | "pause"
+  | "play"
+  | "send"
+  | "close";
+
+function AppIcon({ name, className }: { name: IconName; className?: string }) {
+  const common = {
+    className: className ? `ui-icon ${className}` : "ui-icon",
+    viewBox: "0 0 24 24",
+    fill: "none",
+    stroke: "currentColor",
+    strokeWidth: 2,
+    strokeLinecap: "round" as const,
+    strokeLinejoin: "round" as const,
+    "aria-hidden": true,
+  };
+
+  switch (name) {
+    case "clock":
+      return <svg {...common}><circle cx="12" cy="12" r="8" /><path d="M12 8v5l3 2" /></svg>;
+    case "smile":
+      return <svg {...common}><circle cx="12" cy="12" r="8" /><path d="M9 10h.01" /><path d="M15 10h.01" /><path d="M8.8 14.2c1.7 1.8 4.7 1.8 6.4 0" /></svg>;
+    case "hand":
+      return <svg {...common}><path d="M8 11V6.5a1.5 1.5 0 0 1 3 0V11" /><path d="M11 10V5.5a1.5 1.5 0 0 1 3 0V11" /><path d="M14 10V7a1.5 1.5 0 0 1 3 0v6" /><path d="M8 11.5 6.4 10A1.5 1.5 0 0 0 4 11.2c0 .4.1.8.4 1.1l4.1 5.2A6 6 0 0 0 13.2 20H14a5 5 0 0 0 5-5v-2" /></svg>;
+    case "leaf":
+      return <svg {...common}><path d="M5 19c7-1 12-6 14-14-8 2-13 7-14 14Z" /><path d="M5 19c2-4 5-7 9-9" /></svg>;
+    case "food":
+      return <svg {...common}><path d="M7 3v8" /><path d="M5 3v4a2 2 0 0 0 4 0V3" /><path d="M7 11v10" /><path d="M17 3v18" /><path d="M14 8c0-3 1.3-5 3-5" /></svg>;
+    case "activity":
+      return <svg {...common}><path d="M4 14c2-6 5-6 8 0s6 6 8 0" /><circle cx="7" cy="17" r="2" /><circle cx="17" cy="7" r="2" /></svg>;
+    case "bulb":
+      return <svg {...common}><path d="M9 18h6" /><path d="M10 22h4" /><path d="M8.5 14.5A6 6 0 1 1 15.5 14.5c-.9.6-1.5 1.5-1.5 2.5h-4c0-1-.6-1.9-1.5-2.5Z" /></svg>;
+    case "heart":
+      return <svg {...common}><path d="M20.8 8.6c0 5.3-8.8 10-8.8 10s-8.8-4.7-8.8-10A4.6 4.6 0 0 1 12 5.9a4.6 4.6 0 0 1 8.8 2.7Z" /></svg>;
+    case "paperclip":
+    case "image":
+      return <svg {...common}><rect x="4" y="5" width="16" height="14" rx="3" /><circle cx="9" cy="10" r="1.5" /><path d="m7 17 4.2-4.2a1.6 1.6 0 0 1 2.3 0L18 17" /><path d="m13.5 14.5 1.2-1.2a1.6 1.6 0 0 1 2.3 0L20 16.3" /></svg>;
+    case "reply":
+      return <svg {...common}><path d="m10 8-5 4 5 4" /><path d="M5 12h9a5 5 0 0 1 5 5v1" /></svg>;
+    case "reaction":
+      return <svg {...common}><circle cx="12" cy="12" r="8" /><path d="M8 10h.01" /><path d="M15.5 9.5h.01" /><path d="M8.5 14.5c1.8 1.6 4.2 1.9 6.8.2" /><path d="M18 5l1.2-2" /><path d="M20 7l2-.6" /></svg>;
+    case "pause":
+      return <svg {...common}><path d="M9 6v12" /><path d="M15 6v12" /></svg>;
+    case "play":
+      return <svg {...common}><path d="m8 5 11 7-11 7V5Z" /></svg>;
+    case "send":
+      return <svg {...common}><path d="M21 3 10 14" /><path d="m21 3-7 18-4-7-7-4 18-7Z" /></svg>;
+    case "close":
+      return <svg {...common}><path d="M6 6l12 12" /><path d="M18 6 6 18" /></svg>;
+    default:
+      return null;
+  }
+}
+
 type EmojiCategory = {
   id: string;
-  icon: string;
+  icon: IconName;
   label: string;
   emojis: string[];
 };
@@ -897,13 +964,13 @@ type EmojiCategory = {
 const EMOJI_CATEGORIES: EmojiCategory[] = [
   {
     id: "recent",
-    icon: "🕘",
+    icon: "clock",
     label: "Recent",
     emojis: [],
   },
   {
     id: "smileys",
-    icon: "😀",
+    icon: "smile",
     label: "Smileys",
     emojis: [
       "😀", "😃", "😄", "😁", "😆", "😅", "😂", "🤣", "😊", "😇", "🙂", "🙃", "😉", "😌", "😍", "🥰", "😘", "😗", "😙", "😚",
@@ -916,7 +983,7 @@ const EMOJI_CATEGORIES: EmojiCategory[] = [
   },
   {
     id: "people",
-    icon: "👍",
+    icon: "hand",
     label: "People",
     emojis: [
       "👋", "🤚", "🖐️", "✋", "🖖", "👌", "🤌", "🤏", "✌️", "🤞", "🤟", "🤘", "🤙", "👈", "👉", "👆", "🖕", "👇", "☝️", "👍",
@@ -930,7 +997,7 @@ const EMOJI_CATEGORIES: EmojiCategory[] = [
   },
   {
     id: "nature",
-    icon: "🐻",
+    icon: "leaf",
     label: "Animals & Nature",
     emojis: [
       "🐶", "🐱", "🐭", "🐹", "🐰", "🦊", "🐻", "🐼", "🐻‍❄️", "🐨", "🐯", "🦁", "🐮", "🐷", "🐽", "🐸", "🐵", "🙈", "🙉", "🙊",
@@ -947,7 +1014,7 @@ const EMOJI_CATEGORIES: EmojiCategory[] = [
   },
   {
     id: "food",
-    icon: "🍔",
+    icon: "food",
     label: "Food & Drink",
     emojis: [
       "🍏", "🍎", "🍐", "🍊", "🍋", "🍌", "🍉", "🍇", "🍓", "🫐", "🍈", "🍒", "🍑", "🥭", "🍍", "🥥", "🥝", "🍅", "🍆", "🥑",
@@ -961,7 +1028,7 @@ const EMOJI_CATEGORIES: EmojiCategory[] = [
   },
   {
     id: "activity",
-    icon: "⚽",
+    icon: "activity",
     label: "Activity",
     emojis: [
       "⚽", "🏀", "🏈", "⚾", "🥎", "🎾", "🏐", "🏉", "🥏", "🎱", "🪀", "🏓", "🏸", "🏒", "🏑", "🥍", "🏏", "🪃", "🥅", "⛳",
@@ -973,7 +1040,7 @@ const EMOJI_CATEGORIES: EmojiCategory[] = [
   },
   {
     id: "objects",
-    icon: "💡",
+    icon: "bulb",
     label: "Objects",
     emojis: [
       "⌚", "📱", "📲", "💻", "⌨️", "🖥️", "🖨️", "🖱️", "🖲️", "🕹️", "🗜️", "💽", "💾", "💿", "📀", "📼", "📷", "📸", "📹", "🎥",
@@ -991,7 +1058,7 @@ const EMOJI_CATEGORIES: EmojiCategory[] = [
   },
   {
     id: "symbols",
-    icon: "💚",
+    icon: "heart",
     label: "Symbols",
     emojis: [
       "❤️", "🧡", "💛", "💚", "💙", "💜", "🖤", "🤍", "🤎", "💔", "❣️", "💕", "💞", "💓", "💗", "💖", "💘", "💝", "💟", "☮️",
@@ -2337,7 +2404,7 @@ function Snipes({
           ) : (
             <>
               <span className="pause-icon" aria-hidden="true">
-                {pauseMode === "pause" ? "⏸" : "▶"}
+                <AppIcon name={pauseMode === "pause" ? "pause" : "play"} />
               </span>
               {pauseMode === "pause" ? "Pause All" : "Unpause All"}
             </>
@@ -2488,7 +2555,7 @@ function Snipes({
                 title={s.status === "ARMED" ? "Pause this snipe" : "Unpause this snipe"}
                 aria-label={s.status === "ARMED" ? "Pause this snipe" : "Unpause this snipe"}
               >
-                {pauseOneBusy.has(s.id) ? <span className="spin" /> : s.status === "ARMED" ? "⏸" : "▶"}
+                {pauseOneBusy.has(s.id) ? <span className="spin" /> : <AppIcon name={s.status === "ARMED" ? "pause" : "play"} />}
               </button>
             )}
           </div>
@@ -4568,8 +4635,13 @@ function Social({
     saveChoice(NAV_SOCIAL_TAB_KEY, tab);
   }, [tab]);
 
+  useEffect(() => {
+    document.body.classList.toggle("chat-view-active", tab === "chat");
+    return () => document.body.classList.remove("chat-view-active");
+  }, [tab]);
+
   return (
-    <div className="social">
+    <div className={`social ${tab === "chat" ? "social-chat-mode" : ""}`}>
       <div className="seg dash-tabs">
         <button
           className={`seg-btn ${tab === "trending" ? "on" : ""}`}
@@ -4711,10 +4783,6 @@ function ChatBox({ tradingPlatform }: { tradingPlatform: TradingPlatform }) {
       if (!el) return;
       el.scrollTo({
         top: el.scrollHeight,
-        behavior: smooth ? "smooth" : "auto",
-      });
-      window.scrollTo({
-        top: document.documentElement.scrollHeight,
         behavior: smooth ? "smooth" : "auto",
       });
     });
@@ -4860,12 +4928,6 @@ function ChatBox({ tradingPlatform }: { tradingPlatform: TradingPlatform }) {
 
   return (
     <div className="card rise d1 chat telegram-chat">
-      <div className="chat-head">
-        <div>
-          <h3>Chat</h3>
-        </div>
-      </div>
-
       <div className="chat-feed telegram-feed" ref={feedRef}>
         {messages.length === 0 && <p className="sub">No messages yet. Say hi.</p>}
         {messages.map((m) => (
@@ -4903,7 +4965,8 @@ function ChatBox({ tradingPlatform }: { tradingPlatform: TradingPlatform }) {
                 </span>
                 <div className="chat-actions-row">
                   <button className="chat-action" type="button" onClick={() => setReplyTo(m)}>
-                    ↩ Reply
+                    <AppIcon name="reply" />
+                    <span>Reply</span>
                   </button>
                   <span className="chat-action-sep">·</span>
                   <button
@@ -4915,7 +4978,8 @@ function ChatBox({ tradingPlatform }: { tradingPlatform: TradingPlatform }) {
                       setEmojiCategory("recent");
                     }}
                   >
-                    ☺ React
+                    <AppIcon name="reaction" />
+                    <span>React</span>
                   </button>
                 </div>
               </div>
@@ -4944,7 +5008,7 @@ function ChatBox({ tradingPlatform }: { tradingPlatform: TradingPlatform }) {
             <b>Replying to @{replyTo.username}</b>
             <span>{replyTo.text || (replyTo.imageDataUrl ? "Image" : chatTokenLabel(replyTo) ?? "Message")}</span>
           </div>
-          <button type="button" onClick={() => setReplyTo(null)}>×</button>
+          <button type="button" onClick={() => setReplyTo(null)} aria-label="Cancel reply"><AppIcon name="close" /></button>
         </div>
       )}
       {imageDataUrl && (
@@ -4960,7 +5024,7 @@ function ChatBox({ tradingPlatform }: { tradingPlatform: TradingPlatform }) {
               <b>{reactingTo ? `Reacting to @${reactingTo.username}` : "Emoji"}</b>
               <span>{reactingTo ? "Pick any emoji reaction" : "Search or browse the full emoji keyboard"}</span>
             </div>
-            <button type="button" className="emoji-close" onClick={closeEmojiPanel}>×</button>
+            <button type="button" className="emoji-close" onClick={closeEmojiPanel} aria-label="Close emoji keyboard"><AppIcon name="close" /></button>
           </div>
           <input
             className="emoji-search"
@@ -4980,7 +5044,7 @@ function ChatBox({ tradingPlatform }: { tradingPlatform: TradingPlatform }) {
                   setEmojiSearch("");
                 }}
               >
-                {category.icon}
+                <AppIcon name={category.icon} />
               </button>
             ))}
           </div>
@@ -5014,7 +5078,7 @@ function ChatBox({ tradingPlatform }: { tradingPlatform: TradingPlatform }) {
           title="Emoji"
           aria-label="Open emoji keyboard"
         >
-          ☺
+          <AppIcon name="smile" />
         </button>
         <button
           className="chat-tool"
@@ -5023,7 +5087,7 @@ function ChatBox({ tradingPlatform }: { tradingPlatform: TradingPlatform }) {
           title="Upload image"
           aria-label="Attach image"
         >
-          📎
+          <AppIcon name="image" />
         </button>
         <input
           ref={fileRef}
@@ -5036,8 +5100,10 @@ function ChatBox({ tradingPlatform }: { tradingPlatform: TradingPlatform }) {
           className="primary inline send-btn"
           onClick={send}
           disabled={busy || (!text.trim() && !imageDataUrl)}
+          title="Send"
+          aria-label="Send message"
         >
-          {busy ? <span className="spin" /> : "Send"}
+          {busy ? <span className="spin" /> : <AppIcon name="send" />}
         </button>
       </div>
     </div>

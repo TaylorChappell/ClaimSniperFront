@@ -3743,3 +3743,223 @@ button.ghost.mini.on {
     margin: 0;
   }
 }
+
+/* ---------- Mobile chat fit + proper icon controls ---------- */
+.ui-icon {
+  width: 18px;
+  height: 18px;
+  display: block;
+  flex: 0 0 auto;
+}
+.pause-icon .ui-icon,
+.snipe-pause-one .ui-icon {
+  width: 17px;
+  height: 17px;
+}
+.chat-action {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+}
+.chat-action .ui-icon {
+  width: 14px;
+  height: 14px;
+}
+.emoji-close {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0 !important;
+}
+.emoji-close .ui-icon {
+  width: 16px;
+  height: 16px;
+}
+.emoji-tabs button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0;
+}
+.emoji-tabs button .ui-icon {
+  width: 18px;
+  height: 18px;
+}
+.telegram-input .chat-tool,
+.send-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0;
+}
+.telegram-input .chat-tool .ui-icon {
+  width: 19px;
+  height: 19px;
+}
+.send-btn .ui-icon {
+  width: 18px;
+  height: 18px;
+}
+.send-btn {
+  min-width: 42px;
+  width: 42px;
+}
+
+body.chat-view-active {
+  overflow: hidden;
+}
+body.chat-view-active .wrap {
+  height: 100dvh;
+  padding-bottom: 12px;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+body.chat-view-active .topbar {
+  flex: 0 0 auto;
+}
+.social-chat-mode {
+  flex: 1 1 auto;
+  min-height: 0;
+  height: 100%;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+.social-chat-mode .dash-tabs {
+  flex: 0 0 auto;
+  margin-bottom: 10px;
+}
+.social-chat-mode .telegram-chat {
+  flex: 1 1 auto;
+  min-height: 0;
+  height: 100%;
+  display: flex;
+  flex-direction: column;
+}
+.telegram-chat {
+  min-height: 0;
+}
+.telegram-chat .chat-head {
+  display: none !important;
+}
+.telegram-feed {
+  flex: 1 1 auto;
+  min-height: 0;
+  max-height: none !important;
+  overflow-y: auto;
+  background:
+    radial-gradient(circle at 20% 20%, rgba(32, 224, 112, 0.055), transparent 28%),
+    radial-gradient(circle at 88% 0%, rgba(120, 210, 255, 0.045), transparent 26%),
+    linear-gradient(180deg, rgba(255,255,255,0.012), rgba(255,255,255,0));
+}
+.telegram-emoji-panel {
+  bottom: 68px;
+  max-height: min(430px, calc(100% - 92px));
+}
+
+@media (max-width: 720px) {
+  body.chat-view-active .wrap {
+    padding: 10px 10px 10px;
+  }
+  body.chat-view-active .topbar {
+    margin-bottom: 10px;
+    padding-bottom: 10px;
+  }
+  .social-chat-mode .dash-tabs {
+    margin-bottom: 8px;
+  }
+  .social-chat-mode .telegram-chat {
+    border-radius: 16px;
+  }
+  .telegram-feed {
+    padding: 10px 9px 8px;
+  }
+  .telegram-input {
+    min-height: 48px;
+    margin: 8px 8px 8px;
+    padding: 6px;
+    gap: 5px;
+    border-radius: 999px;
+  }
+  .telegram-input input[type="text"],
+  .telegram-input input:not([type]) {
+    min-height: 32px;
+    font-size: 13px;
+    padding: 6px 7px;
+  }
+  .telegram-input .chat-tool {
+    width: 34px;
+    height: 34px;
+  }
+  .send-btn {
+    width: 36px;
+    min-width: 36px;
+    height: 34px;
+  }
+  .telegram-emoji-panel {
+    left: 6px;
+    right: 6px;
+    bottom: 60px;
+    max-height: min(470px, calc(100% - 74px));
+    border-radius: 18px;
+  }
+  .emoji-panel-head span {
+    display: none;
+  }
+  .emoji-tabs button .ui-icon {
+    width: 17px;
+    height: 17px;
+  }
+}
+.chat-compose-context button .ui-icon,
+.chat-image-preview button .ui-icon {
+  width: 16px;
+  height: 16px;
+}
+
+
+/* ---------- Chat icon alignment + spacing polish ---------- */
+.telegram-input .send-btn,
+.send-btn {
+  display: inline-flex !important;
+  align-items: center !important;
+  justify-content: center !important;
+  padding: 0 !important;
+  line-height: 0 !important;
+}
+.send-btn .ui-icon {
+  margin: 0 !important;
+  transform: translateX(-1px);
+}
+.chat-action {
+  line-height: 1;
+  padding-left: 3px;
+  padding-right: 3px;
+}
+.chat-action .ui-icon {
+  align-self: center;
+  transform: translateY(0.5px);
+}
+.chat-reply-preview {
+  padding-left: 12px;
+  padding-right: 12px;
+}
+.chat-compose-context {
+  padding-left: 12px;
+  padding-right: 12px;
+}
+.chat-reactions button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding-left: 11px;
+  padding-right: 11px;
+  line-height: 1;
+}
+.chat-reaction-bar button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  line-height: 1;
+}
