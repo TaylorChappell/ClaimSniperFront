@@ -4385,7 +4385,7 @@ function UserSnipesModal({
                       : "Waiting for live Pump market-cap update"
                   }
                 >
-                  <em>Market Cap</em>
+                  <em>mc</em>
                   <b>{snipeMarketCapLabel(s)}</b>
                 </span>
               )}
