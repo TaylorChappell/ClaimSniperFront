@@ -1673,29 +1673,34 @@ button.ghost.mini {
 }
 .trader-market-cap {
   display: inline-flex;
-  flex-direction: column;
-  justify-content: center;
-  min-width: 112px;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 6px;
+  min-width: 118px;
   margin-left: auto;
-  color: var(--green);
-  line-height: 1;
+  color: var(--muted);
+  line-height: 1.2;
+  font-size: 12px;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+  text-align: right;
 }
 .trader-market-cap em {
   color: var(--muted);
   font-style: normal;
-  font-size: 9px;
-  font-weight: 800;
-  letter-spacing: 0.12em;
-  text-transform: uppercase;
-  margin-bottom: 4px;
+  font-size: 12px;
+  font-weight: 600;
+  letter-spacing: 0;
+  text-transform: none;
+  margin-bottom: 0;
 }
 .trader-market-cap b {
-  color: inherit;
-  font-size: 20px;
-  font-weight: 850;
-  letter-spacing: -0.04em;
+  color: var(--green);
+  font-size: 12px;
+  font-weight: 750;
+  letter-spacing: 0;
 }
-.trader-market-cap.loading {
+.trader-market-cap.loading b {
   color: var(--muted);
 }
 @media (max-width: 640px) {
@@ -1704,6 +1709,8 @@ button.ghost.mini {
     width: 100%;
     margin-left: 0;
     min-width: 0;
+    justify-content: flex-start;
+    text-align: left;
   }
 }
 
