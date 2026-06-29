@@ -3963,3 +3963,34 @@ body.chat-view-active .topbar {
   justify-content: center;
   line-height: 1;
 }
+
+
+/* ---------- Emoji picker overflow fix ---------- */
+.telegram-emoji-panel {
+  box-sizing: border-box;
+  overflow: hidden;
+  grid-template-rows: auto auto auto minmax(0, 1fr) !important;
+  height: min(430px, calc(100% - 92px));
+  max-height: min(430px, calc(100% - 92px));
+}
+.telegram-emoji-panel * {
+  box-sizing: border-box;
+}
+.emoji-grid {
+  min-height: 0;
+  overflow-y: auto;
+  padding: 0 4px 14px 0;
+  overscroll-behavior: contain;
+}
+.emoji-grid button {
+  min-height: 38px;
+}
+@media (max-width: 720px) {
+  .telegram-emoji-panel {
+    height: min(470px, calc(100% - 74px));
+    max-height: min(470px, calc(100% - 74px));
+  }
+  .emoji-grid {
+    padding-bottom: 16px;
+  }
+}
