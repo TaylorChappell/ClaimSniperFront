@@ -4890,6 +4890,15 @@ function ChatBox({ tradingPlatform }: { tradingPlatform: TradingPlatform }) {
     }
   }
 
+  function handlePaste(e: React.ClipboardEvent<HTMLInputElement>) {
+    const files = Array.from(e.clipboardData?.files ?? []);
+    const image = files.find((file) => file.type.startsWith("image/"));
+    if (!image) return;
+
+    e.preventDefault();
+    void pickImage(image);
+  }
+
   async function send() {
     const t = text.trim();
     if ((!t && !imageDataUrl) || sendingRef.current) return;
@@ -5064,6 +5073,7 @@ function ChatBox({ tradingPlatform }: { tradingPlatform: TradingPlatform }) {
           maxLength={500}
           placeholder="Message the traders..."
           onChange={(e) => setText(e.target.value)}
+          onPaste={handlePaste}
           onKeyDown={(e) => {
             if (e.key === "Enter" && !e.shiftKey) send();
           }}
