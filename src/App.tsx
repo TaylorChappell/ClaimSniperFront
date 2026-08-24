@@ -111,6 +111,9 @@ type ArmSnipePreset = {
   walletId: string;
   amount: string;
   slippage: string;
+  adaptiveSlippage: boolean;
+  maxSlippage: string;
+  maxBuyRetries: string;
   priority: string;
   bribe: string;
   mcMinUsd: string;
@@ -172,6 +175,9 @@ function presetFingerprint(preset?: Partial<ArmSnipePreset> | null) {
     walletId: preset?.walletId ?? "",
     amount: preset?.amount ?? "",
     slippage: preset?.slippage ?? "15",
+    adaptiveSlippage: preset?.adaptiveSlippage ?? true,
+    maxSlippage: preset?.maxSlippage ?? "30",
+    maxBuyRetries: preset?.maxBuyRetries ?? "2",
     priority: preset?.priority ?? "0.0005",
     bribe: preset?.bribe ?? "0",
     mcMinUsd: preset?.mcMinUsd ?? "",
@@ -1765,6 +1771,9 @@ function SnipeForm({
   const [walletId, setWalletId] = useState("");
   const [amount, setAmount] = useState("");
   const [slippage, setSlippage] = useState("15");
+  const [adaptiveSlippage, setAdaptiveSlippage] = useState(true);
+  const [maxSlippage, setMaxSlippage] = useState("30");
+  const [maxBuyRetries, setMaxBuyRetries] = useState("2");
   // Priority + bribe default to the last values used (saved locally).
   const [priority, setPriority] = useState(
     () => localStorage.getItem("cs.priority") ?? "0.0005",
@@ -1796,6 +1805,9 @@ function SnipeForm({
       walletId,
       amount,
       slippage,
+      adaptiveSlippage,
+      maxSlippage,
+      maxBuyRetries,
       priority,
       bribe,
       mcMinUsd,
@@ -1812,6 +1824,9 @@ function SnipeForm({
     setWalletId(preset.walletId ?? "");
     setAmount(preset.amount ?? "");
     setSlippage(preset.slippage ?? "15");
+    setAdaptiveSlippage(preset.adaptiveSlippage ?? true);
+    setMaxSlippage(preset.maxSlippage ?? "30");
+    setMaxBuyRetries(preset.maxBuyRetries ?? "2");
     setPriority(preset.priority ?? "0.0005");
     setBribe(preset.bribe ?? "0");
     setMcMinUsd(preset.mcMinUsd ?? "");
@@ -1865,6 +1880,9 @@ function SnipeForm({
         walletId,
         amountSol: Number(amount),
         slippagePct: Number(slippage),
+        adaptiveSlippage,
+        maxSlippagePct: adaptiveSlippage ? Number(maxSlippage) : Number(slippage),
+        maxBuyRetries: adaptiveSlippage ? Number(maxBuyRetries) : 0,
         priorityFee: Number(priority),
         bribe: Number(bribe),
         mcMinUsd: marketCapInputToNumber(mcMinUsd),
@@ -1897,6 +1915,17 @@ function SnipeForm({
   const mcMaxInvalid = mcMaxUsd.trim().length > 0 && mcMaxNumber == null;
   const mcRangeInvalid = mcMinNumber != null && mcMaxNumber != null && mcMinNumber > mcMaxNumber;
   const mcFilterInvalid = mcMinInvalid || mcMaxInvalid || mcRangeInvalid;
+  const baseSlipNumber = Number(slippage);
+  const maxSlipNumber = Number(maxSlippage);
+  const retryCountNumber = Number(maxBuyRetries);
+  const adaptiveInvalid = adaptiveSlippage && (
+    !Number.isFinite(maxSlipNumber) ||
+    maxSlipNumber < baseSlipNumber ||
+    maxSlipNumber > 100 ||
+    !Number.isInteger(retryCountNumber) ||
+    retryCountNumber < 0 ||
+    retryCountNumber > 3
+  );
   const duplicateMintSnipes = useMemo(() => {
     const clean = mint.trim();
     if (!clean) return [] as Snipe[];
@@ -1904,7 +1933,7 @@ function SnipeForm({
   }, [mint, snipes]);
 
   const selectedWallet = wallets.find((w) => w.id === walletId);
-  const ready = !!mint.trim() && !!walletId && Number(amount) > 0 && !mcFilterInvalid && (!onlyRedirected || watchWallet.trim().length >= 32);
+  const ready = !!mint.trim() && !!walletId && Number(amount) > 0 && Number(slippage) > 0 && !mcFilterInvalid && !adaptiveInvalid && (!onlyRedirected || watchWallet.trim().length >= 32);
   const fees = Math.max(0, Number(priority) || 0) + Math.max(0, Number(bribe) || 0);
   const needed = Math.max(0, Number(amount) || 0) + fees;
   const insufficient = !!selectedWallet && needed > 0 && (selectedWallet.balanceSol ?? 0) < needed;
@@ -1974,12 +2003,29 @@ function SnipeForm({
         </div>}
 
         <button type="button" className={`disclosure ${advancedOpen ? "open" : ""}`} onClick={() => setAdvancedOpen((v) => !v)}>
-          <span><strong>Advanced execution</strong><small>Slippage, priority, bribe and execution provider</small></span><b>⌄</b>
+          <span><strong>Advanced execution</strong><small>Adaptive slippage, priority and execution provider</small></span><b>⌄</b>
         </button>
         {advancedOpen && <div className="disclosure-body">
           <div className="row">
             <div><label>Slippage % <InfoTip text="Maximum price movement allowed while the buy is executing." /></label><input value={slippage} onChange={(e) => setSlippage(e.target.value)} /></div>
             <div><label>Priority fee (SOL) <InfoTip text="Extra network priority fee used to improve inclusion speed." /></label><input value={priority} onChange={(e) => setPriority(e.target.value)} /></div>
+          </div>
+          <div className="adaptive-slip-box">
+            <label className="switch-row" onClick={() => setAdaptiveSlippage((v) => !v)}>
+              <span className={`switch ${adaptiveSlippage ? "on" : ""}`}><span className="knob" /></span>
+              <span><strong>Adaptive slippage recovery</strong><small>Rebuild and retry only confirmed price/slippage failures.</small></span>
+            </label>
+            {adaptiveSlippage && (
+              <>
+                <div className="row">
+                  <div><label>Maximum slippage % <InfoTip text="Hard ceiling. ClaimSniper will never retry above this tolerance." /></label><input value={maxSlippage} inputMode="decimal" onChange={(e) => setMaxSlippage(e.target.value)} /></div>
+                  <div><label>Retry attempts <InfoTip text="Extra attempts after the first. Every retry uses a fresh quote, blockhash and transaction." /></label><input value={maxBuyRetries} inputMode="numeric" onChange={(e) => setMaxBuyRetries(e.target.value)} /></div>
+                </div>
+                <div className={`hint ${adaptiveInvalid ? "err-text" : ""}`}>
+                  {adaptiveInvalid ? "Maximum slippage must be at least the base slippage (max 100%), with 0–3 retries." : `Starts at ${Number(slippage) || 0}% and can step up to ${Number(maxSlippage) || 0}% only after a confirmed slippage revert.`}
+                </div>
+              </>
+            )}
           </div>
           <label>Bribe / extra priority (SOL) <InfoTip text="Additional execution priority budget. Keep this low unless you understand the trade-off." /></label>
           <input value={bribe} onChange={(e) => setBribe(e.target.value)} />
@@ -1991,7 +2037,7 @@ function SnipeForm({
               <div><label>Max MC $ <InfoTip text="Block the buy if live USD market cap is above this value." /></label><input value={mcMaxUsd} onChange={(e) => setMcMaxUsd(e.target.value)} placeholder="25000" /></div>
             </div>
             <div className={`hint ${mcFilterInvalid ? "err-text" : ""}`}>
-              {mcMinInvalid || mcMaxInvalid ? "Enter valid numbers for the market-cap filter." : mcRangeInvalid ? "Minimum MC cannot be higher than maximum MC." : "Checked against live USD market cap immediately before the buy is submitted."}
+              {mcMinInvalid || mcMaxInvalid ? "Enter valid numbers for the market-cap filter." : mcRangeInvalid ? "Minimum MC cannot be higher than maximum MC." : "Checked before the first buy and again before every adaptive retry, so the sniper never chases above your Max MC."}
             </div>
           </div>
         </div>}
@@ -2013,6 +2059,7 @@ function SnipeForm({
         <div className="summary-line"><span>Take profit</span><strong>{tpSummary}</strong></div>
         <div className="summary-line"><span>Stop loss</span><strong>{slSummary}</strong></div>
         <div className="summary-line"><span>Execution</span><strong>{execMode === "LOCAL" ? "Local" : "PumpPortal"}</strong></div>
+        <div className="summary-line"><span>Slippage</span><strong>{adaptiveSlippage ? `${slippage}% → max ${maxSlippage}% · ${maxBuyRetries} retries` : `${slippage}% fixed`}</strong></div>
         <div className="summary-line"><span>Market cap</span><strong>{mcSummary}</strong></div>
         <div className="summary-cost"><span>Configured buy + priority</span><strong>≈ {needed.toFixed(4)} SOL</strong></div>
         {insufficient && <div className="summary-warning">Selected wallet may not have enough SOL for this configuration.</div>}
@@ -2038,6 +2085,9 @@ function EditSnipeModal({
   const editableLiveConfig = snipe.status === "ARMED" || snipe.status === "PAUSED";
   const [amount, setAmount] = useState(String(snipe.amountSol));
   const [slippage, setSlippage] = useState(String(snipe.slippagePct));
+  const [adaptiveSlippage, setAdaptiveSlippage] = useState(snipe.adaptiveSlippage !== false);
+  const [maxSlippage, setMaxSlippage] = useState(String(snipe.maxSlippagePct ?? Math.max(30, snipe.slippagePct)));
+  const [maxBuyRetries, setMaxBuyRetries] = useState(String(snipe.maxBuyRetries ?? 2));
   const [priority, setPriority] = useState(String(snipe.priorityFee));
   const [bribe, setBribe] = useState(String(snipe.bribe));
   const [mcMinUsd, setMcMinUsd] = useState(snipe.mcMinUsd == null ? "" : String(snipe.mcMinUsd));
@@ -2060,8 +2110,16 @@ function EditSnipeModal({
   const mcRangeInvalid =
     mcMinNumber != null && mcMaxNumber != null && mcMinNumber > mcMaxNumber;
   const mcFilterInvalid = mcMinInvalid || mcMaxInvalid || mcRangeInvalid;
+  const maxSlipNumber = Number(maxSlippage);
+  const retryCountNumber = Number(maxBuyRetries);
+  const adaptiveInvalid = adaptiveSlippage && (
+    !Number.isFinite(maxSlipNumber) ||
+    maxSlipNumber < Number(slippage) ||
+    maxSlipNumber > 100 ||
+    !Number.isInteger(retryCountNumber) || retryCountNumber < 0 || retryCountNumber > 3
+  );
   const ready =
-    Number(amount) > 0 && !mcFilterInvalid && (!redir || watchWallet.trim().length >= 32);
+    Number(amount) > 0 && Number(slippage) > 0 && !mcFilterInvalid && !adaptiveInvalid && (!redir || watchWallet.trim().length >= 32);
 
   async function save() {
     setBusy(true);
@@ -2069,6 +2127,9 @@ function EditSnipeModal({
       await api.editSnipe(snipe.id, {
         amountSol: Number(amount),
         slippagePct: Number(slippage),
+        adaptiveSlippage,
+        maxSlippagePct: adaptiveSlippage ? Number(maxSlippage) : Number(slippage),
+        maxBuyRetries: adaptiveSlippage ? Number(maxBuyRetries) : 0,
         priorityFee: Number(priority),
         bribe: Number(bribe),
         mcMinUsd: marketCapInputToNumber(mcMinUsd),
@@ -2114,6 +2175,17 @@ function EditSnipeModal({
                   onChange={(e) => setSlippage(e.target.value)}
                 />
               </div>
+            </div>
+            <div className="adaptive-slip-box modal-adaptive">
+              <label className="switch-row" onClick={() => setAdaptiveSlippage((v) => !v)}>
+                <span className={`switch ${adaptiveSlippage ? "on" : ""}`}><span className="knob" /></span>
+                <span><strong>Adaptive slippage recovery</strong><small>Retry confirmed slippage failures with a fresh transaction.</small></span>
+              </label>
+              {adaptiveSlippage && <div className="row">
+                <div><label>Maximum slippage %</label><input value={maxSlippage} onChange={(e) => setMaxSlippage(e.target.value)} /></div>
+                <div><label>Retry attempts</label><input value={maxBuyRetries} onChange={(e) => setMaxBuyRetries(e.target.value)} /></div>
+              </div>}
+              {adaptiveInvalid && <div className="hint err-text">Max slippage must be ≥ base slippage, with 0–3 retries.</div>}
             </div>
             <div className="row">
               <div>
@@ -2410,7 +2482,9 @@ function Snipes({
 
           {open && <div className="snipe-details">
             <div><span>CA</span><CopyCA mint={s.mint} ticker={s.ticker} className="mint-sub" /></div>
-            <div><span>Slippage</span><strong>{s.slippagePct}%</strong></div>
+            <div><span>Slippage</span><strong>{s.adaptiveSlippage !== false ? `${s.slippagePct}% → max ${s.maxSlippagePct ?? s.slippagePct}%` : `${s.slippagePct}% fixed`}</strong></div>
+            {s.adaptiveSlippage !== false && <div><span>Slippage recovery</span><strong>{s.maxBuyRetries ?? 2} retries{s.buyAttempts && s.buyAttempts > 1 ? ` · used ${s.buyAttempts}` : ""}</strong></div>}
+            {s.finalSlippagePct != null && s.buyAttempts && s.buyAttempts > 1 && <div><span>Last attempt</span><strong>{s.finalSlippagePct}% slippage</strong></div>}
             <div><span>Priority</span><strong>{s.priorityFee} SOL</strong></div>
             <div><span>Extra priority</span><strong>{s.bribe} SOL</strong></div>
             <div><span>Execution</span><strong>{s.execMode === "LOCAL" ? "Local" : "PumpPortal"}</strong></div>

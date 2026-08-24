@@ -92,6 +92,11 @@ export interface Snipe {
   mcMaxUsd?: number | null;
   amountSol: number;
   slippagePct: number;
+  adaptiveSlippage?: boolean;
+  maxSlippagePct?: number;
+  maxBuyRetries?: number;
+  buyAttempts?: number;
+  finalSlippagePct?: number | null;
   priorityFee: number;
   bribe: number;
   execMode?: "PUMPPORTAL" | "LOCAL";
@@ -448,6 +453,9 @@ export const api = {
     walletId: string;
     amountSol: number;
     slippagePct?: number;
+    adaptiveSlippage?: boolean;
+    maxSlippagePct?: number;
+    maxBuyRetries?: number;
     priorityFee?: number;
     bribe?: number;
     execMode?: "PUMPPORTAL" | "LOCAL";
@@ -467,6 +475,9 @@ export const api = {
     body: {
       amountSol?: number;
       slippagePct?: number;
+      adaptiveSlippage?: boolean;
+      maxSlippagePct?: number;
+      maxBuyRetries?: number;
       priorityFee?: number;
       bribe?: number;
       execMode?: "PUMPPORTAL" | "LOCAL";
