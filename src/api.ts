@@ -1,20 +1,17 @@
 const BASE = import.meta.env.VITE_API_URL ?? "http://localhost:8080";
 
-let token: string | null = localStorage.getItem("token");
-export const getToken = () => token;
-export function setToken(t: string | null) {
-  token = t;
-  if (t) localStorage.setItem("token", t);
-  else localStorage.removeItem("token");
-}
+// Authentication is cookie-only. Clear tokens left by older builds so a JWT is
+// never persisted in JavaScript-readable storage.
+localStorage.removeItem("token");
+sessionStorage.removeItem("token");
 
 async function req<T>(path: string, opts: RequestInit = {}): Promise<T> {
   const hasBody = opts.body != null;
   const res = await fetch(BASE + path, {
+    credentials: "include",
     ...opts,
     headers: {
       ...(hasBody ? { "Content-Type": "application/json" } : {}),
-      ...(token ? { Authorization: `Bearer ${token}` } : {}),
       ...(opts.headers ?? {}),
     },
   });
@@ -337,6 +334,36 @@ export interface DiscoverCoin {
   classificationReason?: string | null;
 }
 
+export interface ClaimScannerCoin {
+  mint: string;
+  name: string | null;
+  symbol: string | null;
+  image: string | null;
+  marketCapUsd: number | null;
+  bps: number;
+  sharePct: number;
+  isAdmin: boolean;
+  claimableLamports: string;
+  claimableSol: number;
+  claimableUsd: number | null;
+  sources: { pumpSol: number; pumpSwapSol: number };
+}
+
+export interface ClaimScannerResult {
+  wallet: string;
+  claimableCoinCount: number;
+  coinCount: number;
+  totalClaimable: { sol: number; usd: number | null; lamports: string };
+  totalClaimed: { sol: number; usd: number | null };
+  totalEarned: { sol: number; usd: number | null };
+  solPriceUsd: number | null;
+  coins: ClaimScannerCoin[];
+  coinsTruncated: boolean;
+  perCoinEstimate: { sol: number; differsFromPumpTotal: boolean };
+  fetchedAt: string;
+  cached: boolean;
+}
+
 export interface DiscoverMetadata {
   mint: string;
   ticker: string | null;
@@ -367,16 +394,17 @@ export interface DiscoverMetadata {
 
 export const api = {
   register: (username: string, password: string) =>
-    req<{ token: string } & Profile>("/auth/register", {
+    req<Profile>("/auth/register", {
       method: "POST",
       body: JSON.stringify({ username, password }),
     }),
   login: (username: string, password: string) =>
-    req<{ token: string } & Profile>("/auth/login", {
+    req<Profile>("/auth/login", {
       method: "POST",
       body: JSON.stringify({ username, password }),
     }),
   me: () => req<Profile>("/auth/me"),
+  logout: () => req<{ ok: true }>("/auth/logout", { method: "POST" }),
   profile: () => req<{ profile: Profile }>("/profile"),
   updateProfile: (body: {
     avatarDataUrl?: string | null;
@@ -502,10 +530,15 @@ export const api = {
       `/social/users/${id}/snipes`,
     ),
   socialTrending: () => req<{ coins: TrendingCoin[] }>("/social/trending"),
-  socialChat: (after?: string) =>
-    req<{ messages: ChatMessage[] }>(
-      `/social/chat${after ? `?after=${encodeURIComponent(after)}` : ""}`,
-    ),
+  socialChat: (cursor: { after?: string; afterId?: string; before?: string; beforeId?: string; limit?: number } = {}) => {
+    const p = new URLSearchParams();
+    if (cursor.after) p.set("after", cursor.after);
+    if (cursor.afterId) p.set("afterId", cursor.afterId);
+    if (cursor.before) p.set("before", cursor.before);
+    if (cursor.beforeId) p.set("beforeId", cursor.beforeId);
+    p.set("limit", String(cursor.limit ?? 40));
+    return req<{ messages: ChatMessage[]; hasMore: boolean }>(`/social/chat?${p.toString()}`);
+  },
   socialChatLatest: () => req<{ latest: string | null }>("/social/chat/latest"),
   socialSend: (input: { text?: string; imageDataUrl?: string | null; replyToId?: string | null }) =>
     req<{ message: ChatMessage }>("/social/chat", {
@@ -549,6 +582,8 @@ export const api = {
     req<{ ok: true }>(`/snipes/${id}/cancel`, { method: "POST" }),
   cancelExit: (id: string) =>
     req<{ snipe: Snipe }>(`/snipes/${id}/cancel-exit`, { method: "POST" }),
+  claimScanner: (wallet: string) =>
+    req<ClaimScannerResult>(`/claim-scanner?wallet=${encodeURIComponent(wallet.trim())}`),
   discover: (includeSpecial = false) =>
     req<{
       coins: DiscoverCoin[];

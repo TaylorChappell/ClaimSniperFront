@@ -9,7 +9,7 @@ import { useCallback, useEffect, useRef, useState } from 'react';
  *
  * Falls back to per-tab polling if Web Locks/BroadcastChannel are unavailable.
  */
-export function useLeaderPolling<T>(name: string, fetcher: () => Promise<T>, intervalMs: number) {
+export function useLeaderPolling<T>(name: string, fetcher: () => Promise<T>, intervalMs: number, scope = "default") {
   const [data, setData] = useState<T | null>(null);
   const [isLeader, setIsLeader] = useState(false);
   const leaderRef = useRef(false);
@@ -32,7 +32,7 @@ export function useLeaderPolling<T>(name: string, fetcher: () => Promise<T>, int
   useEffect(() => {
     let chan: BroadcastChannel | null = null;
     try {
-      chan = new BroadcastChannel(`cs-${name}`);
+      chan = new BroadcastChannel(`cs-${scope}-${name}`);
     } catch {
       chan = null;
     }
@@ -68,7 +68,7 @@ export function useLeaderPolling<T>(name: string, fetcher: () => Promise<T>, int
       becomeLeader(); // no coordination available — poll solo
     } else {
       locks
-        .request(`cs-leader-${name}`, { mode: 'exclusive' }, () =>
+        .request(`cs-leader-${scope}-${name}`, { mode: 'exclusive' }, () =>
           new Promise<void>((resolve) => {
             becomeLeader();
             const tick = setInterval(() => {
@@ -88,7 +88,7 @@ export function useLeaderPolling<T>(name: string, fetcher: () => Promise<T>, int
       chan?.close();
       leaderRef.current = false;
     };
-  }, [name, intervalMs, doFetch]);
+  }, [name, scope, intervalMs, doFetch]);
 
   const refresh = useCallback(() => {
     if (leaderRef.current) void doFetch();

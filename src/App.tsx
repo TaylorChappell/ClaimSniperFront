@@ -10,8 +10,6 @@ import {
 } from "react";
 import {
   api,
-  getToken,
-  setToken,
   type Wallet,
   type Snipe,
   type Stats,
@@ -24,12 +22,15 @@ import {
   type AdminLog,
   type DiscoverCoin,
   type DiscoverMetadata,
+  type ClaimScannerResult,
+  type ClaimScannerCoin,
   type TakeProfitEntry,
   type Profile,
   type TradingPlatform,
   type LiveMarketCapSnapshot,
 } from "./api";
 import { useLeaderPolling } from "./sync";
+import { EMOJIS } from "./emojiData";
 
 const BRAND_IMG = `${import.meta.env.BASE_URL}sniper.png`;
 const SNIPE_SOUND = `${import.meta.env.BASE_URL}snipe.mp3`;
@@ -103,7 +104,7 @@ type TradeOpenTarget = {
   ticker?: string | null;
 };
 
-type AppView = "dashboard" | "history" | "social" | "discover" | "settings" | "admin";
+type AppView = "dashboard" | "history" | "social" | "discover" | "claims" | "settings" | "admin";
 type DashTab = "arm" | "snipes" | "wallets";
 type SocialTab = "trending" | "traders" | "chat";
 type AdminTab = "armed" | "users" | "logs" | "notify";
@@ -290,6 +291,7 @@ function initialViewFromUrl(): AppView {
     view === "history" ||
     view === "social" ||
     view === "discover" ||
+    view === "claims" ||
     view === "settings" ||
     view === "admin"
   ) {
@@ -297,7 +299,7 @@ function initialViewFromUrl(): AppView {
   }
   return readSavedChoice<AppView>(
     NAV_VIEW_KEY,
-    ["dashboard", "history", "social", "discover", "settings", "admin"],
+    ["dashboard", "history", "social", "discover", "claims", "settings", "admin"],
     "dashboard",
   );
 }
@@ -321,12 +323,55 @@ function initialSocialTabFromUrl(): SocialTab {
   );
 }
 
+function initialDashTabFromUrl(): DashTab {
+  if (typeof window === "undefined") return "arm";
+  const tab = new URLSearchParams(window.location.search).get("tab");
+  if (tab === "snipes" || tab === "wallets") return tab;
+  return readSavedChoice<DashTab>(NAV_DASH_TAB_KEY, ["arm", "snipes", "wallets"], "arm");
+}
+
 function initialAdminTabFromStorage(): AdminTab {
   return readSavedChoice<AdminTab>(
     NAV_ADMIN_TAB_KEY,
     ["armed", "users", "logs", "notify"],
     "armed",
   );
+}
+
+function updateRoute(params: Record<string, string | null>, replace = false) {
+  const url = new URL(window.location.href);
+  for (const [key, value] of Object.entries(params)) {
+    if (value == null || value === "") url.searchParams.delete(key);
+    else url.searchParams.set(key, value);
+  }
+  const next = `${url.pathname}${url.search}${url.hash}`;
+  if (replace) history.replaceState({}, "", next);
+  else history.pushState({}, "", next);
+}
+
+function InfoTip({ text }: { text: string }) {
+  return <span className="info-tip" tabIndex={0} aria-label={text}>?<span>{text}</span></span>;
+}
+
+function friendlyError(message: string) {
+  const m = message.toLowerCase();
+  if (m.includes("insufficient") && m.includes("sol")) return "Insufficient SOL. Add funds to the selected wallet or lower the buy amount/fees.";
+  if (m.includes("invalid") && (m.includes("mint") || m.includes("address"))) return "That coin address looks invalid. Check the full Pump mint address and try again.";
+  if (m.includes("already") && (m.includes("trigger") || m.includes("execut"))) return "This snipe is already executing and can no longer be changed safely.";
+  if (m.includes("conflict")) return "This snipe changed state while you were editing it. Refresh and check its current status.";
+  return message;
+}
+
+function snipeUiState(s: Snipe) {
+  if (s.status === "FAILED") return { label: "FAILED", tone: "FAILED", group: "failed" as const };
+  if (s.status === "CANCELLED") return { label: "CANCELLED", tone: "CANCELLED", group: "finished" as const };
+  if (s.status === "TRIGGERED") return { label: "BUYING", tone: "TRIGGERED", group: "active" as const };
+  if (s.status === "ARMED") return { label: "ARMED", tone: "ARMED", group: "active" as const };
+  if (s.status === "PAUSED") return { label: "PAUSED", tone: "PAUSED", group: "active" as const };
+  const exitDone = s.tpStatus === "SOLD" || s.tpStatus === "STOPPED";
+  if (s.status === "FILLED" && !exitDone)
+    return { label: "POSITION OPEN", tone: "OPEN", group: "positions" as const };
+  return { label: "CLOSED", tone: "CLOSED", group: "finished" as const };
 }
 
 type ToastKind = "ok" | "err" | "fill";
@@ -337,7 +382,8 @@ const ToastCtx = createContext<(text: string, kind?: ToastKind) => void>(
 const useToast = () => useContext(ToastCtx);
 
 export default function App() {
-  const [authed, setAuthed] = useState(!!getToken());
+  const [authed, setAuthed] = useState(false);
+  const [sessionReady, setSessionReady] = useState(false);
   const [paid, setPaid] = useState(false);
   const [admin, setAdmin] = useState(false);
   const [username, setUsername] = useState(
@@ -360,19 +406,21 @@ export default function App() {
     };
   }, []);
 
-  // On load with a stored token, learn paid/admin/username immediately
-  // (avoids a pay-screen flash on reload and surfaces admin access).
+  // Always ask the server on startup. The session JWT lives only in an HttpOnly
+  // cookie and is never exposed to JavaScript.
   useEffect(() => {
-    if (!getToken()) return;
-    api
-      .me()
+    api.me()
       .then((m) => {
         setUsername(m.username);
         localStorage.setItem("username", m.username);
         setPaid(m.paid);
         setAdmin(m.admin);
+        setAuthed(true);
       })
-      .catch(() => {});
+      .catch(() => {
+        setAuthed(false);
+      })
+      .finally(() => setSessionReady(true));
   }, []);
 
   const push = (text: string, kind: ToastKind = "ok") => {
@@ -385,7 +433,7 @@ export default function App() {
   };
 
   function logout() {
-    setToken(null);
+    void api.logout().catch(() => {});
     localStorage.removeItem("username");
     setAuthed(false);
     setPaid(false);
@@ -393,7 +441,9 @@ export default function App() {
   }
 
   let screen;
-  if (!authed) {
+  if (!sessionReady) {
+    screen = <div className="wrap" />;
+  } else if (!authed) {
     screen = (
       <Auth
         onAuthed={(u, p, a) => {
@@ -402,6 +452,7 @@ export default function App() {
           setPaid(p);
           setAdmin(a);
           setAuthed(true);
+          setSessionReady(true);
         }}
       />
     );
@@ -445,7 +496,6 @@ function Auth({
     setBusy(true);
     try {
       const res = await (mode === "login" ? api.login : api.register)(u, p);
-      setToken(res.token);
       onAuthed(res.username, res.paid, res.admin);
     } catch (e: any) {
       setErr(e.message);
@@ -1239,8 +1289,6 @@ function Dashboard({
   const prevStatus = useRef<Record<string, string>>({});
   const initialized = useRef(false);
 
-  // Single combined fetch, run only by the leader tab (see useLeaderPolling).
-  // Fill/TP toasts + sounds fire here, so only the leader tab plays them.
   const fetchAll = useCallback(async () => {
     const [w, s, st] = await Promise.all([
       api.walletsWithBalances(),
@@ -1252,10 +1300,7 @@ function Dashboard({
       for (const sn of list) {
         const prev = prevStatus.current[sn.id];
         if (prev && prev !== "FILLED" && sn.status === "FILLED") {
-          toast(
-            `Order filled: ${sn.amountSol} SOL of ${short(sn.mint)}`,
-            "fill",
-          );
+          toast(`Order filled: ${sn.amountSol} SOL of ${short(sn.mint)}`, "fill");
           playChime("fill");
         } else if (prev && prev !== "FAILED" && sn.status === "FAILED") {
           toast(`Snipe failed: ${short(sn.mint)}`, "err");
@@ -1263,10 +1308,7 @@ function Dashboard({
         }
         const prevTp = prevStatus.current[`tp:${sn.id}`];
         if (prevTp && prevTp !== "SOLD" && sn.tpStatus === "SOLD") {
-          toast(
-            `Take-profit hit on ${sn.ticker ? "$" + sn.ticker : short(sn.mint)}`,
-            "fill",
-          );
+          toast(`Take-profit hit on ${sn.ticker ? "$" + sn.ticker : short(sn.mint)}`, "fill");
           playChime("fill");
         }
       }
@@ -1281,11 +1323,12 @@ function Dashboard({
     return { wallets: w.wallets, snipes: list, stats: st };
   }, [toast]);
 
-  const { data, refresh } = useLeaderPolling("dash", fetchAll, 30000);
+  const { data, refresh } = useLeaderPolling("dash", fetchAll, 30000, username);
   const { data: marketCapData } = useLeaderPolling(
     "snipe-market-caps",
     () => api.snipeMarketCaps(),
     5000,
+    username,
   );
   const wallets = data?.wallets ?? [];
   const snipes = useMemo(
@@ -1296,36 +1339,67 @@ function Dashboard({
   const pausedSnipes = useMemo(() => snipes.filter((s) => s.status === "PAUSED"), [snipes]);
 
   const [view, setView] = useState<AppView>(() => initialViewFromUrl());
-  const [profile, setProfile] = useState<Profile>(() =>
-    defaultProfile(username, admin),
-  );
+  const [dashTab, setDashTabState] = useState<DashTab>(() => initialDashTabFromUrl());
+  const [profile, setProfile] = useState<Profile>(() => defaultProfile(username, admin));
 
   useEffect(() => {
     let stop = false;
-    api
-      .profile()
-      .then((r) => {
-        if (stop) return;
-        setProfile(r.profile);
-        localStorage.setItem("username", r.profile.username);
-      })
-      .catch(() => {});
-    return () => {
-      stop = true;
-    };
+    api.profile().then((r) => {
+      if (stop) return;
+      setProfile(r.profile);
+      localStorage.setItem("username", r.profile.username);
+    }).catch(() => {});
+    return () => { stop = true; };
   }, []);
+
   const [menuOpen, setMenuOpen] = useState(false);
-  const [dashTab, setDashTab] = useState<DashTab>(() =>
-    initialDashTabFromStorage(),
-  );
-  const filled = useMemo(
-    () => snipes.filter((s) => s.status === "FILLED"),
-    [snipes],
-  );
-  const go = (v: AppView) => {
+  const setDashTab = useCallback((tab: DashTab, push = true) => {
+    setView("dashboard");
+    setMenuOpen(false);
+    setDashTabState(tab);
+    saveChoice(NAV_DASH_TAB_KEY, tab);
+    saveChoice(NAV_VIEW_KEY, "dashboard");
+    updateRoute({ view: null, tab: tab === "arm" ? null : tab, socialTab: null, scan: null }, !push);
+  }, []);
+
+  const go = useCallback((v: AppView, push = true) => {
     setView(v);
     setMenuOpen(false);
-  };
+    saveChoice(NAV_VIEW_KEY, v);
+    updateRoute({
+      view: v === "dashboard" ? null : v,
+      tab: v === "dashboard" && dashTab !== "arm" ? dashTab : null,
+      socialTab: v === "social" ? new URLSearchParams(location.search).get("socialTab") : null,
+      scan: v === "claims" ? new URLSearchParams(location.search).get("scan") : null,
+    }, !push);
+  }, [dashTab]);
+
+  useEffect(() => {
+    const pop = () => {
+      setView(initialViewFromUrl());
+      setDashTabState(initialDashTabFromUrl());
+      setMenuOpen(false);
+    };
+    window.addEventListener("popstate", pop);
+    return () => window.removeEventListener("popstate", pop);
+  }, []);
+
+  // Power-user shortcuts: A = arm, S = snipes, W = wallets, / focuses the CA field.
+  useEffect(() => {
+    const key = (e: KeyboardEvent) => {
+      const target = e.target as HTMLElement | null;
+      if (target?.matches("input,textarea,select,[contenteditable=true]")) return;
+      if (e.key === "/") {
+        e.preventDefault();
+        setDashTab("arm");
+        requestAnimationFrame(() => document.getElementById("snipe-mint")?.focus());
+      } else if (e.key.toLowerCase() === "a") setDashTab("arm");
+      else if (e.key.toLowerCase() === "s") setDashTab("snipes");
+      else if (e.key.toLowerCase() === "w") setDashTab("wallets");
+    };
+    window.addEventListener("keydown", key);
+    return () => window.removeEventListener("keydown", key);
+  }, [go, setDashTab]);
 
   useEffect(() => {
     saveChoice(NAV_VIEW_KEY, view);
@@ -1338,30 +1412,21 @@ function Dashboard({
   // Unread-chat dot on the Social tab.
   const [chatUnread, setChatUnread] = useState(false);
   const viewRef = useRef(view);
-  useEffect(() => {
-    viewRef.current = view;
-  }, [view]);
+  useEffect(() => { viewRef.current = view; }, [view]);
   useEffect(() => {
     let stop = false;
-    const check = () =>
-      api
-        .socialChatLatest()
-        .then((r) => {
-          if (stop || !r.latest) return;
-          if (viewRef.current === "social") {
-            localStorage.setItem("cs.chatSeen", new Date().toISOString());
-            return;
-          }
-          const seen = localStorage.getItem("cs.chatSeen");
-          if (!seen || new Date(r.latest) > new Date(seen)) setChatUnread(true);
-        })
-        .catch(() => {});
+    const check = () => api.socialChatLatest().then((r) => {
+      if (stop || !r.latest) return;
+      if (viewRef.current === "social") {
+        localStorage.setItem("cs.chatSeen", new Date().toISOString());
+        return;
+      }
+      const seen = localStorage.getItem("cs.chatSeen");
+      if (!seen || new Date(r.latest) > new Date(seen)) setChatUnread(true);
+    }).catch(() => {});
     check();
     const t = setInterval(check, 20000);
-    return () => {
-      stop = true;
-      clearInterval(t);
-    };
+    return () => { stop = true; clearInterval(t); };
   }, []);
   useEffect(() => {
     if (view === "social") {
@@ -1370,12 +1435,16 @@ function Dashboard({
     }
   }, [view]);
 
+  const activeCount = snipes.filter((s) => s.status === "ARMED" || s.status === "TRIGGERED").length;
+  const openCount = snipes.filter((s) => snipeUiState(s).group === "positions").length;
+  const totalBalance = wallets.reduce((sum, w) => sum + (w.balanceSol ?? 0), 0);
+
   return (
     <div className="wrap">
       <div className="topbar">
         <div className="brand">
           <img className="logo-img" src={BRAND_IMG} alt="" />
-          <b>Claim Sniper</b>
+          <div><b>Claim Sniper</b><span className="brand-status">{activeCount > 0 ? `${activeCount} armed` : "ready"}</span></div>
         </div>
         <div className="top-actions">
           <button
@@ -1397,144 +1466,97 @@ function Dashboard({
             />
           )}
           <div className={`who ${menuOpen ? "open" : ""}`}>
-            <button
-              className={`nav-btn ${view === "dashboard" ? "on" : ""}`}
-              onClick={() => go("dashboard")}
-            >
-              Dashboard
-            </button>
-            <button
-              className={`nav-btn ${view === "discover" ? "on" : ""}`}
-              onClick={() => go("discover")}
-            >
-              Discover
-            </button>
-            <button
-              className={`nav-btn ${view === "history" ? "on" : ""}`}
-              onClick={() => go("history")}
-            >
-              History
-            </button>
-            <button
-              className={`nav-btn ${view === "social" ? "on" : ""}`}
-              onClick={() => go("social")}
-            >
-              Social{chatUnread && <span className="nav-dot" />}
-            </button>
-            {admin && (
-              <button
-                className={`nav-btn admin ${view === "admin" ? "on" : ""}`}
-                onClick={() => go("admin")}
-              >
-                Admin
-              </button>
-            )}
+            <button className={`nav-btn ${view === "dashboard" ? "on" : ""}`} onClick={() => go("dashboard")}>Dashboard</button>
+            <button className="nav-btn nav-disabled" disabled title="Discover is coming soon">Discover <small>Soon</small></button>
+            <button className={`nav-btn ${view === "history" ? "on" : ""}`} onClick={() => go("history")}>History</button>
+            <button className={`nav-btn ${view === "claims" ? "on" : ""}`} onClick={() => go("claims")}>Claim Scanner</button>
+            <button className={`nav-btn ${view === "social" ? "on" : ""}`} onClick={() => go("social")}>Social{chatUnread && <span className="nav-dot" />}</button>
+            {admin && <button className={`nav-btn admin ${view === "admin" ? "on" : ""}`} onClick={() => go("admin")}>Admin</button>}
           </div>
-          <ProfileMenu
-            profile={profile}
-            openSettings={() => {
-              setView("settings");
-              setMenuOpen(false);
-            }}
-            onLogout={onLogout}
-          />
+          <ProfileMenu profile={profile} openSettings={() => go("settings")} onLogout={onLogout} />
         </div>
       </div>
 
-      {view === "history" ? (
-        <History tradingPlatform={profile.tradingPlatform} />
-      ) : view === "social" ? (
-        <Social
-          wallets={wallets}
-          tradingPlatform={profile.tradingPlatform}
-          onCopied={() => {
-            refresh();
-            go("dashboard");
-          }}
-        />
-      ) : view === "discover" ? (
-        <Discover
-          wallets={wallets}
-          onSniped={() => {
-            refresh();
-            go("dashboard");
-          }}
-        />
-      ) : view === "settings" ? (
-        <SettingsPage
-          profile={profile}
-          onUpdated={(next) => {
-            setProfile(next);
-            localStorage.setItem("username", next.username);
-          }}
-        />
-      ) : view === "admin" ? (
-        <AdminPanel wallets={wallets} />
-      ) : (
+      {view === "history" ? <History tradingPlatform={profile.tradingPlatform} />
+      : view === "claims" ? <ClaimScanner wallets={wallets} tradingPlatform={profile.tradingPlatform} />
+      : view === "social" ? <Social wallets={wallets} tradingPlatform={profile.tradingPlatform} onCopied={() => { refresh(); setDashTab("snipes"); }} />
+      : view === "discover" ? <Discover wallets={wallets} onSniped={() => { refresh(); go("dashboard"); }} />
+      : view === "settings" ? <SettingsPage profile={profile} onUpdated={(next) => { setProfile(next); localStorage.setItem("username", next.username); }} />
+      : view === "admin" ? <AdminPanel wallets={wallets} />
+      : (
         <div className="dash">
+          {!data ? <DashboardSkeleton /> : <DashboardOverview active={activeCount} open={openCount} balance={totalBalance} stats={stats} />}
           {pausedSnipes.length > 0 && (
             <div className="global-pause-bar">
               <strong>Snipes paused</strong>
               <span>{pausedSnipes.length} snipe{pausedSnipes.length === 1 ? "" : "s"} will not fire until unpaused.</span>
             </div>
           )}
-          <div className="seg dash-tabs">
-            <button
-              className={`seg-btn ${dashTab === "arm" ? "on" : ""}`}
-              onClick={() => setDashTab("arm")}
-            >
-              Arm snipe
-            </button>
-            <button
-              className={`seg-btn ${dashTab === "snipes" ? "on" : ""}`}
-              onClick={() => setDashTab("snipes")}
-            >
-              Snipes
-            </button>
-            <button
-              className={`seg-btn ${dashTab === "wallets" ? "on" : ""}`}
-              onClick={() => setDashTab("wallets")}
-            >
-              Wallets
-            </button>
+          <div className="seg dash-tabs" aria-label="Dashboard sections">
+            <button className={`seg-btn ${dashTab === "arm" ? "on" : ""}`} onClick={() => setDashTab("arm")}>Arm snipe</button>
+            <button className={`seg-btn ${dashTab === "snipes" ? "on" : ""}`} onClick={() => setDashTab("snipes")}>Snipes {activeCount + openCount > 0 && <span className="tab-count">{activeCount + openCount}</span>}</button>
+            <button className={`seg-btn ${dashTab === "wallets" ? "on" : ""}`} onClick={() => setDashTab("wallets")}>Wallets</button>
           </div>
           {dashTab === "arm" ? (
             <div className="rise d1">
-              <SnipeForm
-                wallets={wallets}
-                snipes={snipes}
-                onCreated={() => {
-                  refresh();
-                  setTimeout(refresh, 6000);
-                  setTimeout(refresh, 20000);
-                  setTimeout(refresh, 45000);
-                  setDashTab("snipes");
-                }}
-              />
+              {data && wallets.length === 0 ? (
+                <NoWalletOnboarding onAdd={() => setDashTab("wallets")} />
+              ) : (
+                <SnipeForm
+                  wallets={wallets}
+                  snipes={snipes}
+                  onCreated={() => {
+                    refresh();
+                    setTimeout(refresh, 6000);
+                    setTimeout(refresh, 20000);
+                    setTimeout(refresh, 45000);
+                    setDashTab("snipes");
+                  }}
+                />
+              )}
             </div>
           ) : dashTab === "wallets" ? (
-            <>
-              <div className="rise d1">
-                <ProfitSection stats={stats} />
-              </div>
-              <div className="rise d2">
-                <Wallets wallets={wallets} onChange={refresh} />
-              </div>
-            </>
+            <div className="rise d1"><Wallets wallets={wallets} onChange={refresh} /></div>
           ) : (
-            <div className="rise d1">
-              <Snipes
-                snipes={snipes}
-                wallets={wallets}
-                tradingPlatform={profile.tradingPlatform}
-                onChange={refresh}
-              />
-            </div>
+            <div className="rise d1"><Snipes snipes={snipes} wallets={wallets} tradingPlatform={profile.tradingPlatform} onChange={refresh} /></div>
           )}
         </div>
       )}
+
+      <nav className="mobile-bottom-nav" aria-label="Quick navigation">
+        <button className={view === "dashboard" && dashTab === "arm" ? "on" : ""} onClick={() => setDashTab("arm")}><span>＋</span>Arm</button>
+        <button className={view === "dashboard" && dashTab === "snipes" ? "on" : ""} onClick={() => setDashTab("snipes")}><span>◎</span>Snipes</button>
+        <button className={view === "claims" ? "on" : ""} onClick={() => go("claims")}><span>⌕</span>Claims</button>
+        <button className={view === "social" ? "on" : ""} onClick={() => go("social")}><span>◌</span>Social{chatUnread && <i />}</button>
+        <button className={view === "dashboard" && dashTab === "wallets" ? "on" : ""} onClick={() => setDashTab("wallets")}><span>▰</span>Wallets</button>
+      </nav>
     </div>
   );
+}
+
+function DashboardOverview({ active, open, balance, stats }: { active: number; open: number; balance: number; stats: Stats | null }) {
+  const net = stats?.netSol ?? 0;
+  return <div className="overview-strip rise">
+    <div><span>Active snipes</span><strong>{active}</strong></div>
+    <div><span>Open positions</span><strong>{open}</strong></div>
+    <div><span>Wallet balance</span><strong>{balance.toFixed(3)} SOL</strong></div>
+    <div><span>Realized P&amp;L</span><strong className={net >= 0 ? "green" : "red"}>{net >= 0 ? "+" : ""}{net.toFixed(3)} SOL</strong></div>
+  </div>;
+}
+
+function DashboardSkeleton() {
+  return <div className="overview-strip skeleton-strip" aria-label="Loading dashboard">
+    {[0,1,2,3].map((n) => <div key={n}><span className="skeleton-line sm" /><strong className="skeleton-line" /></div>)}
+  </div>;
+}
+
+function NoWalletOnboarding({ onAdd }: { onAdd: () => void }) {
+  return <div className="card onboarding-card">
+    <div className="onboarding-icon">▰</div>
+    <h1>Add a trading wallet first</h1>
+    <p>Claim Sniper needs a funded wallet before a snipe can be armed. Add one, then you’ll come straight back here to configure the trade.</p>
+    <button className="primary inline" onClick={onAdd}>Add wallet</button>
+  </div>;
 }
 
 /* ---------------- profit ---------------- */
@@ -1605,71 +1627,58 @@ function Wallets({
       setPk("");
       onChange();
     } catch (e: any) {
-      setErr(e.message);
+      setErr(friendlyError(e.message));
     } finally {
       setBusy(false);
     }
   }
   function remove(w: Wallet) {
-    if (!confirm(`Remove "${w.name}"? The encrypted key is deleted.`)) return;
+    if (!confirm(`Remove "${w.name}"? This permanently deletes its encrypted key from Claim Sniper.`)) return;
     setExiting((s) => new Set(s).add(w.id));
-    setTimeout(
-      () =>
-        api
-          .deleteWallet(w.id)
-          .then(onChange)
-          .catch((e) => toast(e.message, "err")),
-      330,
-    );
+    setTimeout(() => api.deleteWallet(w.id).then(onChange).catch((e) => {
+      setExiting((set) => { const next = new Set(set); next.delete(w.id); return next; });
+      toast(friendlyError(e.message), "err");
+    }), 330);
+  }
+  async function copyAddress(w: Wallet) {
+    await navigator.clipboard.writeText(w.publicKey);
+    toast(`${w.name} address copied`);
   }
 
+  const total = wallets.reduce((sum, w) => sum + (w.balanceSol ?? 0), 0);
+
   return (
-    <div className="card">
-      <h2>Wallets</h2>
-      {wallets.length === 0 && (
-        <div className="empty">No wallets yet. Add one below.</div>
-      )}
-      {wallets.map((w) => (
-        <div
-          className={`wallet ${exiting.has(w.id) ? "exiting" : ""}`}
-          key={w.id}
-        >
-          <div>
-            <div className="name">{w.name}</div>
-            <div className="pk">{short(w.publicKey)}</div>
-          </div>
-          <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
-            <div className="bal">{(w.balanceSol ?? 0).toFixed(4)} SOL</div>
-            <button
-              className="danger"
-              title="Remove wallet"
-              onClick={() => remove(w)}
-            >
-              ✕
-            </button>
-          </div>
+    <div className="wallet-page-grid">
+      <div className="card wallet-list-card">
+        <div className="section-heading">
+          <div><h2>Trading wallets</h2><p>{wallets.length} connected · {total.toFixed(4)} SOL total</p></div>
         </div>
-      ))}
-      <label>Wallet name</label>
-      <input
-        value={name}
-        onChange={(e) => setName(e.target.value)}
-        placeholder="e.g. Main sniper"
-      />
-      <label>Private key</label>
-      <input
-        value={pk}
-        onChange={(e) => setPk(e.target.value)}
-        placeholder="base58 or [12,34,…] array"
-        type="password"
-      />
-      {err && <div className="err">{err}</div>}
-      <button className="primary" onClick={add} disabled={busy || !name || !pk}>
-        {busy ? <span className="spin" /> : "Add wallet"}
-      </button>
-      <div className="hint">
-        Keys are encrypted (AES-256-GCM) and only decrypted in memory when a
-        snipe fires.
+        {wallets.length === 0 && <div className="empty">No wallets yet. Add your first wallet using the form.</div>}
+        {wallets.map((w) => (
+          <div className={`wallet wallet-polished ${exiting.has(w.id) ? "exiting" : ""}`} key={w.id}>
+            <div className="wallet-main">
+              <div className="wallet-balance">{(w.balanceSol ?? 0).toFixed(4)} <small>SOL</small></div>
+              <div className="name">{w.name}</div>
+              <div className="pk">{short(w.publicKey)}</div>
+            </div>
+            <div className="wallet-actions">
+              <button className="ghost" onClick={() => void copyAddress(w)}>Copy address</button>
+              <button className="danger" title="Remove wallet" onClick={() => remove(w)}>Remove</button>
+            </div>
+          </div>
+        ))}
+      </div>
+
+      <div className="card wallet-add-card">
+        <h2>Add wallet</h2>
+        <p className="section-copy">Import a wallet that Claim Sniper can use for automated buys and exits.</p>
+        <label>Wallet name</label>
+        <input value={name} onChange={(e) => setName(e.target.value)} placeholder="e.g. Main sniper" />
+        <label>Private key</label>
+        <input value={pk} onChange={(e) => setPk(e.target.value)} placeholder="base58 or [12,34,…] array" type="password" />
+        {err && <div className="err">{err}</div>}
+        <button className="primary" onClick={add} disabled={busy || !name || !pk}>{busy ? <span className="spin" /> : "Add wallet"}</button>
+        <div className="hint secure-hint">Keys are encrypted with AES-256-GCM and only decrypted in memory when a snipe needs to sign.</div>
       </div>
     </div>
   );
@@ -1772,10 +1781,10 @@ function SnipeForm({
   const [mcMaxUsd, setMcMaxUsd] = useState("");
   const [onlyRedirected, setOnlyRedirected] = useState(false);
   const [watchWallet, setWatchWallet] = useState("");
-  const [execMode, setExecMode] = useState<"PUMPPORTAL" | "LOCAL">(
-    "PUMPPORTAL",
-  );
+  const [execMode, setExecMode] = useState<"PUMPPORTAL" | "LOCAL">("PUMPPORTAL");
   const [triggerMode, setTriggerMode] = useState<"CLAIM" | "REDIRECT">("CLAIM");
+  const [advancedOpen, setAdvancedOpen] = useState(false);
+  const [exitOpen, setExitOpen] = useState(false);
   const ex = useExit();
   const [err, setErr] = useState("");
   const [busy, setBusy] = useState(false);
@@ -1846,6 +1855,10 @@ function SnipeForm({
   const activePresetDirty =
     !!activePreset && !!presetBaseline && !presetsEqual(buildPreset(), presetBaseline);
 
+  useEffect(() => {
+    if (!walletId && wallets.length === 1) setWalletId(wallets[0].id);
+  }, [wallets, walletId]);
+
   async function arm() {
     setErr("");
     setBusy(true);
@@ -1879,195 +1892,138 @@ function SnipeForm({
       }
       onCreated();
     } catch (e: any) {
-      setErr(e.message);
-    } finally {
-      setBusy(false);
-    }
+      setErr(friendlyError(e.message));
+    } finally { setBusy(false); }
   }
 
   const mcMinNumber = marketCapInputToNumber(mcMinUsd);
   const mcMaxNumber = marketCapInputToNumber(mcMaxUsd);
   const mcMinInvalid = mcMinUsd.trim().length > 0 && mcMinNumber == null;
   const mcMaxInvalid = mcMaxUsd.trim().length > 0 && mcMaxNumber == null;
-  const mcRangeInvalid =
-    mcMinNumber != null && mcMaxNumber != null && mcMinNumber > mcMaxNumber;
+  const mcRangeInvalid = mcMinNumber != null && mcMaxNumber != null && mcMinNumber > mcMaxNumber;
   const mcFilterInvalid = mcMinInvalid || mcMaxInvalid || mcRangeInvalid;
   const duplicateMintSnipes = useMemo(() => {
     const clean = mint.trim();
     if (!clean) return [] as Snipe[];
-    return snipes.filter(
-      (s) =>
-        s.mint === clean &&
-        ["ARMED", "PAUSED", "TRIGGERED"].includes(s.status),
-    );
+    return snipes.filter((s) => s.mint === clean && ["ARMED", "PAUSED", "TRIGGERED"].includes(s.status));
   }, [mint, snipes]);
 
-  const ready =
-    mint &&
-    walletId &&
-    Number(amount) > 0 &&
-    !mcFilterInvalid &&
-    (!onlyRedirected || watchWallet.trim().length >= 32);
+  const selectedWallet = wallets.find((w) => w.id === walletId);
+  const ready = !!mint.trim() && !!walletId && Number(amount) > 0 && !mcFilterInvalid && (!onlyRedirected || watchWallet.trim().length >= 32);
+  const fees = Math.max(0, Number(priority) || 0) + Math.max(0, Number(bribe) || 0);
+  const needed = Math.max(0, Number(amount) || 0) + fees;
+  const insufficient = !!selectedWallet && needed > 0 && (selectedWallet.balanceSol ?? 0) < needed;
+  const triggerSummary = triggerMode === "REDIRECT"
+    ? onlyRedirected ? `when fees are redirected to ${watchWallet ? short(watchWallet) : "the selected wallet"}` : "when the creator fee recipient changes"
+    : onlyRedirected ? `when ${watchWallet ? short(watchWallet) : "the selected wallet"} claims creator fees` : "when creator fees are claimed";
+  const tpSummary = ex.tpOn ? (ex.tpTrail ? `Trailing TP from ${ex.takeProfits[0]?.multiplier || "?"}×` : ex.takeProfits.map((tp) => `${tp.sellPct || "?"}% at ${tp.multiplier || "?"}×`).join(" · ")) : "Off";
+  const slSummary = ex.slOn ? (ex.slTrail ? `Trail -${ex.slTrailPct || "?"}%` : `-${ex.slPct || "?"}%`) : "Off";
+  const mcSummary = mcMinNumber != null || mcMaxNumber != null
+    ? mcMinNumber != null && mcMaxNumber != null
+      ? `$${compactNumber.format(mcMinNumber)} – $${compactNumber.format(mcMaxNumber)}`
+      : mcMinNumber != null ? `≥ $${compactNumber.format(mcMinNumber)}` : `≤ $${compactNumber.format(mcMaxNumber!)}`
+    : "Off";
 
   return (
-    <div className="card snipe-form-card">
-      <div className="form-head">
-        <h2>Arm a snipe</h2>
-        <div className="preset-actions" aria-label="Snipe presets">
-          {(["1", "2", "3"] as PresetSlot[]).map((slot) => (
-            <button
-              key={slot}
-              type="button"
-              className={`preset-btn ${activePreset === slot ? "on" : ""} ${activePreset === slot && activePresetDirty ? "dirty" : ""} ${presets[slot] ? "saved" : ""}`}
-              onClick={() => handlePreset(slot)}
-              title={
-                activePreset === slot
-                  ? activePresetDirty
-                    ? `Save current options to preset ${slot}`
-                    : `Preset ${slot} is selected`
-                  : presets[slot]
-                    ? `Load preset ${slot}`
-                    : `Select preset ${slot}`
-              }
-            >
-              {activePreset === slot && activePresetDirty ? "Save" : `Preset ${slot}`}
-            </button>
-          ))}
+    <div className="arm-layout">
+      <div className="card arm-card">
+        <div className="section-heading form-head">
+          <div><h2>Arm a snipe</h2><p>Set the coin, funding wallet and exact event that should trigger the buy.</p></div>
+          <div className="form-head-actions">
+            <div className="preset-actions" aria-label="Snipe presets">
+              {(["1", "2", "3"] as PresetSlot[]).map((slot) => (
+                <button
+                  key={slot}
+                  type="button"
+                  className={`preset-btn ${activePreset === slot ? "on" : ""} ${activePreset === slot && activePresetDirty ? "dirty" : ""} ${presets[slot] ? "saved" : ""}`}
+                  onClick={() => handlePreset(slot)}
+                  title={activePreset === slot ? (activePresetDirty ? `Save current options to preset ${slot}` : `Preset ${slot} is selected`) : (presets[slot] ? `Load preset ${slot}` : `Select preset ${slot}`)}
+                >
+                  {activePreset === slot && activePresetDirty ? "Save" : `Preset ${slot}`}
+                </button>
+              ))}
+            </div>
+            <span className="shortcut-hint">Press / to focus CA</span>
+          </div>
         </div>
-      </div>
-      <label>Coin CA (mint)</label>
-      <input
-        value={mint}
-        onChange={(e) => setMint(e.target.value)}
-        placeholder="pump.fun mint address"
-        readOnly={mintLocked}
-      />
-      <label>Buy with wallet</label>
-      <WalletSelect wallets={wallets} value={walletId} onChange={setWalletId} />
-      <div className="row">
-        <div>
-          <label>Amount (SOL)</label>
-          <input
-            value={amount}
-            onChange={(e) => setAmount(e.target.value)}
-            placeholder="0.5"
-          />
+
+        <div className="form-step"><span>1</span><strong>Trade</strong></div>
+        <label>Coin CA (mint)</label>
+        <input id="snipe-mint" value={mint} onChange={(e) => setMint(e.target.value)} placeholder="pump.fun mint address" readOnly={mintLocked} />
+        {duplicateMintSnipes.length > 0 && (
+          <div className="duplicate-mint-warning">
+            <strong>Duplicate mint warning</strong>
+            <span>You already have {duplicateMintSnipes.length} active snipe{duplicateMintSnipes.length === 1 ? "" : "s"} on this CA.</span>
+          </div>
+        )}
+        <label>Buy with wallet</label>
+        <WalletSelect wallets={wallets} value={walletId} onChange={setWalletId} />
+        <label>Amount (SOL)</label>
+        <input value={amount} inputMode="decimal" onChange={(e) => setAmount(e.target.value)} placeholder="0.5" />
+        {selectedWallet && <div className={`field-balance ${insufficient ? "bad" : ""}`}>{selectedWallet.name}: {(selectedWallet.balanceSol ?? 0).toFixed(4)} SOL available</div>}
+
+        <div className="form-step"><span>2</span><strong>Trigger</strong></div>
+        <TriggerModeSelect value={triggerMode} onChange={setTriggerMode} />
+        <div className="trigger-explain">
+          <strong>{triggerMode === "REDIRECT" ? "Fee Redirect" : "Fee Claim"}</strong>
+          <span>{triggerMode === "REDIRECT" ? "Buy when the creator fee recipient changes." : "Buy the moment this coin's creator fees are claimed."}</span>
         </div>
-        <div>
-          <label>Slippage %</label>
-          <input
-            value={slippage}
-            onChange={(e) => setSlippage(e.target.value)}
-          />
-        </div>
-      </div>
-      <div className="row">
-        <div>
-          <label>Priority (SOL)</label>
-          <input
-            value={priority}
-            onChange={(e) => setPriority(e.target.value)}
-          />
-        </div>
-        <div>
-          <label>Bribe (SOL)</label>
+        <label className="switch-row" onClick={() => setOnlyRedirected((v) => !v)}>
+          <span className={`switch ${onlyRedirected ? "on" : ""}`}><span className="knob" /></span>
+          {triggerMode === "REDIRECT" ? "Only if redirected to a specific wallet" : "Only when a specific wallet claims"}
+        </label>
+        {onlyRedirected && <div className="tp-fields compact-fields">
+          <label>{triggerMode === "REDIRECT" ? "Target fee wallet" : "Claimer wallet"}</label>
+          <input value={watchWallet} onChange={(e) => setWatchWallet(e.target.value)} placeholder="Solana wallet address" />
+          <div className="hint">{triggerMode === "REDIRECT" ? "The buy fires only when the fee owner becomes this exact wallet." : "Claims from other wallets are ignored."}</div>
+        </div>}
+
+        <button type="button" className={`disclosure ${advancedOpen ? "open" : ""}`} onClick={() => setAdvancedOpen((v) => !v)}>
+          <span><strong>Advanced execution</strong><small>Slippage, priority, bribe and execution provider</small></span><b>⌄</b>
+        </button>
+        {advancedOpen && <div className="disclosure-body">
+          <div className="row">
+            <div><label>Slippage % <InfoTip text="Maximum price movement allowed while the buy is executing." /></label><input value={slippage} onChange={(e) => setSlippage(e.target.value)} /></div>
+            <div><label>Priority fee (SOL) <InfoTip text="Extra network priority fee used to improve inclusion speed." /></label><input value={priority} onChange={(e) => setPriority(e.target.value)} /></div>
+          </div>
+          <label>Bribe / extra priority (SOL) <InfoTip text="Additional execution priority budget. Keep this low unless you understand the trade-off." /></label>
           <input value={bribe} onChange={(e) => setBribe(e.target.value)} />
-        </div>
-      </div>
-      <div className="market-filter-box">
-        <div className="market-filter-head">
-          <strong>Market cap filter</strong>
-          <span>Optional</span>
-        </div>
-        <div className="row">
-          <div>
-            <label>Min MC $</label>
-            <input
-              value={mcMinUsd}
-              onChange={(e) => setMcMinUsd(e.target.value)}
-              placeholder="5000"
-            />
+          <ExecModeSelect value={execMode} onChange={setExecMode} />
+          <div className="market-filter-box compact">
+            <div className="market-filter-head"><strong>Market cap filter</strong><span>Optional</span></div>
+            <div className="row">
+              <div><label>Min MC $ <InfoTip text="Block the buy if live USD market cap is below this value." /></label><input value={mcMinUsd} onChange={(e) => setMcMinUsd(e.target.value)} placeholder="5000" /></div>
+              <div><label>Max MC $ <InfoTip text="Block the buy if live USD market cap is above this value." /></label><input value={mcMaxUsd} onChange={(e) => setMcMaxUsd(e.target.value)} placeholder="25000" /></div>
+            </div>
+            <div className={`hint ${mcFilterInvalid ? "err-text" : ""}`}>
+              {mcMinInvalid || mcMaxInvalid ? "Enter valid numbers for the market-cap filter." : mcRangeInvalid ? "Minimum MC cannot be higher than maximum MC." : "Checked against live USD market cap immediately before the buy is submitted."}
+            </div>
           </div>
-          <div>
-            <label>Max MC $</label>
-            <input
-              value={mcMaxUsd}
-              onChange={(e) => setMcMaxUsd(e.target.value)}
-              placeholder="25000"
-            />
-          </div>
-        </div>
-        <div className={`hint ${mcFilterInvalid ? "err-text" : ""}`}>
-          {mcMinInvalid || mcMaxInvalid
-            ? "Enter valid numbers for the MC filter."
-            : mcRangeInvalid
-              ? "Minimum MC cannot be higher than maximum MC."
-              : "If set, the backend checks live USD MC right before buying and blocks the snipe if it is outside range."}
-        </div>
+        </div>}
+
+        <button type="button" className={`disclosure ${exitOpen ? "open" : ""}`} onClick={() => setExitOpen((v) => !v)}>
+          <span><strong>Exit strategy</strong><small>{ex.tpOn || ex.slOn ? `${ex.tpOn ? "TP on" : "TP off"} · ${ex.slOn ? "SL on" : "SL off"}` : "Optional take profit and stop loss"}</small></span><b>⌄</b>
+        </button>
+        {exitOpen && <div className="disclosure-body exit-disclosure"><ExitFields ex={ex} /></div>}
+
+        {err && <div className="err actionable-error"><strong>Couldn't arm snipe</strong><span>{err}</span></div>}
       </div>
 
-      {duplicateMintSnipes.length > 0 && (
-        <div className="duplicate-mint-warning">
-          <strong>Duplicate mint warning</strong>
-          <span>
-            You already have {duplicateMintSnipes.length} active snipe{duplicateMintSnipes.length === 1 ? "" : "s"} on this CA.
-          </span>
-        </div>
-      )}
-
-      <ExecModeSelect value={execMode} onChange={setExecMode} />
-      <TriggerModeSelect value={triggerMode} onChange={setTriggerMode} />
-
-      <label
-        className="switch-row"
-        onClick={() => setOnlyRedirected((v) => !v)}
-      >
-        <span className={`switch ${onlyRedirected ? "on" : ""}`}>
-          <span className="knob" />
-        </span>
-        {triggerMode === "REDIRECT"
-          ? "Only a specific wallet"
-          : "Only a specific wallet's claims"}
-      </label>
-      {onlyRedirected ? (
-        <div className="tp-fields">
-          <label>
-            {triggerMode === "REDIRECT"
-              ? "Wallet fees get redirected to"
-              : "Wallet to watch"}
-          </label>
-          <input
-            value={watchWallet}
-            onChange={(e) => setWatchWallet(e.target.value)}
-            placeholder={
-              triggerMode === "REDIRECT"
-                ? "any wallet address"
-                : "claimer wallet address"
-            }
-          />
-          <div className="hint">
-            {triggerMode === "REDIRECT"
-              ? "Fires when this coin's fee owner is changed to this exact wallet."
-              : "Fires only when this exact wallet claims fees for the coin. The deployer's own early claims are ignored."}
-          </div>
-        </div>
-      ) : triggerMode === "REDIRECT" ? (
-        <div className="hint">
-          Fires when this coin's fee owner is changed to any new wallet.
-        </div>
-      ) : null}
-
-      <ExitFields ex={ex} />
-
-      {err && <div className="err">{err}</div>}
-      <button className="primary" onClick={arm} disabled={busy || !ready}>
-        {busy ? <span className="spin" /> : "Confirm & arm snipe"}
-      </button>
-      <div className="hint">
-        {triggerMode === "REDIRECT"
-          ? "Fires when this coin's fee owner is changed to any new wallet."
-          : "Fires the moment this coin's creator fees are next claimed. Works pre- and post-migration."}
-      </div>
+      <aside className="snipe-summary card">
+        <div className="summary-kicker">Snipe summary</div>
+        <h3>{mint.trim() ? short(mint.trim()) : "New snipe"}</h3>
+        <div className="summary-line"><span>Buy</span><strong>{Number(amount) > 0 ? `${amount} SOL` : "Not set"}</strong></div>
+        <div className="summary-line"><span>Wallet</span><strong>{selectedWallet?.name ?? "Not selected"}</strong></div>
+        <div className="summary-block"><span>Trigger</span><p>{triggerSummary}</p></div>
+        <div className="summary-line"><span>Take profit</span><strong>{tpSummary}</strong></div>
+        <div className="summary-line"><span>Stop loss</span><strong>{slSummary}</strong></div>
+        <div className="summary-line"><span>Execution</span><strong>{execMode === "LOCAL" ? "Local" : "PumpPortal"}</strong></div>
+        <div className="summary-line"><span>Market cap</span><strong>{mcSummary}</strong></div>
+        <div className="summary-cost"><span>Configured buy + priority</span><strong>≈ {needed.toFixed(4)} SOL</strong></div>
+        {insufficient && <div className="summary-warning">Selected wallet may not have enough SOL for this configuration.</div>}
+        <button className="primary" onClick={arm} disabled={busy || !ready || insufficient}>{busy ? <span className="spin" /> : "Arm snipe"}</button>
+        <p className="summary-foot">The buy is submitted immediately after the configured trigger is detected.</p>
+      </aside>
     </div>
   );
 }
@@ -2349,16 +2305,15 @@ function Snipes({
 
   const [pauseOneBusy, setPauseOneBusy] = useState<Set<string>>(new Set());
 
+  const [filter, setFilter] = useState<"active" | "positions" | "finished" | "failed">("active");
+  const [details, setDetails] = useState<Set<string>>(new Set());
+
   function remove(id: string) {
     setExiting((s) => new Set(s).add(id));
-    setTimeout(
-      () =>
-        api
-          .cancelSnipe(id)
-          .then(onChange)
-          .catch((e) => toast(e.message, "err")),
-      330,
-    );
+    setTimeout(() => api.cancelSnipe(id).then(onChange).catch((e) => {
+      setExiting((set) => { const next = new Set(set); next.delete(id); return next; });
+      toast(friendlyError(e.message), "err");
+    }), 330);
   }
 
   async function toggleOnePause(snipe: Snipe) {
@@ -2374,7 +2329,7 @@ function Snipes({
       }
       onChange();
     } catch (e: any) {
-      toast(e.message, "err");
+      toast(friendlyError(e.message), "err");
       onChange();
     } finally {
       setPauseOneBusy((current) => {
@@ -2385,189 +2340,100 @@ function Snipes({
     }
   }
 
+  const counts = useMemo(() => {
+    const out = { active: 0, positions: 0, finished: 0, failed: 0 };
+    for (const s of snipes) out[snipeUiState(s).group]++;
+    return out;
+  }, [snipes]);
+  const visible = snipes.filter((s) => snipeUiState(s).group === filter);
+
   return (
     <div className={`card snipes-card ${pausedCount > 0 ? "paused" : ""}`}>
-      <div className="snipes-top">
-        <h2 className="snipes-title">Snipes</h2>
+      <div className="section-heading snipes-top">
+        <div><h2>Snipes</h2><p>Monitor what the bot is watching, buying and managing.</p></div>
         <button
           className="pause-all-btn"
           onClick={togglePauseAll}
           disabled={!canTogglePause || pauseBusy}
-          title={
-            pauseMode === "pause"
-              ? "Pause every armed snipe so they do not fire"
-              : "Unpause every paused snipe and arm them again"
-          }
+          title={pauseMode === "pause" ? "Pause every armed snipe so they do not fire" : "Unpause every paused snipe and arm them again"}
         >
-          {pauseBusy ? (
-            <span className="spin" />
-          ) : (
-            <>
-              <span className="pause-icon" aria-hidden="true">
-                <AppIcon name={pauseMode === "pause" ? "pause" : "play"} />
-              </span>
-              {pauseMode === "pause" ? "Pause All" : "Unpause All"}
-            </>
-          )}
+          {pauseBusy ? <span className="spin" /> : <><span className="pause-icon" aria-hidden="true"><AppIcon name={pauseMode === "pause" ? "pause" : "play"} /></span>{pauseMode === "pause" ? "Pause All" : "Unpause All"}</>}
         </button>
       </div>
-      {snipes.length === 0 && (
-        <div className="empty">
-          No snipes yet. Arm one with a coin CA, a wallet, and a SOL amount.
-        </div>
-      )}
-      {snipes.map((s) => (
-        <div
-          className={`snipe ${s.status} ${exiting.has(s.id) ? "exiting" : ""}`}
-          key={s.id}
-          role="button"
-          tabIndex={0}
-          title={`Open in ${tradingPlatformLabel(tradingPlatform)}`}
-          onClick={(e) => {
-            if (isInteractiveClick(e)) return;
-            openInTradingPlatform(tradingPlatform, s, toast);
-          }}
-          onKeyDown={(e) => {
-            if (e.key !== "Enter" && e.key !== " ") return;
-            e.preventDefault();
-            openInTradingPlatform(tradingPlatform, s, toast);
-          }}
-        >
+
+      <div className="seg snipe-filters">
+        {(["active", "positions", "finished", "failed"] as const).map((key) => (
+          <button key={key} className={`seg-btn ${filter === key ? "on" : ""}`} onClick={() => setFilter(key)}>
+            {key === "positions" ? "Open positions" : key[0].toUpperCase() + key.slice(1)} <span className="filter-count">{counts[key]}</span>
+          </button>
+        ))}
+      </div>
+
+      {visible.length === 0 && <div className="empty filter-empty">{snipes.length === 0 ? "No snipes yet. Arm one with a coin CA, wallet and SOL amount." : `Nothing in ${filter === "positions" ? "open positions" : filter} right now.`}</div>}
+
+      {visible.map((s) => {
+        const ui = snipeUiState(s);
+        const open = details.has(s.id);
+        return <div className={`snipe snipe-clean ${ui.tone} ${exiting.has(s.id) ? "exiting" : ""}`} key={s.id}>
           <div className="head">
-            <span className="ticker">
-              {s.ticker ? `$${s.ticker}` : short(s.mint)}
-              <span
-                className={`mode-tag ${s.triggerMode === "REDIRECT" ? "mode-redirect" : "mode-claim"}`}
-              >
-                {s.triggerMode === "REDIRECT" ? "REDIRECT" : "CLAIM"}
-              </span>
-            </span>
+            <div className="snipe-title-block">
+              <span className="ticker">{s.ticker ? `$${s.ticker}` : short(s.mint)}</span>
+              <span className={`mode-tag ${s.triggerMode === "REDIRECT" ? "mode-redirect" : "mode-claim"}`}>{s.triggerMode === "REDIRECT" ? "Fee redirect" : "Fee claim"}</span>
+            </div>
             <div className="snipe-status-cluster">
-              <span
-                className={`market-cap-value ${s.liveMarketCapUsd == null ? "loading" : ""}`}
-                title={
-                  s.liveMarketCapUpdatedAt
-                    ? `Market cap updated ${new Date(s.liveMarketCapUpdatedAt).toLocaleTimeString()} from ${s.liveMarketCapSource ?? "live feed"}`
-                    : "Waiting for live Pump market-cap update"
-                }
-              >
+              <span className={`market-cap-value ${s.liveMarketCapUsd == null ? "loading" : ""}`} title={s.liveMarketCapUpdatedAt ? `Market cap updated ${new Date(s.liveMarketCapUpdatedAt).toLocaleTimeString()} from ${s.liveMarketCapSource ?? "live feed"}` : "Waiting for live Pump market-cap update"}>
                 <span className="market-cap-label">Market Cap</span>
                 <span>{snipeMarketCapLabel(s)}</span>
-                {marketCapChanges[s.id] && (
-                  <b className={`mc-change ${marketCapChanges[s.id].delta >= 0 ? "up" : "down"}`}>
-                    {marketCapChanges[s.id].delta >= 0 ? "▲" : "▼"} {Math.abs(marketCapChanges[s.id].pct).toFixed(1)}%
-                  </b>
-                )}
+                {marketCapChanges[s.id] && <b className={`mc-change ${marketCapChanges[s.id].delta >= 0 ? "up" : "down"}`}>{marketCapChanges[s.id].delta >= 0 ? "▲" : "▼"} {Math.abs(marketCapChanges[s.id].pct).toFixed(1)}%</b>}
               </span>
-              <span className={`badge ${s.status}`}>{s.status}</span>
+              <span className={`badge ${ui.tone}`}>{ui.tone === "ARMED" && <span className="dot" />}{ui.label}</span>
             </div>
           </div>
-          <CopyCA mint={s.mint} ticker={s.ticker} className="mint-sub" />
-          {s.claimCheckStatus === "CLAIMED" && (
-            <div className="claim-warning" onClick={(e) => e.stopPropagation()}>
-              <strong>Already claimed</strong>
-              <span>
-                This wallet already claimed fees for this CA
-                {s.claimCheckClaimedAt
-                  ? ` on ${new Date(s.claimCheckClaimedAt).toLocaleString()}`
-                  : ""}
-                .
-              </span>
-              {s.claimCheckWallet && <code>{short(s.claimCheckWallet)}</code>}
-              {s.claimCheckInstruction && <span>{s.claimCheckInstruction}</span>}
-              {s.claimCheckTx && (
-                <a
-                  href={`https://solscan.io/tx/${s.claimCheckTx}`}
-                  target="_blank"
-                  rel="noreferrer"
-                >
-                  view claim ↗
-                </a>
-              )}
-            </div>
-          )}
-          {s.claimCheckStatus === "CHECKING" && (
-            <div className="claim-checking">
-              Checking this wallet's previous 1000 txs for old claims…
-            </div>
-          )}
-          {s.claimCheckStatus === "FAILED" && s.claimCheckError && (
-            <div className="claim-checking err-text">
-              Claim-history check failed: {s.claimCheckError}
-            </div>
-          )}
-          {s.status === "FAILED" && s.error && (
-            <div className="failed-reason">
-              <strong>Failed reason</strong>
-              <span>{s.error}</span>
-            </div>
-          )}
-          <div className="meta clean-snipe-meta">
-            <span>
-              <em>Buy</em> <b>{s.amountSol}</b> SOL
-            </span>
-            <span>
-              <em>Wallet</em> <b>{s.wallet.name}</b>
-            </span>
-            {s.signature && (
-              <a
-                href={`https://solscan.io/tx/${s.signature}`}
-                target="_blank"
-                rel="noreferrer"
-              >
-                view tx ↗
-              </a>
-            )}
-            {marketCapFilterLabel(s) && (
-              <span>
-                <em>Filter</em> <b>{marketCapFilterLabel(s)}</b>
-              </span>
-            )}
-            {s.error && s.status !== "FAILED" && <span style={{ color: "var(--red)" }}>{s.error}</span>}
+
+          <div className="snipe-core">
+            <div><span>Amount</span><strong>{s.amountSol} SOL</strong></div>
+            <div><span>Wallet</span><strong>{s.wallet.name}</strong></div>
+            <div><span>Exit</span><strong>{s.tpEnabled || s.slEnabled ? `${s.tpEnabled ? "TP" : ""}${s.tpEnabled && s.slEnabled ? " + " : ""}${s.slEnabled ? "SL" : ""}` : "Manual"}</strong></div>
           </div>
-          <div className="snipe-actions">
-            <button className="ghost" onClick={() => setEdit(s)}>
-              Edit
-            </button>
-            {s.status === "FILLED" &&
-              s.tpStatus === "PENDING" &&
-              (s.tpEnabled || s.slEnabled) && (
-                <button
-                  className="ghost"
-                  onClick={() =>
-                    api
-                      .cancelExit(s.id)
-                      .then(onChange)
-                      .catch((e) => toast(e.message, "err"))
-                  }
-                >
-                  Cancel TP/SL
-                </button>
-              )}
-            <button className="ghost" onClick={() => remove(s.id)}>
-              {s.status === "ARMED" || s.status === "PAUSED" ? "Disarm" : "Remove"}
-            </button>
-            {(s.status === "ARMED" || s.status === "PAUSED") && (
-              <button
-                className="snipe-pause-one"
-                onClick={() => toggleOnePause(s)}
-                disabled={pauseOneBusy.has(s.id)}
-                title={s.status === "ARMED" ? "Pause this snipe" : "Unpause this snipe"}
-                aria-label={s.status === "ARMED" ? "Pause this snipe" : "Unpause this snipe"}
-              >
-                {pauseOneBusy.has(s.id) ? <span className="spin" /> : <AppIcon name={s.status === "ARMED" ? "pause" : "play"} />}
-              </button>
-            )}
+
+          {(s.tpEnabled || s.slEnabled || s.watchWallet || marketCapFilterLabel(s)) && <div className="exit-chips">
+            {s.watchWallet && <span>{s.triggerMode === "REDIRECT" ? "Target" : "Watch"} {short(s.watchWallet)}</span>}
+            {marketCapFilterLabel(s) && <span>{marketCapFilterLabel(s)}</span>}
+            {s.tpEnabled && s.tpStatus !== "CANCELLED" && takeProfitLabel(s).map((label) => <span key={label}>{label}</span>)}
+            {s.slEnabled && s.tpStatus !== "CANCELLED" && <span>SL {s.slTrailing ? `trail -${s.slTrailPct}%` : `-${s.slPct}%`}</span>}
+          </div>}
+
+          {s.claimCheckStatus === "CLAIMED" && <div className="claim-warning">
+            <strong>Already claimed</strong>
+            <span>This wallet already claimed fees for this CA{s.claimCheckClaimedAt ? ` on ${new Date(s.claimCheckClaimedAt).toLocaleString()}` : ""}.</span>
+            {s.claimCheckWallet && <code>{short(s.claimCheckWallet)}</code>}
+            {s.claimCheckTx && <a href={`https://solscan.io/tx/${s.claimCheckTx}`} target="_blank" rel="noreferrer">View claim ↗</a>}
+          </div>}
+          {s.claimCheckStatus === "CHECKING" && <div className="claim-checking">Checking this wallet&apos;s previous transactions for old claims…</div>}
+          {s.claimCheckStatus === "FAILED" && s.claimCheckError && <div className="claim-checking err-text">Claim-history check failed: {s.claimCheckError}</div>}
+          {s.error && <div className={s.status === "FAILED" ? "failed-reason" : "inline-snipe-error"}>{s.status === "FAILED" && <strong>Failed reason</strong>}<span>{friendlyError(s.error)}</span></div>}
+
+          {open && <div className="snipe-details">
+            <div><span>CA</span><CopyCA mint={s.mint} ticker={s.ticker} className="mint-sub" /></div>
+            <div><span>Slippage</span><strong>{s.slippagePct}%</strong></div>
+            <div><span>Priority</span><strong>{s.priorityFee} SOL</strong></div>
+            <div><span>Extra priority</span><strong>{s.bribe} SOL</strong></div>
+            <div><span>Execution</span><strong>{s.execMode === "LOCAL" ? "Local" : "PumpPortal"}</strong></div>
+            {s.claimCheckInstruction && <div><span>Claim check</span><strong>{s.claimCheckInstruction}</strong></div>}
+            {s.signature && <div><span>Entry transaction</span><a href={`https://solscan.io/tx/${s.signature}`} target="_blank" rel="noreferrer">Solscan ↗</a></div>}
+          </div>}
+
+          <div className="snipe-actions clean-actions">
+            <button className="ghost" onClick={() => setDetails((set) => { const next = new Set(set); next.has(s.id) ? next.delete(s.id) : next.add(s.id); return next; })}>{open ? "Hide details" : "Details"}</button>
+            <button className="ghost" onClick={() => void openInTradingPlatform(tradingPlatform, s, toast)}>Open ↗</button>
+            <button className="ghost" onClick={() => setEdit(s)}>Edit</button>
+            {s.status === "FILLED" && s.tpStatus === "PENDING" && (s.tpEnabled || s.slEnabled) && <button className="warning-btn" onClick={() => api.cancelExit(s.id).then(onChange).catch((e) => toast(friendlyError(e.message), "err"))}>Cancel TP/SL</button>}
+            {(s.status === "ARMED" || s.status === "PAUSED") && <button className="snipe-pause-one" onClick={() => toggleOnePause(s)} disabled={pauseOneBusy.has(s.id)} title={s.status === "ARMED" ? "Pause this snipe" : "Unpause this snipe"} aria-label={s.status === "ARMED" ? "Pause this snipe" : "Unpause this snipe"}>{pauseOneBusy.has(s.id) ? <span className="spin" /> : <AppIcon name={s.status === "ARMED" ? "pause" : "play"} />}</button>}
+            {(s.status === "ARMED" || s.status === "PAUSED") ? <button className="warning-btn" onClick={() => remove(s.id)}>Disarm</button> : s.status === "TRIGGERED" ? <button className="warning-btn" disabled>Buying…</button> : <button className="danger" onClick={() => remove(s.id)}>Remove</button>}
           </div>
-        </div>
-      ))}
-      {edit && (
-        <EditSnipeModal
-          snipe={edit}
-          onClose={() => setEdit(null)}
-          onChange={onChange}
-        />
-      )}
+        </div>;
+      })}
+      {edit && <EditSnipeModal snipe={edit} onClose={() => setEdit(null)} onChange={onChange} />}
     </div>
   );
 }
@@ -2689,6 +2555,236 @@ function playChime(kind: "fill" | "fail", force = false) {
   }
   playTone("fail", force);
 }
+
+
+/* ---------------- Pump fee-sharing claim scanner (read-only) ---------------- */
+function ClaimScanner({ wallets, tradingPlatform }: { wallets: Wallet[]; tradingPlatform: TradingPlatform }) {
+  const toast = useToast();
+  const initial = typeof window !== "undefined" ? new URLSearchParams(window.location.search).get("scan") ?? "" : "";
+  const [address, setAddress] = useState(initial);
+  const [result, setResult] = useState<ClaimScannerResult | null>(null);
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState("");
+  const [filter, setFilter] = useState("");
+  const [sort, setSort] = useState<"claimable" | "share" | "name">("claimable");
+  const [onlyClaimable, setOnlyClaimable] = useState(false);
+  const [visible, setVisible] = useState(25);
+  const requestSeq = useRef(0);
+  const scannedInitial = useRef(false);
+
+  const scan = useCallback(async (value?: string, pushRoute = true) => {
+    const wallet = (value ?? address).trim();
+    if (!wallet) {
+      setError("Enter a Solana wallet address to scan.");
+      return;
+    }
+    const seq = ++requestSeq.current;
+    setLoading(true);
+    setError("");
+    setResult(null);
+    setVisible(25);
+    setFilter("");
+    if (pushRoute) updateRoute({ view: "claims", scan: wallet, tab: null, socialTab: null });
+    try {
+      const data = await api.claimScanner(wallet);
+      if (requestSeq.current !== seq) return;
+      setAddress(data.wallet);
+      setResult(data);
+    } catch (e: any) {
+      if (requestSeq.current !== seq) return;
+      setError(friendlyError(e?.message ?? "Scan failed"));
+    } finally {
+      if (requestSeq.current === seq) setLoading(false);
+    }
+  }, [address]);
+
+  useEffect(() => {
+    if (scannedInitial.current || !initial) return;
+    scannedInitial.current = true;
+    void scan(initial, false);
+  }, [initial, scan]);
+
+  useEffect(() => {
+    const pop = () => {
+      const next = new URLSearchParams(window.location.search).get("scan") ?? "";
+      if (next && next !== address) {
+        setAddress(next);
+        void scan(next, false);
+      }
+    };
+    window.addEventListener("popstate", pop);
+    return () => window.removeEventListener("popstate", pop);
+  }, [address, scan]);
+
+  const rows = useMemo(() => {
+    const q = filter.trim().toLowerCase();
+    let next = result?.coins.filter((coin) => {
+      if (onlyClaimable && coin.claimableSol <= 0) return false;
+      if (!q) return true;
+      return [coin.symbol, coin.name, coin.mint].some((v) => v?.toLowerCase().includes(q));
+    }) ?? [];
+    next = [...next];
+    if (sort === "share") next.sort((a, b) => b.sharePct - a.sharePct || b.claimableSol - a.claimableSol);
+    else if (sort === "name") next.sort((a, b) => (a.symbol || a.name || a.mint).localeCompare(b.symbol || b.name || b.mint));
+    else next.sort((a, b) => b.claimableSol - a.claimableSol || b.sharePct - a.sharePct);
+    return next;
+  }, [result, filter, sort, onlyClaimable]);
+
+  async function copy(text: string, label = "Copied") {
+    try {
+      await navigator.clipboard.writeText(text);
+      toast(label);
+    } catch {
+      toast("Could not copy to clipboard", "err");
+    }
+  }
+
+  const totalSol = result?.totalClaimable.sol ?? 0;
+  const totalUsd = result?.totalClaimable.usd;
+  const scannedAt = result ? new Date(result.fetchedAt) : null;
+
+  return (
+    <div className="claim-scanner rise">
+      <div className="page-intro claim-intro">
+        <div>
+          <span className="page-kicker">Pump.fun fee sharing</span>
+          <h1>Claim Scanner <span className="read-only-badge">Read only</span></h1>
+          <p>Scan any Solana wallet to see the Pump.fun coins sharing creator fees with it and how much is currently unclaimed. Claim Sniper never connects, signs, or claims for the scanned wallet.</p>
+        </div>
+        {result && <span className="scan-freshness">{result.cached ? "Cached" : "Live"} · {scannedAt?.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}</span>}
+      </div>
+
+      <div className="card claim-search-card">
+        <label className="claim-search-label" htmlFor="claim-wallet">Wallet to scan</label>
+        <form className="claim-search-row" onSubmit={(e) => { e.preventDefault(); void scan(); }}>
+          <input
+            id="claim-wallet"
+            value={address}
+            onChange={(e) => setAddress(e.target.value)}
+            placeholder="Enter a Solana wallet address…"
+            spellCheck={false}
+            autoComplete="off"
+          />
+          <button className="primary claim-scan-btn" type="submit" disabled={loading || !address.trim()}>
+            {loading ? <><span className="tiny-spinner" />Scanning…</> : "Scan wallet"}
+          </button>
+        </form>
+        {wallets.length > 0 && (
+          <div className="claim-wallet-shortcuts">
+            <span>Your wallets</span>
+            <div>
+              {wallets.slice(0, 5).map((w) => (
+                <button key={w.id} className="wallet-shortcut" onClick={() => { setAddress(w.publicKey); void scan(w.publicKey); }}>
+                  <strong>{w.name}</strong><small>{short(w.publicKey)}</small>
+                </button>
+              ))}
+            </div>
+          </div>
+        )}
+        <div className="claim-readonly-note"><span>◎</span><div><strong>Viewing only</strong><p>This page can inspect public fee-sharing state. It contains no wallet connection, claim button, transaction builder, or signing flow.</p></div></div>
+      </div>
+
+      {error && <div className="error-box claim-error"><strong>Scan failed</strong><span>{error}</span></div>}
+
+      {loading ? (
+        <ClaimScannerSkeleton />
+      ) : result ? (
+        <>
+          <div className="claim-stats">
+            <div className="claim-stat-card">
+              <span>Fee-sharing coins</span>
+              <strong>{result.coinCount.toLocaleString()}</strong>
+              <small>{result.claimableCoinCount.toLocaleString()} with fees in the live vault estimate</small>
+            </div>
+            <div className="claim-stat-card claim-total-card">
+              <span>Total claimable</span>
+              <strong>{totalSol.toLocaleString(undefined, { maximumFractionDigits: 6 })} <em>SOL</em></strong>
+              <small>{totalUsd != null ? `≈ $${totalUsd.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}` : "Pump-reported unclaimed balance"}</small>
+            </div>
+          </div>
+
+          {result.coinsTruncated && <div className="warning-box">This wallet has more than 2,000 fee-sharing relationships. The list was capped to protect performance.</div>}
+
+          <div className="card claim-results-card">
+            <div className="claim-results-head">
+              <div><h2>Coins sharing fees</h2><p>Sorted by the wallet&apos;s estimated currently claimable share.</p></div>
+              <span className="result-count">{rows.length} result{rows.length === 1 ? "" : "s"}</span>
+            </div>
+            <div className="claim-toolbar">
+              <div className="claim-filter"><span>⌕</span><input value={filter} onChange={(e) => { setFilter(e.target.value); setVisible(25); }} placeholder="Filter by coin, ticker, or CA…" /></div>
+              <select value={sort} onChange={(e) => setSort(e.target.value as typeof sort)} aria-label="Sort claim scanner results">
+                <option value="claimable">Highest claimable</option>
+                <option value="share">Highest share</option>
+                <option value="name">Name / ticker</option>
+              </select>
+              <label className="claim-only-toggle"><input type="checkbox" checked={onlyClaimable} onChange={(e) => { setOnlyClaimable(e.target.checked); setVisible(25); }} /><span>Only claimable</span></label>
+            </div>
+
+            {rows.length === 0 ? (
+              <div className="claim-empty">{result.coins.length === 0 ? "No Pump.fun fee-sharing relationships were found for this wallet." : "No coins match these filters."}</div>
+            ) : (
+              <div className="claim-list">
+                {rows.slice(0, visible).map((coin) => (
+                  <ClaimCoinRow key={coin.mint} coin={coin} tradingPlatform={tradingPlatform} onCopy={copy} />
+                ))}
+              </div>
+            )}
+            {visible < rows.length && <button className="claim-load-more" onClick={() => setVisible((n) => Math.min(rows.length, n + 25))}>Show 25 more <span>{visible} / {rows.length}</span></button>}
+          </div>
+
+          <div className={`claim-method-note ${result.perCoinEstimate.differsFromPumpTotal ? "notice" : ""}`}>
+            <span>i</span>
+            <p><strong>The headline total comes directly from Pump&apos;s wallet-level fee-sharing total.</strong> Per-coin values are read-only live estimates from each coin&apos;s Pump and PumpSwap creator vaults multiplied by this wallet&apos;s share. They can differ briefly while fees are being swept/distributed.</p>
+          </div>
+        </>
+      ) : (
+        <div className="claim-start-state">
+          <div className="claim-start-icon">⌕</div>
+          <h2>Inspect any wallet</h2>
+          <p>Paste a Solana address above to load its Pump.fun fee-sharing relationships and unclaimed creator rewards.</p>
+        </div>
+      )}
+    </div>
+  );
+}
+
+function ClaimCoinRow({ coin, tradingPlatform, onCopy }: { coin: ClaimScannerCoin; tradingPlatform: TradingPlatform; onCopy: (text: string, label?: string) => void }) {
+  const toast = useToast();
+  const [imageFailed, setImageFailed] = useState(false);
+  const label = coin.symbol ? `$${coin.symbol}` : coin.name || short(coin.mint);
+  return (
+    <div className="claim-coin-row">
+      <div className="claim-coin-identity">
+        <div className="claim-coin-img">
+          {coin.image && !imageFailed ? <img src={coin.image} alt="" loading="lazy" onError={() => setImageFailed(true)} /> : <span>{(coin.symbol || coin.name || "?").slice(0, 1).toUpperCase()}</span>}
+        </div>
+        <div className="claim-coin-copy">
+          <div className="claim-coin-title"><strong>{label}</strong>{coin.name && coin.symbol && <span>{coin.name}</span>}<i>{coin.isAdmin ? "ADMIN" : "SHAREHOLDER"}</i></div>
+          <button className="claim-ca" onClick={() => onCopy(coin.mint, "CA copied")} title="Copy contract address">{short(coin.mint)} <span>⧉</span></button>
+        </div>
+      </div>
+      <div className="claim-share"><span>Share</span><strong>{coin.sharePct.toLocaleString(undefined, { maximumFractionDigits: 2 })}%</strong></div>
+      <div className="claim-amount">
+        <strong>{coin.claimableSol > 0 ? coin.claimableSol.toLocaleString(undefined, { maximumFractionDigits: 6 }) : "0"} <em>SOL</em></strong>
+        <span>{coin.claimableUsd != null && coin.claimableSol > 0 ? `≈ $${coin.claimableUsd.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}` : "No pending fees detected"}</span>
+      </div>
+      <button className="ghost mini claim-open" onClick={() => void openInTradingPlatform(tradingPlatform, coin, toast)}>Open ↗</button>
+    </div>
+  );
+}
+
+function ClaimScannerSkeleton() {
+  return <div className="claim-scanner-loading">
+    <div className="claim-stats">
+      {[0, 1, 2].map((n) => <div className="claim-stat-card" key={n}><span className="skeleton-line sm"/><strong className="skeleton-line"/><small className="skeleton-line sm"/></div>)}
+    </div>
+    <div className="card claim-results-card">
+      <div className="claim-results-head"><div><span className="skeleton-line"/><span className="skeleton-line sm"/></div></div>
+      <div className="claim-list">{Array.from({ length: 7 }).map((_, i) => <div className="claim-coin-row claim-row-skeleton" key={i}><span className="skeleton-orb"/><span className="skeleton-line"/><span className="skeleton-line sm"/><span className="skeleton-line"/></div>)}</div>
+    </div>
+  </div>;
+}
+
 /* ---------------- history (permanent fill history) ---------------- */
 function History({ tradingPlatform }: { tradingPlatform: TradingPlatform }) {
   const toast = useToast();
@@ -2705,112 +2801,49 @@ function History({ tradingPlatform }: { tradingPlatform: TradingPlatform }) {
   useEffect(() => {
     let stop = false;
     setLoading(true);
-    api
-      .historyFills(page, PAGE)
-      .then((r) => {
-        if (!stop) setData(r);
-      })
-      .catch(() => {
-        if (!stop) setData({ fills: [], total: 0, page, pageSize: PAGE });
-      })
-      .finally(() => {
-        if (!stop) setLoading(false);
-      });
-    return () => {
-      stop = true;
-    };
+    api.historyFills(page, PAGE)
+      .then((r) => { if (!stop) setData(r); })
+      .catch(() => { if (!stop) setData({ fills: [], total: 0, page, pageSize: PAGE }); })
+      .finally(() => { if (!stop) setLoading(false); });
+    return () => { stop = true; };
   }, [page]);
 
   const pages = Math.max(1, Math.ceil(data.total / PAGE));
   const fills = data.fills;
 
   return (
-    <div className="discover rise">
-      <div className="disc-head">
-        <div>
-          <h1>Snipe history</h1>
-          <p className="sub">
-            Every filled trade from your permanent fill history.
-          </p>
-        </div>
-        {data.total > 0 && (
-          <span className="dim">
-            {data.total} fill{data.total === 1 ? "" : "s"}
-          </span>
-        )}
+    <div className="discover rise history-page">
+      <div className="page-intro history-intro">
+        <div><span className="page-kicker">Trading record</span><h1>Snipe history</h1><p>Permanent record of filled buys and realized exits.</p></div>
+        {data.total > 0 && <span className="dim">{data.total} fill{data.total === 1 ? "" : "s"}</span>}
       </div>
       {loading ? (
-        <div className="empty">Loading fills…</div>
+        <div className="card history-skeleton">{Array.from({ length: 6 }).map((_, i) => <div className="hist-skeleton-row" key={i}><span className="skeleton-line sm"/><span className="skeleton-line"/><span className="skeleton-line sm"/></div>)}</div>
       ) : fills.length === 0 ? (
         <div className="empty">No filled snipes yet.</div>
       ) : (
         <>
           <div className="hist-list">
             {fills.map((s) => (
-              <div
-                className="hist-row clickable"
-                key={s.id}
-                role="button"
-                tabIndex={0}
-                title={`Open in ${tradingPlatformLabel(tradingPlatform)}`}
-                onClick={(e) => {
-                  if (isInteractiveClick(e)) return;
-                  openInTradingPlatform(tradingPlatform, s, toast);
-                }}
-                onKeyDown={(e) => {
-                  if (e.key !== "Enter" && e.key !== " ") return;
-                  e.preventDefault();
-                  openInTradingPlatform(tradingPlatform, s, toast);
-                }}
-              >
-                <span className="hist-tk">
-                  {s.ticker ? `$${s.ticker}` : short(s.mint)}
-                </span>
-                <CopyCA mint={s.mint} />
+              <div className="hist-row history-clean" key={s.id}>
+                <div className="hist-coin"><span className="hist-tk">{s.ticker ? `$${s.ticker}` : short(s.mint)}</span><CopyCA mint={s.mint} /></div>
                 <span className="hist-amt">{s.amountSol} SOL</span>
-                {s.triggerMode === "REDIRECT" && (
-                  <span className="tp-chip">redirect</span>
-                )}
-                {s.soldSol > 0 && (
-                  <span className="hist-sold">+{s.soldSol.toFixed(3)} SOL</span>
-                )}
+                {s.triggerMode === "REDIRECT" && <span className="tp-chip">redirect</span>}
+                {s.soldSol > 0 && <span className="hist-sold">+{s.soldSol.toFixed(3)} SOL</span>}
                 <Pnl net={(s.soldSol ?? 0) - s.amountSol} />
-                <span className="hist-date">
-                  {new Date(s.filledAt ?? s.createdAt).toLocaleString()}
-                </span>
-                {s.signature && (
-                  <a
-                    href={`https://solscan.io/tx/${s.signature}`}
-                    target="_blank"
-                    rel="noreferrer"
-                  >
-                    tx ↗
-                  </a>
-                )}
+                <span className="hist-date">{new Date(s.filledAt ?? s.createdAt).toLocaleString()}</span>
+                <div className="history-actions">
+                  {s.signature && <a className="ghost-link" href={`https://solscan.io/tx/${s.signature}`} target="_blank" rel="noreferrer">Tx ↗</a>}
+                  <button className="ghost mini" onClick={() => void openInTradingPlatform(tradingPlatform, s, toast)}>Open ↗</button>
+                </div>
               </div>
             ))}
           </div>
-          {data.total > PAGE && (
-            <div className="pager">
-              <button
-                className="ghost mini"
-                disabled={page === 0}
-                onClick={() => setPage((p) => Math.max(0, p - 1))}
-              >
-                Previous
-              </button>
-              <span className="dim">
-                Page {page + 1} of {pages}
-              </span>
-              <button
-                className="ghost mini"
-                disabled={page >= pages - 1}
-                onClick={() => setPage((p) => Math.min(pages - 1, p + 1))}
-              >
-                Next
-              </button>
-            </div>
-          )}
+          {data.total > PAGE && <div className="pager">
+            <button className="ghost mini" disabled={page === 0} onClick={() => setPage((p) => Math.max(0, p - 1))}>Previous</button>
+            <span className="dim">Page {page + 1} of {pages}</span>
+            <button className="ghost mini" disabled={page >= pages - 1} onClick={() => setPage((p) => Math.min(pages - 1, p + 1))}>Next</button>
+          </div>}
         </>
       )}
     </div>
@@ -3682,7 +3715,7 @@ function ExitFields({ ex }: { ex: ReturnType<typeof useExit> }) {
                 </div>
                 <div className="hint">
                   Add up to 3 take-profit entries. Each entry sells its
-                  percentage of your wallet's current remaining token balance
+                  percentage of this snipe's remaining token position
                   when that MC multiple is reached.
                 </div>
               </>
@@ -4604,7 +4637,19 @@ function Social({
   onCopied: () => void;
 }) {
   const toast = useToast();
-  const [tab, setTab] = useState<SocialTab>(() => initialSocialTabFromUrl());
+
+  const [tab, setTabState] = useState<"trending" | "traders" | "chat">(() => initialSocialTabFromUrl());
+  const setTab = (next: "trending" | "traders" | "chat") => {
+    setTabState(next);
+    localStorage.setItem("cs.socialTab", next);
+    updateRoute({ view: "social", socialTab: next === "trending" ? null : next, tab: null });
+  };
+  useEffect(() => {
+    const pop = () => setTabState(initialSocialTabFromUrl());
+    window.addEventListener("popstate", pop);
+    return () => window.removeEventListener("popstate", pop);
+  }, []);
+
   const [users, setUsers] = useState<SocialUser[]>([]);
   const [trending, setTrending] = useState<TrendingCoin[]>([]);
   const [openUserId, setOpenUserId] = useState<string | null>(null);
@@ -4616,14 +4661,8 @@ function Social({
   } | null>(null);
 
   function load() {
-    api
-      .socialUsers()
-      .then((r) => setUsers(r.users))
-      .catch(() => {});
-    api
-      .socialTrending()
-      .then((r) => setTrending(r.coins))
-      .catch(() => {});
+    api.socialUsers().then((r) => setUsers(r.users)).catch(() => {});
+    api.socialTrending().then((r) => setTrending(r.coins)).catch(() => {});
   }
   useEffect(() => {
     load();
@@ -4642,81 +4681,43 @@ function Social({
 
   return (
     <div className={`social ${tab === "chat" ? "social-chat-mode" : ""}`}>
-      <div className="seg dash-tabs">
-        <button
-          className={`seg-btn ${tab === "trending" ? "on" : ""}`}
-          onClick={() => setTab("trending")}
-        >
-          Trending
-        </button>
-        <button
-          className={`seg-btn ${tab === "traders" ? "on" : ""}`}
-          onClick={() => setTab("traders")}
-        >
-          Traders
-        </button>
-        <button
-          className={`seg-btn ${tab === "chat" ? "on" : ""}`}
-          onClick={() => setTab("chat")}
-        >
-          Chat
-        </button>
+      <div className="page-intro">
+        <div><span className="page-kicker">Community</span><h1>Social</h1><p>See what traders are watching, compare activity, and talk without leaving Claim Sniper.</p></div>
+      </div>
+      <div className="seg dash-tabs social-tabs">
+        <button className={`seg-btn ${tab === "trending" ? "on" : ""}`} onClick={() => setTab("trending")}>Trending</button>
+        <button className={`seg-btn ${tab === "traders" ? "on" : ""}`} onClick={() => setTab("traders")}>Traders</button>
+        <button className={`seg-btn ${tab === "chat" ? "on" : ""}`} onClick={() => setTab("chat")}>Chat</button>
       </div>
 
       {tab === "trending" ? (
-        <div className="card rise d1">
-          <h3>Most sniped coins</h3>
-          {trending.length === 0 && (
-            <p className="sub">
-              No active snipes across the platform right now.
-            </p>
-          )}
-          <div className="admin-list">
-            {trending.slice(0, 5).map((c) => (
-              <div className="admin-row" key={c.mint}>
-                <CopyCA mint={c.mint} ticker={c.ticker} />
-                <span className="tp-chip">
-                  {c.userCount} {c.userCount === 1 ? "user" : "users"}
-                </span>
-                <span className="dim">{c.snipeCount} snipes</span>
-                {c.redirectCount > 0 && (
-                  <span className="tp-chip">{c.redirectCount} redirect</span>
-                )}
-                <button
-                  className="ghost mini"
-                  onClick={() =>
-                    setCopy({
-                      mint: c.mint,
-                      ticker: c.ticker,
-                      triggerMode:
-                        c.redirectCount > c.snipeCount - c.redirectCount
-                          ? "REDIRECT"
-                          : "CLAIM",
-                    })
-                  }
-                >
-                  Copy
-                </button>
+        <div className="card rise d1 social-card">
+          <div className="section-heading"><div><h2>Most sniped coins</h2><p>Coins with the most active interest across Claim Sniper.</p></div></div>
+          {trending.length === 0 && <p className="sub">No active snipes across the platform right now.</p>}
+          <div className="trending-list">
+            {trending.slice(0, 8).map((c, i) => (
+              <div className="trending-row" key={c.mint}>
+                <span className="trend-rank">{String(i + 1).padStart(2, '0')}</span>
+                <div className="trend-coin"><strong>{c.ticker ? `$${c.ticker}` : short(c.mint)}</strong><CopyCA mint={c.mint} /></div>
+                <div className="trend-metric"><strong>{c.userCount}</strong><span>{c.userCount === 1 ? "trader" : "traders"}</span></div>
+                <div className="trend-metric"><strong>{c.snipeCount}</strong><span>snipes</span></div>
+                {c.redirectCount > 0 && <span className="tp-chip">{c.redirectCount} redirect</span>}
+                <button className="ghost mini" onClick={() => setCopy({ mint: c.mint, ticker: c.ticker, triggerMode: c.redirectCount > c.snipeCount - c.redirectCount ? "REDIRECT" : "CLAIM" })}>Copy</button>
               </div>
             ))}
           </div>
         </div>
       ) : tab === "traders" ? (
-        <div className="card rise d1">
-          <h3>Traders</h3>
+        <div className="card rise d1 social-card">
+          <div className="section-heading"><div><h2>Traders</h2><p>Browse public trading activity and inspect shared snipes.</p></div></div>
           {users.length === 0 && <p className="sub">No paid traders yet.</p>}
-          <div className="admin-list">
+          <div className="trader-grid">
             {users.map((u) => (
-              <div
-                className="admin-row clickable"
-                key={u.id}
-                onClick={() => setOpenUserId(u.id)}
-              >
-                <span className="admin-user">@{u.username}</span>
-                <span className="dim">{u.filledCount} filled</span>
-                <span className="dim">spent {u.spentSol.toFixed(3)}</span>
+              <button className="trader-card" key={u.id} onClick={() => setOpenUserId(u.id)}>
+                <AvatarBubble username={u.username} avatarDataUrl={u.avatarDataUrl ?? null} size="sm" />
+                <div className="trader-main"><strong>@{u.username}</strong><span>{u.filledCount} filled · {u.snipeCount} snipes</span></div>
                 <Pnl net={u.netSol} />
-              </div>
+              </button>
             ))}
           </div>
         </div>
@@ -4724,38 +4725,20 @@ function Social({
         <ChatBox tradingPlatform={tradingPlatform} />
       )}
 
-      {openUserId && (
-        <UserSnipesModal
-          userId={openUserId}
-          tradingPlatform={tradingPlatform}
-          onClose={() => setOpenUserId(null)}
-          onCopy={(s) =>
-            setCopy({
-              mint: s.mint,
-              ticker: s.ticker,
-              triggerMode: s.triggerMode === "REDIRECT" ? "REDIRECT" : "CLAIM",
-              source: s,
-            })
-          }
-        />
-      )}
-      {copy && (
-        <CopyPublicModal
-          mint={copy.mint}
-          ticker={copy.ticker}
-          triggerMode={copy.triggerMode}
-          source={copy.source}
-          wallets={wallets}
-          onClose={() => setCopy(null)}
-          onCopied={() => {
-            setCopy(null);
-            toast("Snipe armed from copied coin");
-            onCopied();
-          }}
-        />
-      )}
+      {openUserId && <UserSnipesModal userId={openUserId} tradingPlatform={tradingPlatform} onClose={() => setOpenUserId(null)} onCopy={(s) => setCopy({ mint: s.mint, ticker: s.ticker, triggerMode: s.triggerMode === "REDIRECT" ? "REDIRECT" : "CLAIM", source: s })} />}
+      {copy && <CopyPublicModal mint={copy.mint} ticker={copy.ticker} triggerMode={copy.triggerMode} source={copy.source} wallets={wallets} onClose={() => setCopy(null)} onCopied={() => { setCopy(null); toast("Snipe armed from copied coin"); onCopied(); }} />}
     </div>
   );
+}
+
+function chatDayLabel(value: string) {
+  const d = new Date(value);
+  const now = new Date();
+  const today = new Date(now.getFullYear(), now.getMonth(), now.getDate()).getTime();
+  const day = new Date(d.getFullYear(), d.getMonth(), d.getDate()).getTime();
+  if (day === today) return "Today";
+  if (day === today - 86400000) return "Yesterday";
+  return d.toLocaleDateString(undefined, { day: "numeric", month: "short", year: d.getFullYear() === now.getFullYear() ? undefined : "numeric" });
 }
 
 function ChatBox({ tradingPlatform }: { tradingPlatform: TradingPlatform }) {
@@ -4763,6 +4746,9 @@ function ChatBox({ tradingPlatform }: { tradingPlatform: TradingPlatform }) {
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [text, setText] = useState("");
   const [busy, setBusy] = useState(false);
+  const [hasMore, setHasMore] = useState(false);
+  const [loadingOlder, setLoadingOlder] = useState(false);
+  const [newWhileUp, setNewWhileUp] = useState(0);
   const [imageDataUrl, setImageDataUrl] = useState<string | null>(null);
   const [replyTo, setReplyTo] = useState<ChatMessage | null>(null);
   const [emojiOpen, setEmojiOpen] = useState(false);
@@ -4772,69 +4758,105 @@ function ChatBox({ tradingPlatform }: { tradingPlatform: TradingPlatform }) {
   const [reactingTo, setReactingTo] = useState<ChatMessage | null>(null);
   const fileRef = useRef<HTMLInputElement | null>(null);
   const inputRef = useRef<HTMLInputElement | null>(null);
-  const lastRef = useRef<string | undefined>(undefined);
+  const lastRef = useRef<ChatMessage | null>(null);
+  const firstRef = useRef<ChatMessage | null>(null);
   const pollingRef = useRef(false);
+  const olderRef = useRef(false);
   const sendingRef = useRef(false);
+  const initializedRef = useRef(false);
   const feedRef = useRef<HTMLDivElement | null>(null);
+
+  const mergeMessages = useCallback((prev: ChatMessage[], incoming: ChatMessage[]) => {
+    const byId = new Map(prev.map((m) => [m.id, m]));
+    for (const m of incoming) byId.set(m.id, m);
+    const merged = [...byId.values()].sort((a, b) =>
+      a.createdAt === b.createdAt ? a.id.localeCompare(b.id) : a.createdAt.localeCompare(b.createdAt),
+    );
+    firstRef.current = merged[0] ?? null;
+    lastRef.current = merged[merged.length - 1] ?? null;
+    return merged;
+  }, []);
 
   const scrollToBottom = useCallback((smooth = false) => {
     requestAnimationFrame(() => {
       const el = feedRef.current;
       if (!el) return;
-      el.scrollTo({
-        top: el.scrollHeight,
-        behavior: smooth ? "smooth" : "auto",
-      });
+      el.scrollTo({ top: el.scrollHeight, behavior: smooth ? "smooth" : "auto" });
+      setNewWhileUp(0);
     });
   }, []);
 
-  function mergeMessages(incoming: ChatMessage[]) {
-    setMessages((prev) => {
-      const byId = new Map(prev.map((m) => [m.id, m]));
-      for (const m of incoming) byId.set(m.id, m);
-      const merged = [...byId.values()]
-        .sort((a, b) =>
-          a.createdAt < b.createdAt ? -1 : a.createdAt > b.createdAt ? 1 : 0,
-        )
-        .slice(-200);
-      lastRef.current = merged.length ? merged[merged.length - 1].createdAt : lastRef.current;
-      return merged;
-    });
-  }
-
-  function poll() {
+  const loadInitial = useCallback(async () => {
     if (pollingRef.current) return;
     pollingRef.current = true;
-    api
-      .socialChat(lastRef.current)
-      .then((r) => {
-        if (r.messages.length) mergeMessages(r.messages);
-      })
-      .catch(() => {})
-      .finally(() => {
-        pollingRef.current = false;
+    try {
+      const r = await api.socialChat({ limit: 40 });
+      setMessages((prev) => mergeMessages(prev, r.messages));
+      setHasMore(r.hasMore);
+      initializedRef.current = true;
+      requestAnimationFrame(() => scrollToBottom(false));
+    } catch { /* keep last good state */ }
+    finally { pollingRef.current = false; }
+  }, [mergeMessages, scrollToBottom]);
+
+  const pollNew = useCallback(async () => {
+    if (!initializedRef.current) return void loadInitial();
+    if (pollingRef.current) return;
+    pollingRef.current = true;
+    const el = feedRef.current;
+    const wasNearBottom = !el || el.scrollHeight - el.scrollTop - el.clientHeight < 110;
+    try {
+      const last = lastRef.current;
+      const r = await api.socialChat(last ? { after: last.createdAt, afterId: last.id, limit: 40 } : { limit: 40 });
+      if (r.messages.length) {
+        setMessages((prev) => mergeMessages(prev, r.messages));
+        if (wasNearBottom) scrollToBottom(true);
+        else setNewWhileUp((n) => n + r.messages.length);
+      }
+      if (r.hasMore) setTimeout(() => void pollNew(), 0);
+    } catch { /* keep last good page */ }
+    finally { pollingRef.current = false; }
+  }, [loadInitial, mergeMessages, scrollToBottom]);
+
+  const loadOlder = useCallback(async () => {
+    if (olderRef.current || !hasMore || !firstRef.current) return;
+    olderRef.current = true;
+    setLoadingOlder(true);
+    const el = feedRef.current;
+    const oldHeight = el?.scrollHeight ?? 0;
+    const cursor = firstRef.current;
+    try {
+      const r = await api.socialChat({ before: cursor.createdAt, beforeId: cursor.id, limit: 40 });
+      setMessages((prev) => mergeMessages(prev, r.messages));
+      setHasMore(r.hasMore);
+      requestAnimationFrame(() => {
+        const feed = feedRef.current;
+        if (feed) feed.scrollTop += feed.scrollHeight - oldHeight;
       });
-  }
+    } catch { /* keep current page */ }
+    finally { olderRef.current = false; setLoadingOlder(false); }
+  }, [hasMore, mergeMessages]);
 
   useEffect(() => {
-    poll();
-    const t = setInterval(poll, 5000);
-    return () => clearInterval(t);
-  }, []);
-
-  useEffect(() => {
-    if (!messages.length) return;
-    scrollToBottom(messages.length > 1);
-  }, [messages.length, scrollToBottom]);
+    void loadInitial();
+    const timer = setInterval(() => void pollNew(), 5000);
+    return () => clearInterval(timer);
+  }, [loadInitial, pollNew]);
 
   const emojiOptions = useMemo(() => {
-    const q = emojiSearch.trim().toLowerCase();
+    const q = emojiSearch.trim().toLowerCase().replace(/[_-]+/g, " ");
     if (q) {
+      const words = q.split(/\s+/).filter(Boolean);
+      const aliases = new Map(EMOJIS.map((entry) => [entry.emoji, entry]));
       return EMOJI_CATEGORIES
         .filter((c) => c.id !== "recent")
-        .flatMap((c) => c.emojis.map((emoji) => ({ emoji, label: c.label.toLowerCase() })))
-        .filter((entry) => entry.emoji.includes(q) || entry.label.includes(q))
-        .map((entry) => entry.emoji);
+        .flatMap((c) => c.emojis.map((emoji) => ({ emoji, category: c.label, meta: aliases.get(emoji) })))
+        .filter(({ emoji, category, meta }) => {
+          const hay = `${emoji} ${category} ${meta?.name ?? ""} ${meta?.aliases.join(" ") ?? ""} ${meta?.category ?? ""}`.toLowerCase();
+          return words.every((word) => hay.includes(word));
+        })
+        .map((entry) => entry.emoji)
+        .filter((emoji, index, list) => list.indexOf(emoji) === index);
     }
     if (emojiCategory === "recent") {
       return recentEmojis.length ? recentEmojis : DEFAULT_REACTION_EMOJIS;
@@ -4914,8 +4936,8 @@ function ChatBox({ tradingPlatform }: { tradingPlatform: TradingPlatform }) {
       setImageDataUrl(null);
       setReplyTo(null);
       closeEmojiPanel();
-      mergeMessages([r.message]);
-      poll();
+      setMessages((prev) => mergeMessages(prev, [r.message]));
+      scrollToBottom(true);
     } catch (e: any) {
       toast(e?.message ?? "Failed to send message", "err");
     } finally {
@@ -4936,11 +4958,21 @@ function ChatBox({ tradingPlatform }: { tradingPlatform: TradingPlatform }) {
   }
 
   return (
-    <div className="card rise d1 chat telegram-chat">
-      <div className="chat-feed telegram-feed" ref={feedRef}>
-        {messages.length === 0 && <p className="sub">No messages yet. Say hi.</p>}
-        {messages.map((m) => (
-          <div className="chat-msg telegram-msg" key={m.id}>
+    <div className="card rise d1 chat telegram-chat chat-polished">
+      <div className="chat-head"><div><h2>Trader chat</h2><p>Live community chat · newest messages load first</p></div><span className="live-pill"><i /> Live</span></div>
+      <div className="chat-feed-wrap">
+        <div className="chat-feed telegram-feed" ref={feedRef} onScroll={(e) => {
+          const el = e.currentTarget;
+          if (el.scrollTop <= 80) void loadOlder();
+          if (el.scrollHeight - el.scrollTop - el.clientHeight < 80) setNewWhileUp(0);
+        }}>
+          {loadingOlder && <div className="chat-loading"><span className="spin" /> Loading earlier messages…</div>}
+          {!loadingOlder && hasMore && <p className="sub chat-history-hint">Scroll up for earlier messages</p>}
+          {messages.length === 0 && <p className="sub">No messages yet. Say hi.</p>}
+          {messages.map((m, index) => (
+            <div className="chat-message-group" key={m.id}>
+              {(index === 0 || chatDayLabel(messages[index - 1].createdAt) !== chatDayLabel(m.createdAt)) && <div className="chat-day"><span>{chatDayLabel(m.createdAt)}</span></div>}
+              <div className="chat-msg telegram-msg">
             <ChatAvatar message={m} />
             <div className="chat-stack">
               <div className="chat-bubble telegram-bubble">
@@ -5007,8 +5039,11 @@ function ChatBox({ tradingPlatform }: { tradingPlatform: TradingPlatform }) {
                 </div>
               )}
             </div>
-          </div>
-        ))}
+              </div>
+            </div>
+          ))}
+        </div>
+        {newWhileUp > 0 && <button className="new-messages-btn" onClick={() => scrollToBottom(true)}>↓ {newWhileUp} new {newWhileUp === 1 ? "message" : "messages"}</button>}
       </div>
 
       {replyTo && (
@@ -5066,7 +5101,7 @@ function ChatBox({ tradingPlatform }: { tradingPlatform: TradingPlatform }) {
           </div>
         </div>
       )}
-      <div className="chat-input telegram-input">
+      <div className="chat-input telegram-input sticky-composer">
         <input
           ref={inputRef}
           value={text}
