@@ -20,8 +20,6 @@ import {
   type TrendingCoin,
   type ChatMessage,
   type AdminLog,
-  type DiscoverCoin,
-  type DiscoverMetadata,
   type ClaimScannerResult,
   type ClaimScannerCoin,
   type TakeProfitEntry,
@@ -104,7 +102,7 @@ type TradeOpenTarget = {
   ticker?: string | null;
 };
 
-type AppView = "dashboard" | "history" | "social" | "discover" | "claims" | "settings" | "admin";
+type AppView = "dashboard" | "history" | "social" | "claims" | "settings" | "admin";
 type DashTab = "arm" | "snipes" | "wallets";
 type SocialTab = "trending" | "traders" | "chat";
 type AdminTab = "armed" | "users" | "logs" | "notify";
@@ -290,7 +288,6 @@ function initialViewFromUrl(): AppView {
   if (
     view === "history" ||
     view === "social" ||
-    view === "discover" ||
     view === "claims" ||
     view === "settings" ||
     view === "admin"
@@ -299,7 +296,7 @@ function initialViewFromUrl(): AppView {
   }
   return readSavedChoice<AppView>(
     NAV_VIEW_KEY,
-    ["dashboard", "history", "social", "discover", "claims", "settings", "admin"],
+    ["dashboard", "history", "social", "claims", "settings", "admin"],
     "dashboard",
   );
 }
@@ -1467,7 +1464,6 @@ function Dashboard({
           )}
           <div className={`who ${menuOpen ? "open" : ""}`}>
             <button className={`nav-btn ${view === "dashboard" ? "on" : ""}`} onClick={() => go("dashboard")}>Dashboard</button>
-            <button className="nav-btn nav-disabled" disabled title="Discover is coming soon">Discover <small>Soon</small></button>
             <button className={`nav-btn ${view === "history" ? "on" : ""}`} onClick={() => go("history")}>History</button>
             <button className={`nav-btn ${view === "claims" ? "on" : ""}`} onClick={() => go("claims")}>Claim Scanner</button>
             <button className={`nav-btn ${view === "social" ? "on" : ""}`} onClick={() => go("social")}>Social{chatUnread && <span className="nav-dot" />}</button>
@@ -1480,7 +1476,6 @@ function Dashboard({
       {view === "history" ? <History tradingPlatform={profile.tradingPlatform} />
       : view === "claims" ? <ClaimScanner wallets={wallets} tradingPlatform={profile.tradingPlatform} />
       : view === "social" ? <Social wallets={wallets} tradingPlatform={profile.tradingPlatform} onCopied={() => { refresh(); setDashTab("snipes"); }} />
-      : view === "discover" ? <Discover wallets={wallets} onSniped={() => { refresh(); go("dashboard"); }} />
       : view === "settings" ? <SettingsPage profile={profile} onUpdated={(next) => { setProfile(next); localStorage.setItem("username", next.username); }} />
       : view === "admin" ? <AdminPanel wallets={wallets} />
       : (
@@ -2647,8 +2642,8 @@ function ClaimScanner({ wallets, tradingPlatform }: { wallets: Wallet[]; trading
     <div className="claim-scanner rise">
       <div className="page-intro claim-intro">
         <div>
-          <span className="page-kicker">Pump.fun fee sharing</span>
-          <h1>Claim Scanner <span className="read-only-badge">Read only</span></h1>
+          <span className="page-kicker">Claim Scanner</span>
+          <h1>Claim Scanner</h1>
           <p>Scan any Solana wallet to see the Pump.fun coins sharing creator fees with it and how much is currently unclaimed. Claim Sniper never connects, signs, or claims for the scanned wallet.</p>
         </div>
         {result && <span className="scan-freshness">{result.cached ? "Cached" : "Live"} · {scannedAt?.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}</span>}
@@ -2681,7 +2676,6 @@ function ClaimScanner({ wallets, tradingPlatform }: { wallets: Wallet[]; trading
             </div>
           </div>
         )}
-        <div className="claim-readonly-note"><span>◎</span><div><strong>Viewing only</strong><p>This page can inspect public fee-sharing state. It contains no wallet connection, claim button, transaction builder, or signing flow.</p></div></div>
       </div>
 
       {error && <div className="error-box claim-error"><strong>Scan failed</strong><span>{error}</span></div>}
@@ -5446,28 +5440,6 @@ function CopyPublicModal({
             {busy ? <span className="spin" /> : "Arm snipe"}
           </button>
         </div>
-      </div>
-    </div>
-  );
-}
-
-/* ---------------- discover ---------------- */
-function Discover({
-  wallets: _wallets,
-  onSniped: _onSniped,
-}: {
-  wallets: Wallet[];
-  onSniped: () => void;
-}) {
-  return (
-    <div className="card discover-soon rise d1">
-      <h2>Discover</h2>
-      <div className="empty coming-soon">
-        <div className="soon-title">Coming soon</div>
-        <p>
-          Discover is temporarily disabled while the redirect filters and token
-          quality checks are being rebuilt.
-        </p>
       </div>
     </div>
   );
