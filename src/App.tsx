@@ -19,7 +19,10 @@ import {
   type PublicSnipe,
   type TrendingCoin,
   type ChatMessage,
-  type AdminLog,
+  type AdminOverview,
+  type AdminRecord,
+  type AdminUserDetail,
+  type AdminSnipeDebug,
   type ClaimScannerResult,
   type ClaimScannerCoin,
   type TakeProfitEntry,
@@ -105,7 +108,7 @@ type TradeOpenTarget = {
 type AppView = "dashboard" | "history" | "social" | "claims" | "settings" | "admin";
 type DashTab = "arm" | "snipes" | "wallets";
 type SocialTab = "trending" | "traders" | "chat";
-type AdminTab = "armed" | "users" | "logs" | "notify";
+type AdminTab = "overview" | "snipes" | "users" | "records" | "notify";
 type PresetSlot = "1" | "2" | "3";
 type ArmSnipePreset = {
   walletId: string;
@@ -334,11 +337,12 @@ function initialDashTabFromUrl(): DashTab {
 }
 
 function initialAdminTabFromStorage(): AdminTab {
-  return readSavedChoice<AdminTab>(
-    NAV_ADMIN_TAB_KEY,
-    ["armed", "users", "logs", "notify"],
-    "armed",
-  );
+  if (typeof window === "undefined") return "overview";
+  const saved = localStorage.getItem(NAV_ADMIN_TAB_KEY);
+  if (saved === "armed") return "snipes";
+  if (saved === "logs") return "records";
+  if (["overview", "snipes", "users", "records", "notify"].includes(saved ?? "")) return saved as AdminTab;
+  return "overview";
 }
 
 function updateRoute(params: Record<string, string | null>, replace = false) {
@@ -2918,41 +2922,110 @@ function History({ tradingPlatform }: { tradingPlatform: TradingPlatform }) {
   );
 }
 
-/* ---------------- admin panel (MrKnowBody / Rich) ---------------- */
+/* ---------------- admin operations console ---------------- */
+function adminAgo(value?: string | null) {
+  if (!value) return "never";
+  const ms = Date.now() - new Date(value).getTime();
+  if (!Number.isFinite(ms)) return "—";
+  if (ms < 60_000) return `${Math.max(0, Math.floor(ms / 1000))}s ago`;
+  if (ms < 3_600_000) return `${Math.floor(ms / 60_000)}m ago`;
+  if (ms < 86_400_000) return `${Math.floor(ms / 3_600_000)}h ago`;
+  return `${Math.floor(ms / 86_400_000)}d ago`;
+}
+
+function adminDurationMs(ms?: number | null) {
+  if (ms == null || !Number.isFinite(ms)) return "—";
+  if (ms < 1000) return `${Math.round(ms)}ms`;
+  if (ms < 60_000) return `${(ms / 1000).toFixed(ms < 10_000 ? 2 : 1)}s`;
+  return `${Math.floor(ms / 60_000)}m ${Math.round((ms % 60_000) / 1000)}s`;
+}
+
+function adminUptime(seconds?: number | null) {
+  if (seconds == null) return "—";
+  const d = Math.floor(seconds / 86_400);
+  const h = Math.floor((seconds % 86_400) / 3600);
+  const m = Math.floor((seconds % 3600) / 60);
+  return d ? `${d}d ${h}h` : h ? `${h}h ${m}m` : `${m}m`;
+}
+
 function AdminPanel({ wallets }: { wallets: Wallet[] }) {
   const toast = useToast();
   const [tab, setTab] = useState<AdminTab>(() => initialAdminTabFromStorage());
-  const [armed, setArmed] = useState<AdminSnipe[]>([]);
+  const [overview, setOverview] = useState<AdminOverview | null>(null);
+  const [snipes, setSnipes] = useState<AdminSnipe[]>([]);
   const [users, setUsers] = useState<AdminUser[]>([]);
-  const [sel, setSel] = useState<{
-    username: string;
-    payWallet?: string | null;
-    snipes: Snipe[];
-    wallets?: { id: string; name: string; publicKey: string }[];
-  } | null>(null);
+  const [records, setRecords] = useState<AdminRecord[]>([]);
   const [loading, setLoading] = useState(true);
+  const [refreshing, setRefreshing] = useState(false);
   const [copyFrom, setCopyFrom] = useState<AdminSnipe | null>(null);
-  const [logs, setLogs] = useState<AdminLog[]>([]);
-  const [logUser, setLogUser] = useState("");
-  const [logLevel, setLogLevel] = useState("");
+  const [snipeDebug, setSnipeDebug] = useState<AdminSnipeDebug | null>(null);
+  const [userDetail, setUserDetail] = useState<AdminUserDetail | null>(null);
+  const [detailBusy, setDetailBusy] = useState(false);
 
-  function reloadArmed() {
-    api
-      .adminArmed()
-      .then((a) => setArmed(a.snipes))
-      .catch((e) => toast(e.message, "err"));
-  }
-  function loadLogs(uid: string, level: string) {
-    api
-      .adminLogs(uid || undefined, level || undefined)
-      .then((r) => setLogs(r.logs))
-      .catch((e) => toast(e.message, "err"));
-  }
+  const [snipeQuery, setSnipeQuery] = useState("");
+  const [snipeStatus, setSnipeStatus] = useState("");
+  const [userQuery, setUserQuery] = useState("");
+  const [recordQuery, setRecordQuery] = useState("");
+  const [recordType, setRecordType] = useState("");
+  const [recordLevel, setRecordLevel] = useState("");
+  const [recordUser, setRecordUser] = useState("");
+
+  const loadOverview = useCallback(async (quiet = false) => {
+    if (!quiet) setRefreshing(true);
+    try {
+      setOverview(await api.adminOverview());
+    } catch (e: any) {
+      if (!quiet) toast(e.message, "err");
+    } finally {
+      if (!quiet) setRefreshing(false);
+    }
+  }, [toast]);
+
+  const loadSnipes = useCallback(async (quiet = false) => {
+    try {
+      const res = await api.adminSnipes({ limit: 400 });
+      setSnipes(res.snipes);
+    } catch (e: any) {
+      if (!quiet) toast(e.message, "err");
+    }
+  }, [toast]);
+
+  const loadUsers = useCallback(async (quiet = false) => {
+    try {
+      const res = await api.adminUsers();
+      setUsers(res.users);
+    } catch (e: any) {
+      if (!quiet) toast(e.message, "err");
+    }
+  }, [toast]);
+
+  const loadRecords = useCallback(async (quiet = false) => {
+    try {
+      const res = await api.adminRecords({
+        userId: recordUser || undefined,
+        type: recordType || undefined,
+        level: recordLevel || undefined,
+        q: recordQuery.trim() || undefined,
+        limit: 250,
+      });
+      setRecords(res.records);
+    } catch (e: any) {
+      if (!quiet) toast(e.message, "err");
+    }
+  }, [recordUser, recordType, recordLevel, recordQuery, toast]);
+
+  const refreshAll = useCallback(async () => {
+    setRefreshing(true);
+    await Promise.all([loadOverview(true), loadSnipes(true), loadUsers(true)]);
+    if (tab === "records") await loadRecords(true);
+    setRefreshing(false);
+  }, [loadOverview, loadSnipes, loadUsers, loadRecords, tab]);
 
   useEffect(() => {
-    Promise.all([api.adminArmed(), api.adminUsers()])
-      .then(([a, u]) => {
-        setArmed(a.snipes);
+    Promise.all([api.adminOverview(), api.adminSnipes({ limit: 400 }), api.adminUsers()])
+      .then(([o, s, u]) => {
+        setOverview(o);
+        setSnipes(s.snipes);
         setUsers(u.users);
       })
       .catch((e) => toast(e.message, "err"))
@@ -2965,15 +3038,38 @@ function AdminPanel({ wallets }: { wallets: Wallet[] }) {
   }, [tab]);
 
   useEffect(() => {
-    if (tab === "logs") loadLogs(logUser, logLevel);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [tab, logUser, logLevel]);
+    if (tab !== "records") return;
+    const timer = window.setTimeout(() => void loadRecords(true), 220);
+    return () => window.clearTimeout(timer);
+  }, [tab, loadRecords]);
 
-  async function openUser(u: AdminUser) {
+  useEffect(() => {
+    const timer = window.setInterval(() => {
+      void loadOverview(true);
+      if (tab === "snipes") void loadSnipes(true);
+    }, 15_000);
+    return () => window.clearInterval(timer);
+  }, [tab, loadOverview, loadSnipes]);
+
+  async function openSnipe(id: string) {
+    setDetailBusy(true);
     try {
-      setSel(await api.adminUserSnipes(u.id));
+      setSnipeDebug(await api.adminSnipeDebug(id));
     } catch (e: any) {
       toast(e.message, "err");
+    } finally {
+      setDetailBusy(false);
+    }
+  }
+
+  async function openUser(u: AdminUser) {
+    setDetailBusy(true);
+    try {
+      setUserDetail(await api.adminUserDetail(u.id));
+    } catch (e: any) {
+      toast(e.message, "err");
+    } finally {
+      setDetailBusy(false);
     }
   }
 
@@ -2981,311 +3077,340 @@ function AdminPanel({ wallets }: { wallets: Wallet[] }) {
     try {
       const next = !u.priorityTx;
       const res = await api.adminSetUserPriority(u.id, next);
-      setUsers((list) =>
-        list.map((x) =>
-          x.id === u.id ? { ...x, priorityTx: res.user.priorityTx } : x,
-        ),
-      );
-      toast(
-        `${res.user.priorityTx ? "Enabled" : "Disabled"} priority for @${u.username}`,
-      );
+      setUsers((list) => list.map((x) => x.id === u.id ? { ...x, priorityTx: res.user.priorityTx } : x));
+      toast(`${res.user.priorityTx ? "Enabled" : "Disabled"} priority for @${u.username}`);
+      void loadOverview(true);
     } catch (e: any) {
       toast(e.message, "err");
     }
   }
-
 
   async function toggleWhitelist(u: AdminUser) {
     try {
       const next = !u.whitelist;
       const res = await api.adminSetUserWhitelist(u.id, next);
-      setUsers((list) =>
-        list.map((x) =>
-          x.id === u.id
-            ? {
-                ...x,
-                whitelist: res.user.whitelist,
-                paid: res.user.paid,
-                subscriptionExpiresAt: res.user.subscriptionExpiresAt ?? null,
-              }
-            : x,
-        ),
-      );
-      toast(
-        `${res.user.whitelist ? "Whitelisted" : "Removed whitelist for"} @${u.username}`,
-      );
+      setUsers((list) => list.map((x) => x.id === u.id ? {
+        ...x,
+        whitelist: res.user.whitelist,
+        paid: res.user.paid,
+        subscriptionExpiresAt: res.user.subscriptionExpiresAt ?? null,
+      } : x));
+      toast(`${res.user.whitelist ? "Whitelisted" : "Removed whitelist from"} @${u.username}`);
+      void loadOverview(true);
     } catch (e: any) {
       toast(e.message, "err");
     }
   }
 
+  const visibleSnipes = useMemo(() => {
+    const q = snipeQuery.trim().toLowerCase();
+    return snipes.filter((s) => {
+      if (snipeStatus && s.status !== snipeStatus) return false;
+      if (!q) return true;
+      return [s.ticker, s.mint, s.user.username, s.wallet.name, s.wallet.publicKey, s.signature, s.error]
+        .filter(Boolean)
+        .some((v) => String(v).toLowerCase().includes(q));
+    });
+  }, [snipes, snipeStatus, snipeQuery]);
+
+  const visibleUsers = useMemo(() => {
+    const q = userQuery.trim().toLowerCase();
+    if (!q) return users;
+    return users.filter((u) => u.username.toLowerCase().includes(q));
+  }, [users, userQuery]);
+
+  function jumpToSnipes(status = "") {
+    setSnipeStatus(status);
+    setTab("snipes");
+  }
+
+  const health = overview?.health;
+  const queuePct = health ? Math.min(100, (health.queue.queued / Math.max(1, health.queue.maxDepth)) * 100) : 0;
+
   return (
-    <div className="discover rise">
-      <div className="disc-head">
-        <h1>Admin</h1>
-        <p className="sub">All armed snipes and every account.</p>
+    <div className="admin-console rise">
+      <div className="admin-console-head">
+        <div>
+          <div className="admin-eyebrow">OPERATIONS</div>
+          <h1>Admin</h1>
+          <p className="sub">Live system health, users, execution state and debugging records.</p>
+        </div>
+        <div className="admin-head-actions">
+          {overview && (
+            <span className={`admin-health-pill ${overview.health.overall}`}>
+              <i /> {overview.health.overall === "healthy" ? "Systems healthy" : "System degraded"}
+            </span>
+          )}
+          <button className="ghost mini" onClick={() => void refreshAll()} disabled={refreshing}>
+            {refreshing ? "Refreshing…" : "Refresh"}
+          </button>
+        </div>
       </div>
 
-      <div className="seg" style={{ marginBottom: 16 }}>
-        <button
-          className={`seg-btn ${tab === "armed" ? "on" : ""}`}
-          onClick={() => setTab("armed")}
-        >
-          Armed ({armed.length})
-        </button>
-        <button
-          className={`seg-btn ${tab === "users" ? "on" : ""}`}
-          onClick={() => setTab("users")}
-        >
-          Users ({users.length})
-        </button>
-        <button
-          className={`seg-btn ${tab === "logs" ? "on" : ""}`}
-          onClick={() => setTab("logs")}
-        >
-          Logs
-        </button>
-        <button
-          className={`seg-btn ${tab === "notify" ? "on" : ""}`}
-          onClick={() => setTab("notify")}
-        >
-          Send notification
-        </button>
+      <div className="admin-tabs">
+        {([
+          ["overview", "Overview"],
+          ["snipes", `Snipes${overview ? ` (${overview.snipes.armed + overview.snipes.paused + overview.snipes.triggered})` : ""}`],
+          ["users", `Users${users.length ? ` (${users.length})` : ""}`],
+          ["records", "Records"],
+          ["notify", "Notification"],
+        ] as [AdminTab, string][]).map(([id, label]) => (
+          <button key={id} className={tab === id ? "on" : ""} onClick={() => setTab(id)}>{label}</button>
+        ))}
       </div>
 
       {loading ? (
-        <div className="empty">
-          <span className="spin dark" /> Loading…
-        </div>
-      ) : tab === "armed" ? (
-        armed.length === 0 ? (
-          <div className="empty">Nothing armed right now.</div>
-        ) : (
-          <div className="admin-list">
-            {armed.map((s) => (
-              <div className="admin-row" key={s.id}>
-                <span className="hist-tk">
-                  {s.ticker ? `$${s.ticker}` : short(s.mint)}
-                </span>
-                <span className="admin-user">@{s.user.username}</span>
-                <span>{s.amountSol} SOL</span>
-                <span>{s.wallet.name}</span>
-                {s.triggerMode === "REDIRECT" && (
-                  <span className="tp-chip">redirect</span>
-                )}
-                {s.watchWallet && (
-                  <span className="tp-chip">
-                    {s.triggerMode === "REDIRECT" ? "to " : "watch "}
-                    {short(s.watchWallet)}
-                  </span>
-                )}
-                {s.tpEnabled &&
-                  takeProfitLabel(s)
-                    .slice(0, 2)
-                    .map((label) => (
-                      <span className="tp-chip" key={label}>
-                        {label}
-                      </span>
-                    ))}
-                {s.slEnabled && (
-                  <span className="tp-chip">
-                    SL{s.slTrailing ? " trail" : ""}
-                  </span>
-                )}
-                {s.execMode === "LOCAL" && (
-                  <span className="tp-chip">local</span>
-                )}
-                <CopyCA mint={s.mint} />
-                <button className="ghost mini" onClick={() => setCopyFrom(s)}>
-                  Copy
+        <div className="admin-loading"><span className="spin dark" /> Loading admin data…</div>
+      ) : tab === "overview" ? (
+        <div className="admin-overview">
+          <div className="admin-metric-grid">
+            <button className="admin-metric" onClick={() => setTab("users")}>
+              <span>Active users</span><strong>{overview?.users.active ?? 0}</strong><small>{overview?.users.total ?? 0} total · +{overview?.users.new24h ?? 0} today</small>
+            </button>
+            <button className="admin-metric" onClick={() => jumpToSnipes("ARMED")}>
+              <span>Armed</span><strong>{overview?.snipes.armed ?? 0}</strong><small>{overview?.snipes.paused ?? 0} paused</small>
+            </button>
+            <button className="admin-metric" onClick={() => jumpToSnipes("TRIGGERED")}>
+              <span>Executing</span><strong>{overview?.snipes.triggered ?? 0}</strong><small>{health?.engine.currentlyFiring ?? 0} in-process</small>
+            </button>
+            <button className="admin-metric" onClick={() => jumpToSnipes("FILLED")}>
+              <span>Fills · 24h</span><strong>{overview?.snipes.fills24h ?? 0}</strong><small>{(overview?.snipes.buyVolume24hSol ?? 0).toFixed(2)} SOL bought</small>
+            </button>
+            <button className="admin-metric warn" onClick={() => jumpToSnipes("FAILED")}>
+              <span>Failures · 24h</span><strong>{overview?.snipes.failures24h ?? 0}</strong><small>{overview?.snipes.recoveredRetries24h ?? 0} slippage retries recovered</small>
+            </button>
+            <div className="admin-metric">
+              <span>Open positions</span><strong>{overview?.positions.open ?? 0}</strong><small>{(overview?.snipes.soldVolume24hSol ?? 0).toFixed(2)} SOL sold · 24h</small>
+            </div>
+            <div className="admin-metric">
+              <span>Trigger → fill</span><strong>{adminDurationMs(overview?.snipes.avgTriggerToFillMs)}</strong><small>average confirmed fill · 24h</small>
+            </div>
+            <div className="admin-metric">
+              <span>TX queue</span><strong>{health?.queue.queued ?? 0}</strong><small>{health?.queue.limitPerSecond ?? 0}/s limit · {health?.queue.priorityQueued ?? 0} priority</small>
+            </div>
+          </div>
+
+          <div className="admin-dashboard-grid">
+            <section className="admin-card admin-services">
+              <div className="admin-card-head"><div><h3>System health</h3><p>Live checks from this backend instance.</p></div><span className="admin-updated">{overview ? adminAgo(overview.generatedAt) : "—"}</span></div>
+              <AdminServiceRow name="PostgreSQL" ok={health?.database.ok ?? false} value={health ? `${health.database.latencyMs}ms` : "—"} detail={health?.database.error ?? "query responsive"} />
+              <AdminServiceRow name="Solana RPC" ok={health?.rpc.ok ?? false} value={health ? `${health.rpc.latencyMs}ms` : "—"} detail={health?.rpc.slot ? `slot ${health.rpc.slot.toLocaleString()}` : health?.rpc.error ?? "unavailable"} />
+              <AdminServiceRow name="Market-cap feed" ok={health?.marketFeed.ok ?? false} value={health?.marketFeed.connected ? "connected" : (health?.marketFeed.subscribed ? "offline" : "idle")} detail={`${health?.marketFeed.subscribed ?? 0} subscribed · ${health?.marketFeed.cached ?? 0} cached`} />
+              <AdminServiceRow name="Redirect radar" ok={!health?.radar.enabled || (health?.radar.subscriptions ?? 0) > 0} value={health?.radar.enabled ? `${health.radar.subscriptions} live` : "disabled"} detail={`${health?.radar.inFlight ?? 0} processing · ${health?.radar.marketQueueDepth ?? 0} enrichment queue`} />
+              <div className="admin-queue-block">
+                <div><span>Transaction queue</span><b>{health?.queue.queued ?? 0}/{health?.queue.maxDepth ?? 0}</b></div>
+                <div className="admin-progress"><i style={{ width: `${queuePct}%` }} /></div>
+                <small>{health?.queue.draining ? "Draining now" : "Idle"} · expires after {health ? adminDurationMs(health.queue.maxWaitMs) : "—"}</small>
+              </div>
+            </section>
+
+            <section className="admin-card">
+              <div className="admin-card-head"><div><h3>Execution engine</h3><p>Watchers and reconciliation state.</p></div></div>
+              <div className="admin-kv-grid">
+                <div><span>Creator watchers</span><b>{health?.engine.creatorSubscriptions ?? 0}</b></div>
+                <div><span>Snipe bindings</span><b>{health?.engine.creatorSnipeBindings ?? 0}</b></div>
+                <div><span>Redirect watchers</span><b>{health?.engine.redirectSubscriptions ?? 0}</b></div>
+                <div><span>Arming now</span><b>{health?.engine.armingInFlight ?? 0}</b></div>
+                <div><span>Buy reconcile</span><b className={(health?.engine.buyReconciliationsPending ?? 0) ? "amber" : ""}>{health?.engine.buyReconciliationsPending ?? 0}</b></div>
+                <div><span>Wallet watchers</span><b>{health?.balances.subscriptions ?? 0}</b></div>
+              </div>
+              <div className="admin-engine-last">
+                <span>Last claim <b>{adminAgo(health?.engine.lastClaimAt)}</b></span>
+                <span>Last trigger <b>{adminAgo(health?.engine.lastTriggerAt)}</b></span>
+                <span>Last fill <b>{adminAgo(health?.engine.lastFillAt)}</b></span>
+              </div>
+              <div className="admin-server-strip">
+                <div><span>Uptime</span><b>{adminUptime(health?.process.uptimeSeconds)}</b></div>
+                <div><span>RAM</span><b>{health?.process.rssMb ?? 0} MB</b></div>
+                <div><span>Heap</span><b>{health?.process.heapUsedMb ?? 0}/{health?.process.heapTotalMb ?? 0} MB</b></div>
+                <div><span>Node</span><b>{health?.process.node ?? "—"}</b></div>
+              </div>
+            </section>
+
+            <section className="admin-card admin-failures">
+              <div className="admin-card-head"><div><h3>Recent failures</h3><p>Newest execution errors across all users.</p></div><button className="ghost mini" onClick={() => { setRecordLevel("error"); setTab("records"); }}>All errors</button></div>
+              {!overview?.recentFailures.length ? <div className="admin-empty-mini">No recent failures.</div> : overview.recentFailures.map((f) => (
+                <button className="admin-failure-row" key={f.id} onClick={() => f.snipeId && void openSnipe(f.snipeId)} disabled={!f.snipeId}>
+                  <div><b>@{f.username}</b><span>{adminAgo(f.createdAt)}</span></div>
+                  <p>{f.message}</p>
                 </button>
+              ))}
+            </section>
+
+            <section className="admin-card">
+              <div className="admin-card-head"><div><h3>Account / service activity</h3><p>Useful operational totals.</p></div></div>
+              <div className="admin-kv-list">
+                <div><span>Whitelisted users</span><b>{overview?.users.whitelisted ?? 0}</b></div>
+                <div><span>Priority users</span><b>{overview?.users.priority ?? 0}</b></div>
+                <div><span>Social messages · 24h</span><b>{overview?.social.messages24h ?? 0}</b></div>
+                <div><span>Billing pending</span><b>{overview?.billing.PENDING ?? 0}</b></div>
+                <div><span>Billing failed</span><b className={(overview?.billing.FAILED ?? 0) ? "red" : ""}>{overview?.billing.FAILED ?? 0}</b></div>
+                <div><span>Market enrich queue</span><b>{health?.radar.marketQueueDepth ?? 0}</b></div>
+              </div>
+            </section>
+          </div>
+        </div>
+      ) : tab === "snipes" ? (
+        <div className="admin-section">
+          <div className="admin-toolbar">
+            <div className="admin-search"><span>⌕</span><input value={snipeQuery} onChange={(e) => setSnipeQuery(e.target.value)} placeholder="Search ticker, CA, user, wallet, signature or error…" /></div>
+            <select value={snipeStatus} onChange={(e) => setSnipeStatus(e.target.value)}>
+              <option value="">All statuses</option><option>ARMED</option><option>PAUSED</option><option>TRIGGERED</option><option>FILLED</option><option>FAILED</option><option>CANCELLED</option>
+            </select>
+            <button className="ghost mini" onClick={() => void loadSnipes()}>{visibleSnipes.length} shown · Refresh</button>
+          </div>
+          <div className="admin-snipe-list">
+            {!visibleSnipes.length ? <div className="empty">No matching snipes.</div> : visibleSnipes.map((s) => (
+              <div className={`admin-snipe-row ${s.status.toLowerCase()}`} key={s.id} onClick={() => void openSnipe(s.id)}>
+                <div className="admin-snipe-main">
+                  <div className="admin-snipe-title"><strong>{s.ticker ? `$${s.ticker}` : short(s.mint)}</strong><span className={`badge ${s.status}`}>{s.status}</span><span className="admin-user">@{s.user.username}</span></div>
+                  <div className="admin-snipe-meta">
+                    <span><b>{s.amountSol}</b> SOL</span>
+                    <span>{s.wallet.name}</span>
+                    <span>{s.triggerMode === "REDIRECT" ? "Redirect" : "Claim"}</span>
+                    <span>{s.execMode === "LOCAL" ? "Local" : "PumpPortal"}</span>
+                    <span>MC {s.liveMarketCapUsd != null ? `$${compactNumber.format(s.liveMarketCapUsd)}` : "—"}</span>
+                    <span>{s.buyAttempts || 0} attempt{s.buyAttempts === 1 ? "" : "s"} · {s.finalSlippagePct ?? s.slippagePct}%</span>
+                    {s.triggerToFillMs != null && <span>fill {adminDurationMs(s.triggerToFillMs)}</span>}
+                  </div>
+                  {s.position && <div className="admin-position-line"><span>{s.position.status} position</span><span>{s.position.realizedSol.toFixed(4)} SOL realized</span><Pnl net={s.position.realizedProfitSol} /></div>}
+                  {s.error && <div className="admin-error-preview">{s.error}</div>}
+                </div>
+                <div className="admin-row-actions" onClick={(e) => e.stopPropagation()}>
+                  <CopyCA mint={s.mint} />
+                  <button className="ghost mini" onClick={() => void openSnipe(s.id)}>Debug</button>
+                  <button className="ghost mini" onClick={() => setCopyFrom(s)}>Copy</button>
+                </div>
               </div>
             ))}
           </div>
-        )
+        </div>
       ) : tab === "users" ? (
-        <div className="admin-list">
-          {users.length > 0 && (
-            <div className="admin-row total">
-              <span className="admin-user">All users</span>
-              <span className="hist-date">{users.length} accounts</span>
-              <span>
-                spent {users.reduce((a, u) => a + u.spentSol, 0).toFixed(3)}
-              </span>
-              <span>
-                made {users.reduce((a, u) => a + u.madeSol, 0).toFixed(3)}
-              </span>
-              <Pnl net={users.reduce((a, u) => a + u.netSol, 0)} />
-            </div>
-          )}
-          {users.map((u) => (
-            <div
-              className="admin-row clickable"
-              key={u.id}
-              onClick={() => openUser(u)}
-            >
-              <span className="admin-user">@{u.username}</span>
-              <span className={`badge ${u.paid ? "FILLED" : "FAILED"}`}>
-                {u.whitelist ? "whitelist" : u.paid ? "active" : "expired"}
-              </span>
-              <button
-                className={`ghost mini ${u.whitelist ? "on" : ""}`}
-                title="Whitelisted users bypass monthly billing and always have access"
-                onClick={(e) => {
-                  e.stopPropagation();
-                  toggleWhitelist(u);
-                }}
-              >
-                {u.whitelist ? "whitelist on" : "whitelist off"}
-              </button>
-              <button
-                className={`ghost mini ${u.priorityTx ? "on" : ""}`}
-                title="Priority queue sends this user's transactions before normal users"
-                onClick={(e) => {
-                  e.stopPropagation();
-                  togglePriority(u);
-                }}
-              >
-                {u.priorityTx ? "priority on" : "priority off"}
-              </button>
-              <span className="dim">
-                {u.whitelist
-                  ? "always"
-                  : u.subscriptionExpiresAt
-                    ? `until ${new Date(u.subscriptionExpiresAt).toLocaleDateString()}`
-                    : "no sub"}
-              </span>
-              <span>{u.snipeCount} snipes</span>
-              <span className="dim">spent {u.spentSol.toFixed(3)}</span>
-              <span className="dim">made {u.madeSol.toFixed(3)}</span>
-              <Pnl net={u.netSol} />
-              <span className="hist-date">
-                {new Date(u.createdAt).toLocaleDateString()}
-              </span>
-            </div>
-          ))}
-        </div>
-      ) : tab === "notify" ? (
-        <AdminNotificationTester />
-      ) : (
-        <div className="admin-list">
-          <div className="filter-row">
-            <select
-              value={logUser}
-              onChange={(e) => setLogUser(e.target.value)}
-            >
-              <option value="">All users</option>
-              {users.map((u) => (
-                <option key={u.id} value={u.id}>
-                  @{u.username}
-                </option>
-              ))}
-            </select>
-            <select
-              value={logLevel}
-              onChange={(e) => setLogLevel(e.target.value)}
-            >
-              <option value="">All types</option>
-              <option value="success">Filled</option>
-              <option value="error">Failed</option>
-              <option value="info">Messages</option>
-            </select>
-            <button
-              className="ghost mini"
-              onClick={() => loadLogs(logUser, logLevel)}
-            >
-              Refresh
-            </button>
+        <div className="admin-section">
+          <div className="admin-toolbar">
+            <div className="admin-search"><span>⌕</span><input value={userQuery} onChange={(e) => setUserQuery(e.target.value)} placeholder="Search username…" /></div>
+            <button className="ghost mini" onClick={() => void loadUsers()}>{visibleUsers.length} shown · Refresh</button>
           </div>
-          {logs.length === 0 && <p className="sub">No logs yet.</p>}
-          {logs.map((l) => (
-            <div className={`log-row ${l.level}`} key={l.id}>
-              <span className="hist-date">
-                {new Date(l.createdAt).toLocaleString()}
-              </span>
-              <span className="admin-user">@{l.username}</span>
-              <span className="log-msg">{l.message}</span>
-            </div>
-          ))}
+          <div className="admin-user-summary">
+            <span><b>{users.length}</b> accounts</span><span><b>{users.filter((u) => u.paid).length}</b> active</span><span><b>{users.filter((u) => u.whitelist).length}</b> whitelisted</span><span><b>{users.filter((u) => u.priorityTx).length}</b> priority</span><span><b>{users.reduce((a, u) => a + u.spentSol, 0).toFixed(2)}</b> SOL spent</span><span><Pnl net={users.reduce((a, u) => a + u.netSol, 0)} /></span>
+          </div>
+          <div className="admin-user-list">
+            {visibleUsers.map((u) => (
+              <div className="admin-user-row" key={u.id} onClick={() => void openUser(u)}>
+                <div className="admin-user-main">
+                  <div><strong>@{u.username}</strong><span className={`badge ${u.paid ? "FILLED" : "FAILED"}`}>{u.whitelist ? "WHITELIST" : u.paid ? "ACTIVE" : "EXPIRED"}</span>{u.priorityTx && <span className="admin-priority-chip">PRIORITY</span>}</div>
+                  <p>{u.activeSnipeCount ?? 0} active · {u.openPositionCount ?? 0} positions · {u.failedSnipeCount ?? 0} failed · {u.walletCount} wallets · last {adminAgo(u.lastActivityAt)}</p>
+                </div>
+                <div className="admin-user-pnl"><span>spent {u.spentSol.toFixed(3)}</span><span>made {u.madeSol.toFixed(3)}</span><Pnl net={u.netSol} /></div>
+                <div className="admin-row-actions" onClick={(e) => e.stopPropagation()}>
+                  <button className={`ghost mini ${u.whitelist ? "on" : ""}`} onClick={() => void toggleWhitelist(u)}>{u.whitelist ? "Whitelist on" : "Whitelist"}</button>
+                  <button className={`ghost mini ${u.priorityTx ? "on" : ""}`} onClick={() => void togglePriority(u)}>{u.priorityTx ? "Priority on" : "Priority"}</button>
+                  <button className="ghost mini" onClick={() => void openUser(u)}>Inspect</button>
+                </div>
+              </div>
+            ))}
+          </div>
         </div>
+      ) : tab === "records" ? (
+        <div className="admin-section">
+          <div className="admin-record-info"><div><strong>Activity records</strong><p>Snipe lifecycle, on-chain position events and billing records in one timeline.</p></div><div className="admin-row-actions"><button className="ghost mini" onClick={() => { const blob = new Blob([JSON.stringify(records, null, 2)], { type: "application/json" }); const url = URL.createObjectURL(blob); const a = document.createElement("a"); a.href = url; a.download = `claimsniper-admin-records-${new Date().toISOString().replace(/[:.]/g, "-")}.json`; a.click(); URL.revokeObjectURL(url); }}>Export JSON</button><button className="ghost mini" onClick={() => void loadRecords()}>Refresh</button></div></div>
+          <div className="admin-toolbar admin-record-toolbar">
+            <div className="admin-search"><span>⌕</span><input value={recordQuery} onChange={(e) => setRecordQuery(e.target.value)} placeholder="Search user, ticker, CA, signature, snipe ID or error…" /></div>
+            <select value={recordType} onChange={(e) => setRecordType(e.target.value)}><option value="">All sources</option><option value="snipe">Snipe</option><option value="position">Position</option><option value="billing">Billing</option></select>
+            <select value={recordLevel} onChange={(e) => setRecordLevel(e.target.value)}><option value="">All levels</option><option value="error">Errors</option><option value="success">Success</option><option value="info">Info</option></select>
+            <select value={recordUser} onChange={(e) => setRecordUser(e.target.value)}><option value="">All users</option>{users.map((u) => <option key={u.id} value={u.id}>@{u.username}</option>)}</select>
+          </div>
+          <div className="admin-record-list">
+            {!records.length ? <div className="empty">No matching records.</div> : records.map((r) => (
+              <div className={`admin-record-row ${r.level}`} key={r.id}>
+                <div className="admin-record-time"><b>{new Date(r.createdAt).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit", second: "2-digit" })}</b><span>{new Date(r.createdAt).toLocaleDateString()}</span></div>
+                <div className="admin-record-body">
+                  <div className="admin-record-top"><span className={`admin-source ${r.type}`}>{r.type}</span><span className="admin-event">{r.event}</span><span className="admin-user">@{r.username}</span>{r.ticker && <strong>${r.ticker}</strong>}{r.status && <span className="dim">{r.status}</span>}</div>
+                  <p>{r.message}</p>
+                  <div className="admin-record-links">
+                    {r.snipeId && <button onClick={() => void openSnipe(r.snipeId!)}>snipe {short(r.snipeId)}</button>}
+                    {r.mint && <button onClick={() => navigator.clipboard.writeText(r.mint!)}>CA {short(r.mint)}</button>}
+                    {r.signature && <a href={`https://solscan.io/tx/${r.signature}`} target="_blank" rel="noreferrer">tx {short(r.signature)} ↗</a>}
+                  </div>
+                  {r.details && <details><summary>Technical details</summary><pre>{JSON.stringify(r.details, null, 2)}</pre></details>}
+                </div>
+              </div>
+            ))}
+          </div>
+        </div>
+      ) : (
+        <AdminNotificationTester />
       )}
 
-      {sel && (
-        <div className="modal-overlay" onMouseDown={() => setSel(null)}>
-          <div className="modal wide" onMouseDown={(e) => e.stopPropagation()}>
-            <h3>@{sel.username}</h3>
-            {sel.wallets && sel.wallets.length > 0 && (
-              <>
-                <p className="modal-sub">Wallets</p>
-                <div className="admin-list">
-                  {sel.wallets.map((w) => (
-                    <div className="admin-row" key={w.id}>
-                      <span className="admin-user">{w.name}</span>
-                      <CopyAddr address={w.publicKey} />
-                    </div>
-                  ))}
-                  {sel.payWallet && (
-                    <div className="admin-row">
-                      <span className="dim">deposit</span>
-                      <CopyAddr address={sel.payWallet} />
-                    </div>
-                  )}
-                </div>
-              </>
-            )}
-            <p className="modal-sub">{sel.snipes.length} snipe(s)</p>
-            <div className="admin-list scroll">
-              {sel.snipes.length === 0 ? (
-                <div className="empty">No snipes.</div>
-              ) : (
-                sel.snipes.map((s) => (
-                  <div className="admin-row" key={s.id}>
-                    <span className="hist-tk">
-                      {s.ticker ? `$${s.ticker}` : short(s.mint)}
-                    </span>
-                    <span className={`badge ${s.status}`}>{s.status}</span>
-                    <span>{s.amountSol} SOL</span>
-                    {s.tpEnabled &&
-                      takeProfitLabel(s)
-                        .slice(0, 2)
-                        .map((label) => (
-                          <span className="tp-chip" key={label}>
-                            {label}
-                          </span>
-                        ))}
-                    {s.slEnabled && (
-                      <span className="tp-chip">
-                        SL{s.slTrailing ? " trail" : ""}
-                      </span>
-                    )}
-                    <CopyCA mint={s.mint} />
-                  </div>
-                ))
-              )}
-            </div>
-            <div className="modal-actions">
-              <button className="ghost" onClick={() => setSel(null)}>
-                Close
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
+      {detailBusy && <div className="admin-detail-loading"><span className="spin dark" /> Loading details…</div>}
+      {snipeDebug && <AdminSnipeDebugModal data={snipeDebug} onClose={() => setSnipeDebug(null)} />}
+      {userDetail && <AdminUserDetailModal data={userDetail} onClose={() => setUserDetail(null)} onOpenSnipe={(id) => { setUserDetail(null); void openSnipe(id); }} />}
 
       {copyFrom && (
-        <CopySnipeModal
-          source={copyFrom}
-          wallets={wallets}
-          onClose={() => setCopyFrom(null)}
-          onCopied={() => {
-            setCopyFrom(null);
-            reloadArmed();
-          }}
-        />
+        <CopySnipeModal source={copyFrom} wallets={wallets} onClose={() => setCopyFrom(null)} onCopied={() => { setCopyFrom(null); void loadSnipes(); void loadOverview(true); }} />
       )}
     </div>
   );
 }
+
+function AdminServiceRow({ name, ok, value, detail }: { name: string; ok: boolean; value: string; detail: string }) {
+  return <div className="admin-service-row"><i className={ok ? "ok" : "bad"} /><div><b>{name}</b><span>{detail}</span></div><strong>{value}</strong></div>;
+}
+
+function AdminSnipeDebugModal({ data, onClose }: { data: AdminSnipeDebug; onClose: () => void }) {
+  const s = data.snipe;
+  const timeline = [
+    ["Created", s.createdAt],
+    ["Triggered", s.triggeredAt],
+    ["Filled", s.filledAt],
+    ["Exit submitted", s.exitSubmittedAt],
+  ].filter((x) => x[1]) as [string, string][];
+  return (
+    <div className="modal-overlay" onMouseDown={onClose}>
+      <div className="modal admin-debug-modal" onMouseDown={(e) => e.stopPropagation()}>
+        <div className="admin-modal-head"><div><span className="admin-eyebrow">SNIPE DEBUG</span><h3>{s.ticker ? `$${s.ticker}` : short(s.mint)}</h3><p>@{s.user.username} · {s.wallet.name}</p></div><button className="ghost mini" onClick={onClose}>Close</button></div>
+        <div className="admin-debug-status"><span className={`badge ${s.status}`}>{s.status}</span><span>{s.amountSol} SOL</span><span>{s.triggerMode}</span><span>{s.execMode}</span><span>MC {s.liveMarketCapUsd != null ? `$${compactNumber.format(s.liveMarketCapUsd)}` : "—"}</span></div>
+        <div className="admin-timeline">{timeline.map(([label, value], i) => <div key={label}><i className={i === timeline.length - 1 ? "last" : ""} /><span>{label}</span><b>{new Date(value).toLocaleString()}</b>{i > 0 && <small>+{adminDurationMs(new Date(value).getTime() - new Date(timeline[i - 1][1]).getTime())}</small>}</div>)}</div>
+        <div className="admin-debug-grid">
+          <section><h4>Execution</h4><AdminDebugKV k="Snipe ID" v={s.id} mono /><AdminDebugKV k="Wallet" v={`${s.wallet.name} · ${s.wallet.publicKey}`} mono /><AdminDebugKV k="Amount" v={`${s.amountSol} SOL`} /><AdminDebugKV k="Base slippage" v={`${s.slippagePct}%`} /><AdminDebugKV k="Adaptive" v={s.adaptiveSlippage === false ? "Off" : `On · max ${s.maxSlippagePct ?? "—"}%`} /><AdminDebugKV k="Buy attempts" v={`${s.buyAttempts ?? 0} / ${(s.maxBuyRetries ?? 0) + 1}`} /><AdminDebugKV k="Final slippage" v={s.finalSlippagePct != null ? `${s.finalSlippagePct}%` : "—"} /><AdminDebugKV k="Priority / tip" v={`${s.priorityFee} / ${s.bribe} SOL`} /><AdminDebugKV k="Trigger → fill" v={adminDurationMs(s.triggerToFillMs)} /></section>
+          <section><h4>Trigger / filters</h4><AdminDebugKV k="Mode" v={s.triggerMode ?? "CLAIM"} /><AdminDebugKV k="Watch wallet" v={s.watchWallet ?? "default creator"} mono /><AdminDebugKV k="MC min" v={s.mcMinUsd != null ? `$${compactNumber.format(s.mcMinUsd)}` : "none"} /><AdminDebugKV k="MC max" v={s.mcMaxUsd != null ? `$${compactNumber.format(s.mcMaxUsd)}` : "none"} /><AdminDebugKV k="Claim check" v={s.claimCheckStatus ?? "—"} /><AdminDebugKV k="Claim signer" v={s.claimCheckSigner ? "yes" : "no"} /><AdminDebugKV k="Claim tx" v={s.claimCheckTx ?? "—"} mono /></section>
+          <section><h4>Exit / position</h4><AdminDebugKV k="TP status" v={s.tpStatus ?? "NONE"} /><AdminDebugKV k="Exit kind" v={s.exitKind ?? "—"} /><AdminDebugKV k="Entry MC" v={s.entryMcSol != null ? `${s.entryMcSol.toFixed(2)} SOL` : "—"} /><AdminDebugKV k="Peak MC" v={s.peakMcSol != null ? `${s.peakMcSol.toFixed(2)} SOL` : "—"} /><AdminDebugKV k="Position" v={data.position?.status ?? "none"} /><AdminDebugKV k="Realized" v={data.position ? `${data.position.realizedSol.toFixed(6)} SOL` : "—"} /><AdminDebugKV k="Realized P&L" v={data.position ? `${data.position.realizedProfitSol >= 0 ? "+" : ""}${data.position.realizedProfitSol.toFixed(6)} SOL` : "—"} /></section>
+        </div>
+        <div className="admin-debug-signatures"><div><span>Buy transaction</span>{s.signature ? <a href={`https://solscan.io/tx/${s.signature}`} target="_blank" rel="noreferrer">{s.signature} ↗</a> : <b>none</b>}</div>{s.tpSignature && <div><span>Exit transaction</span><a href={`https://solscan.io/tx/${s.tpSignature}`} target="_blank" rel="noreferrer">{s.tpSignature} ↗</a></div>}</div>
+        {s.error && <div className="admin-debug-error"><strong>Latest error</strong><pre>{s.error}</pre></div>}
+        {data.position?.events?.length ? <section className="admin-debug-events"><h4>On-chain position events</h4>{data.position.events.map((e) => <div key={e.id}><span className="admin-event">{e.kind}</span><a href={`https://solscan.io/tx/${e.signature}`} target="_blank" rel="noreferrer">{short(e.signature)} ↗</a><span>{e.solChange >= 0 ? "+" : ""}{e.solChange.toFixed(6)} SOL</span><Pnl net={e.realizedProfitSol} /><time>{new Date(e.createdAt).toLocaleString()}</time></div>)}</section> : null}
+        <section className="admin-debug-events"><h4>Lifecycle records</h4>{!data.logs.length ? <p className="sub">No lifecycle records for this snipe.</p> : data.logs.map((l) => <div key={l.id} className={l.level}><span className="admin-event">{l.level}</span><p>{l.message}</p><time>{new Date(l.createdAt).toLocaleString()}</time></div>)}</section>
+        <div className="modal-actions"><CopyCA mint={s.mint} /><button className="ghost" onClick={() => void navigator.clipboard.writeText(JSON.stringify(data, null, 2))}>Copy debug JSON</button><button className="ghost" onClick={onClose}>Close</button></div>
+      </div>
+    </div>
+  );
+}
+
+function AdminDebugKV({ k, v, mono = false }: { k: string; v: string; mono?: boolean }) {
+  return <div className="admin-debug-kv"><span>{k}</span><b className={mono ? "mono" : ""} title={v}>{v}</b></div>;
+}
+
+function AdminUserDetailModal({ data, onClose, onOpenSnipe }: { data: AdminUserDetail; onClose: () => void; onOpenSnipe: (id: string) => void }) {
+  const u = data.user;
+  return (
+    <div className="modal-overlay" onMouseDown={onClose}>
+      <div className="modal admin-user-modal" onMouseDown={(e) => e.stopPropagation()}>
+        <div className="admin-modal-head"><div><span className="admin-eyebrow">USER INSPECTOR</span><h3>@{u.username}</h3><p>Joined {new Date(u.createdAt).toLocaleDateString()} · {u.tradingPlatform ?? "AXIOM"}</p></div><button className="ghost mini" onClick={onClose}>Close</button></div>
+        <div className="admin-user-detail-metrics"><div><span>Active snipes</span><b>{data.summary.activeSnipes}</b></div><div><span>Open positions</span><b>{data.summary.openPositions}</b></div><div><span>Failed snipes</span><b>{data.summary.failedSnipes}</b></div><div><span>Fills</span><b>{data.summary.fills}</b></div><div><span>Spent</span><b>{data.summary.spentSol.toFixed(3)} SOL</b></div><div><span>Realized P&L</span><Pnl net={data.summary.realizedProfitSol} /></div></div>
+        <div className="admin-account-strip"><span className={`badge ${u.paid ? "FILLED" : "FAILED"}`}>{u.whitelist ? "WHITELIST" : u.paid ? "ACTIVE" : "EXPIRED"}</span>{u.priorityTx && <span className="admin-priority-chip">PRIORITY TX</span>}<span>{u.subscriptionExpiresAt ? `Subscription ${new Date(u.subscriptionExpiresAt).toLocaleDateString()}` : "No subscription expiry"}</span><span>{u._count?.pushSubscriptions ?? 0} push device(s)</span><span>{u._count?.messages ?? 0} chat messages</span></div>
+        <div className="admin-user-detail-grid">
+          <section><h4>Wallets</h4>{data.wallets.map((w) => <div className="admin-wallet-detail" key={w.id}><div><b>{w.name}</b><span>{w.publicKey}</span></div><CopyAddr address={w.publicKey} /></div>)}{u.payWallet && <div className="admin-wallet-detail"><div><b>Billing deposit</b><span>{u.payWallet}</span></div><CopyAddr address={u.payWallet} /></div>}</section>
+          <section><h4>Billing</h4>{!data.billing.length ? <p className="sub">No billing records.</p> : data.billing.slice(0, 8).map((b) => <div className="admin-billing-detail" key={b.id}><span className={`admin-event ${b.status === "FAILED" ? "red" : ""}`}>{b.status}</span><div><b>{b.sol.toFixed(5)} SOL · {b.periods} period(s)</b><span>{new Date(b.createdAt).toLocaleString()}</span>{b.error && <em>{b.error}</em>}</div></div>)}</section>
+        </div>
+        <section className="admin-user-snipes"><h4>Recent snipes</h4><div>{!data.snipes.length ? <p className="sub">No snipes.</p> : data.snipes.slice(0, 30).map((s) => <button key={s.id} onClick={() => onOpenSnipe(s.id)}><strong>{s.ticker ? `$${s.ticker}` : short(s.mint)}</strong><span className={`badge ${s.status}`}>{s.status}</span><span>{s.amountSol} SOL</span><span>{adminAgo(s.createdAt)}</span></button>)}</div></section>
+        <section className="admin-user-snipes"><h4>Open / recent positions</h4><div>{!data.positions.length ? <p className="sub">No positions.</p> : data.positions.slice(0, 20).map((p) => <button key={p.id} onClick={() => p.snipeId && onOpenSnipe(p.snipeId)} disabled={!p.snipeId}><strong>{p.ticker ? `$${p.ticker}` : short(p.mint)}</strong><span>{p.status}</span><span>{p.buySol.toFixed(3)} SOL entry</span><Pnl net={p.realizedProfitSol} /></button>)}</div></section>
+        <section className="admin-user-log-mini"><h4>Recent activity</h4>{data.logs.slice(0, 12).map((l) => <div key={l.id} className={l.level}><span>{new Date(l.createdAt).toLocaleString()}</span><p>{l.message}</p></div>)}</section>
+        <div className="modal-actions"><button className="ghost" onClick={onClose}>Close</button></div>
+      </div>
+    </div>
+  );
+}
+
 
 function AdminNotificationTester() {
   const toast = useToast();

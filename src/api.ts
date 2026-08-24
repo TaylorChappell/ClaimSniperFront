@@ -108,6 +108,10 @@ export interface Snipe {
   signature?: string | null;
   error?: string | null;
   createdAt: string;
+  triggeredAt?: string | null;
+  filledAt?: string | null;
+  exitKind?: string | null;
+  exitSubmittedAt?: string | null;
   wallet: { name: string; publicKey: string };
   tpEnabled: boolean;
   tpMultiplier?: number | null;
@@ -154,6 +158,80 @@ export interface Stats {
 }
 export interface AdminSnipe extends Snipe {
   user: { username: string };
+  liveMarketCapUsd?: number | null;
+  liveMarketCapSol?: number | null;
+  liveMarketCapUpdatedAt?: string | null;
+  triggerToFillMs?: number | null;
+  position?: {
+    snipeId?: string | null;
+    status: string;
+    buySol: number;
+    realizedSol: number;
+    realizedProfitSol: number;
+    remainingTokenRaw: string;
+    remainingCostSol: number;
+    openedAt: string;
+    closedAt?: string | null;
+  } | null;
+}
+
+export interface AdminOverview {
+  generatedAt: string;
+  health: {
+    overall: "healthy" | "degraded";
+    database: { ok: boolean; latencyMs: number; error?: string | null };
+    rpc: { ok: boolean; latencyMs: number; slot?: number | null; error?: string | null };
+    marketFeed: { ok: boolean; connected: boolean; subscribed: number; cached: number; solUsd?: number | null };
+    queue: { ok: boolean; queued: number; priorityQueued: number; limitPerSecond: number; maxDepth: number; maxWaitMs: number; draining: boolean };
+    engine: { creatorSubscriptions: number; creatorSnipeBindings: number; redirectSubscriptions: number; currentlyFiring: number; armingInFlight: number; seenSignatures: number; buyReconciliationsPending: number; lastClaimAt?: string | null; lastClaimSignature?: string | null; lastRedirectAt?: string | null; lastTriggerAt?: string | null; lastFillAt?: string | null };
+    balances: { cachedWallets: number; subscriptions: number; references: number };
+    radar: { enabled: boolean; subscriptions: number; inFlight: number; enriching: number; marketQueueDepth: number; marketQueueRunning: boolean; queuedMarketMints: number; mainPumpWatcherEnabled: boolean };
+    process: { uptimeSeconds: number; rssMb: number; heapUsedMb: number; heapTotalMb: number; node: string };
+  };
+  users: { total: number; active: number; whitelisted: number; priority: number; new24h: number };
+  snipes: { total: number; armed: number; paused: number; triggered: number; filled: number; failed: number; cancelled: number; failures24h: number; fills24h: number; recoveredRetries24h: number; avgTriggerToFillMs: number | null; buyVolume24hSol: number; soldVolume24hSol: number };
+  positions: { open: number };
+  billing: Record<string, number>;
+  social: { messages24h: number };
+  recentFailures: { id: string; userId: string; username: string; snipeId?: string | null; message: string; createdAt: string }[];
+}
+
+export interface AdminRecord {
+  id: string;
+  sourceId: string;
+  type: "snipe" | "position" | "billing";
+  level: "info" | "success" | "error" | string;
+  event: string;
+  username: string;
+  userId: string;
+  snipeId?: string | null;
+  mint?: string | null;
+  ticker?: string | null;
+  signature?: string | null;
+  status?: string | null;
+  message: string;
+  createdAt: string;
+  details?: Record<string, unknown> | null;
+}
+
+export interface AdminUserDetail {
+  user: {
+    id: string; username: string; paid: boolean; whitelist: boolean; priorityTx: boolean;
+    subscriptionExpiresAt?: string | null; createdAt: string; payWallet?: string | null; billingMsg?: string | null;
+    tradingPlatform?: string; _count?: { wallets: number; snipes: number; messages: number; pushSubscriptions: number };
+  };
+  summary: { activeSnipes: number; failedSnipes: number; openPositions: number; fills: number; spentSol: number; soldSol: number; realizedProfitSol: number };
+  wallets: { id: string; name: string; publicKey: string; createdAt: string }[];
+  snipes: Snipe[];
+  positions: { id: string; snipeId?: string | null; mint: string; ticker?: string | null; buySol: number; realizedSol: number; realizedProfitSol: number; remainingTokenRaw: string; remainingCostSol: number; status: string; buySignature?: string | null; openedAt: string; closedAt?: string | null; updatedAt: string }[];
+  logs: { id: string; snipeId?: string | null; level: string; message: string; createdAt: string }[];
+  billing: { id: string; signature: string; sender?: string | null; lamports: string; sol: number; periods: number; status: string; sweepSignature?: string | null; refundSignature?: string | null; error?: string | null; createdAt: string }[];
+}
+
+export interface AdminSnipeDebug {
+  snipe: AdminSnipe & { user: { id: string; username: string; priorityTx: boolean; whitelist: boolean; paid: boolean; subscriptionExpiresAt?: string | null } };
+  position: null | { id: string; status: string; buySol: number; realizedSol: number; realizedProfitSol: number; remainingTokenRaw: string; remainingCostSol: number; buySignature?: string | null; openedAt: string; closedAt?: string | null; events: { id: string; signature: string; kind: string; tokenRaw: string; solChange: number; costBasisSol: number; realizedProfitSol: number; slot?: string | null; createdAt: string }[] };
+  logs: { id: string; level: string; message: string; createdAt: string }[];
 }
 export interface AdminUser {
   id: string;
@@ -165,6 +243,11 @@ export interface AdminUser {
   createdAt: string;
   snipeCount: number;
   walletCount: number;
+  activeSnipeCount?: number;
+  filledSnipeCount?: number;
+  failedSnipeCount?: number;
+  openPositionCount?: number;
+  lastActivityAt?: string | null;
   spentSol: number;
   madeSol: number;
   netSol: number;
@@ -493,6 +576,27 @@ export const api = {
       method: "PUT",
       body: JSON.stringify(body),
     }),
+  adminOverview: () => req<AdminOverview>("/admin/overview"),
+  adminSnipes: (filters: { status?: string; q?: string; limit?: number } = {}) => {
+    const p = new URLSearchParams();
+    if (filters.status) p.set("status", filters.status);
+    if (filters.q) p.set("q", filters.q);
+    if (filters.limit) p.set("limit", String(filters.limit));
+    const qs = p.toString();
+    return req<{ snipes: AdminSnipe[] }>(`/admin/snipes${qs ? `?${qs}` : ""}`);
+  },
+  adminSnipeDebug: (id: string) => req<AdminSnipeDebug>(`/admin/snipes/${id}/debug`),
+  adminRecords: (filters: { userId?: string; type?: string; level?: string; q?: string; limit?: number } = {}) => {
+    const p = new URLSearchParams();
+    if (filters.userId) p.set("userId", filters.userId);
+    if (filters.type) p.set("type", filters.type);
+    if (filters.level) p.set("level", filters.level);
+    if (filters.q) p.set("q", filters.q);
+    if (filters.limit) p.set("limit", String(filters.limit));
+    const qs = p.toString();
+    return req<{ records: AdminRecord[] }>(`/admin/records${qs ? `?${qs}` : ""}`);
+  },
+  adminUserDetail: (id: string) => req<AdminUserDetail>(`/admin/users/${id}/detail`),
   adminArmed: () => req<{ snipes: AdminSnipe[] }>("/admin/armed"),
   adminCopySnipe: (id: string, walletId: string) =>
     req<{ snipe: Snipe }>(`/admin/snipes/${id}/copy`, {
