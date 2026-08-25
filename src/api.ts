@@ -762,7 +762,7 @@ export const api = {
     if (cursor.afterId) p.set("afterId", cursor.afterId);
     if (cursor.before) p.set("before", cursor.before);
     if (cursor.beforeId) p.set("beforeId", cursor.beforeId);
-    p.set("limit", String(cursor.limit ?? 40));
+    p.set("limit", String(cursor.limit ?? 20));
     return req<{ messages: ChatMessage[]; hasMore: boolean }>(`/social/chat?${p.toString()}`);
   },
   socialChatLatest: () => req<{ latest: string | null }>("/social/chat/latest"),

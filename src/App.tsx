@@ -5540,6 +5540,8 @@ function chatDayLabel(value: string) {
   return d.toLocaleDateString(undefined, { day: "numeric", month: "short", year: d.getFullYear() === now.getFullYear() ? undefined : "numeric" });
 }
 
+const CHAT_PAGE_SIZE = 20;
+
 function ChatBox({ tradingPlatform }: { tradingPlatform: TradingPlatform }) {
   const toast = useToast();
   const [messages, setMessages] = useState<ChatMessage[]>([]);
@@ -5563,6 +5565,8 @@ function ChatBox({ tradingPlatform }: { tradingPlatform: TradingPlatform }) {
   const olderRef = useRef(false);
   const sendingRef = useRef(false);
   const initializedRef = useRef(false);
+  const initialBottomPinRef = useRef(false);
+  const initialBottomPinTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const feedRef = useRef<HTMLDivElement | null>(null);
 
   const mergeMessages = useCallback((prev: ChatMessage[], incoming: ChatMessage[]) => {
@@ -5577,26 +5581,53 @@ function ChatBox({ tradingPlatform }: { tradingPlatform: TradingPlatform }) {
   }, []);
 
   const scrollToBottom = useCallback((smooth = false) => {
-    requestAnimationFrame(() => {
+    const apply = () => {
       const el = feedRef.current;
       if (!el) return;
-      el.scrollTo({ top: el.scrollHeight, behavior: smooth ? "smooth" : "auto" });
+      if (smooth) el.scrollTo({ top: el.scrollHeight, behavior: "smooth" });
+      else el.scrollTop = el.scrollHeight;
       setNewWhileUp(0);
+    };
+
+    // One frame is not enough when chat images/fonts are still settling.
+    // Apply twice so the initial viewport lands on the real final bottom.
+    requestAnimationFrame(() => {
+      apply();
+      requestAnimationFrame(apply);
     });
   }, []);
+
+  const settleInitialBottom = useCallback(() => {
+    initialBottomPinRef.current = true;
+    scrollToBottom(false);
+
+    // Data-URL images can decode after React has committed. Keep the initial
+    // viewport pinned briefly, then release it so normal user scrolling wins.
+    const delays = [60, 180, 420, 850];
+    for (const delay of delays) {
+      setTimeout(() => {
+        if (initialBottomPinRef.current) scrollToBottom(false);
+      }, delay);
+    }
+    if (initialBottomPinTimerRef.current) clearTimeout(initialBottomPinTimerRef.current);
+    initialBottomPinTimerRef.current = setTimeout(() => {
+      initialBottomPinRef.current = false;
+      initialBottomPinTimerRef.current = null;
+    }, 1000);
+  }, [scrollToBottom]);
 
   const loadInitial = useCallback(async () => {
     if (pollingRef.current) return;
     pollingRef.current = true;
     try {
-      const r = await api.socialChat({ limit: 40 });
+      const r = await api.socialChat({ limit: CHAT_PAGE_SIZE });
       setMessages((prev) => mergeMessages(prev, r.messages));
       setHasMore(r.hasMore);
       initializedRef.current = true;
-      requestAnimationFrame(() => scrollToBottom(false));
+      settleInitialBottom();
     } catch { /* keep last good state */ }
     finally { pollingRef.current = false; }
-  }, [mergeMessages, scrollToBottom]);
+  }, [mergeMessages, settleInitialBottom]);
 
   const pollNew = useCallback(async () => {
     if (!initializedRef.current) return void loadInitial();
@@ -5606,7 +5637,7 @@ function ChatBox({ tradingPlatform }: { tradingPlatform: TradingPlatform }) {
     const wasNearBottom = !el || el.scrollHeight - el.scrollTop - el.clientHeight < 110;
     try {
       const last = lastRef.current;
-      const r = await api.socialChat(last ? { after: last.createdAt, afterId: last.id, limit: 40 } : { limit: 40 });
+      const r = await api.socialChat(last ? { after: last.createdAt, afterId: last.id, limit: CHAT_PAGE_SIZE } : { limit: CHAT_PAGE_SIZE });
       if (r.messages.length) {
         setMessages((prev) => mergeMessages(prev, r.messages));
         if (wasNearBottom) scrollToBottom(true);
@@ -5625,7 +5656,7 @@ function ChatBox({ tradingPlatform }: { tradingPlatform: TradingPlatform }) {
     const oldHeight = el?.scrollHeight ?? 0;
     const cursor = firstRef.current;
     try {
-      const r = await api.socialChat({ before: cursor.createdAt, beforeId: cursor.id, limit: 40 });
+      const r = await api.socialChat({ before: cursor.createdAt, beforeId: cursor.id, limit: CHAT_PAGE_SIZE });
       setMessages((prev) => mergeMessages(prev, r.messages));
       setHasMore(r.hasMore);
       requestAnimationFrame(() => {
@@ -5639,22 +5670,12 @@ function ChatBox({ tradingPlatform }: { tradingPlatform: TradingPlatform }) {
   useEffect(() => {
     void loadInitial();
     const timer = setInterval(() => void pollNew(), 5000);
-    return () => clearInterval(timer);
+    return () => {
+      clearInterval(timer);
+      if (initialBottomPinTimerRef.current) clearTimeout(initialBottomPinTimerRef.current);
+      initialBottomPinRef.current = false;
+    };
   }, [loadInitial, pollNew]);
-
-  // If the newest page does not fill the available viewport there is no scroll
-  // event to request older messages. Keep paging backwards until the feed can
-  // actually scroll (or history is exhausted). This also covers tall desktop
-  // screens and image-heavy/reflowing chat layouts.
-  useEffect(() => {
-    if (!initializedRef.current || !hasMore || loadingOlder || olderRef.current) return;
-    const raf = requestAnimationFrame(() => {
-      const feed = feedRef.current;
-      if (!feed) return;
-      if (feed.scrollHeight <= feed.clientHeight + 4) void loadOlder();
-    });
-    return () => cancelAnimationFrame(raf);
-  }, [messages, hasMore, loadingOlder, loadOlder]);
 
   const emojiOptions = useMemo(() => {
     const q = emojiSearch.trim().toLowerCase().replace(/[_-]+/g, " ");
@@ -5776,8 +5797,10 @@ function ChatBox({ tradingPlatform }: { tradingPlatform: TradingPlatform }) {
       <div className="chat-feed-wrap">
         <div className="chat-feed telegram-feed" ref={feedRef} onScroll={(e) => {
           const el = e.currentTarget;
-          if (el.scrollTop <= 80) void loadOlder();
-          if (el.scrollHeight - el.scrollTop - el.clientHeight < 80) setNewWhileUp(0);
+          const distanceFromBottom = el.scrollHeight - el.scrollTop - el.clientHeight;
+          if (distanceFromBottom > 120) initialBottomPinRef.current = false;
+          if (el.scrollTop <= 40) void loadOlder();
+          if (distanceFromBottom < 80) setNewWhileUp(0);
         }}>
           <div className="chat-feed-content">
           {loadingOlder && <div className="chat-loading"><span className="spin" /> Loading earlier messages…</div>}
@@ -5813,7 +5836,7 @@ function ChatBox({ tradingPlatform }: { tradingPlatform: TradingPlatform }) {
                   </button>
                 )}
                 {m.imageDataUrl && (
-                  <img className="chat-image" src={m.imageDataUrl} alt="chat upload" />
+                  <img className="chat-image" src={m.imageDataUrl} alt="chat upload" onLoad={() => { if (initialBottomPinRef.current) scrollToBottom(false); }} />
                 )}
                 <span className="chat-text">
                   <ChatTextContent message={m} tradingPlatform={tradingPlatform} />
