@@ -5589,7 +5589,7 @@ function ChatBox({ tradingPlatform }: { tradingPlatform: TradingPlatform }) {
     if (pollingRef.current) return;
     pollingRef.current = true;
     try {
-      const r = await api.socialChat({ limit: 30 });
+      const r = await api.socialChat({ limit: 40 });
       setMessages((prev) => mergeMessages(prev, r.messages));
       setHasMore(r.hasMore);
       initializedRef.current = true;
@@ -5606,7 +5606,7 @@ function ChatBox({ tradingPlatform }: { tradingPlatform: TradingPlatform }) {
     const wasNearBottom = !el || el.scrollHeight - el.scrollTop - el.clientHeight < 110;
     try {
       const last = lastRef.current;
-      const r = await api.socialChat(last ? { after: last.createdAt, afterId: last.id, limit: 30 } : { limit: 30 });
+      const r = await api.socialChat(last ? { after: last.createdAt, afterId: last.id, limit: 40 } : { limit: 40 });
       if (r.messages.length) {
         setMessages((prev) => mergeMessages(prev, r.messages));
         if (wasNearBottom) scrollToBottom(true);
@@ -5625,7 +5625,7 @@ function ChatBox({ tradingPlatform }: { tradingPlatform: TradingPlatform }) {
     const oldHeight = el?.scrollHeight ?? 0;
     const cursor = firstRef.current;
     try {
-      const r = await api.socialChat({ before: cursor.createdAt, beforeId: cursor.id, limit: 30 });
+      const r = await api.socialChat({ before: cursor.createdAt, beforeId: cursor.id, limit: 40 });
       setMessages((prev) => mergeMessages(prev, r.messages));
       setHasMore(r.hasMore);
       requestAnimationFrame(() => {
