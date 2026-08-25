@@ -5642,6 +5642,20 @@ function ChatBox({ tradingPlatform }: { tradingPlatform: TradingPlatform }) {
     return () => clearInterval(timer);
   }, [loadInitial, pollNew]);
 
+  // If the newest page does not fill the available viewport there is no scroll
+  // event to request older messages. Keep paging backwards until the feed can
+  // actually scroll (or history is exhausted). This also covers tall desktop
+  // screens and image-heavy/reflowing chat layouts.
+  useEffect(() => {
+    if (!initializedRef.current || !hasMore || loadingOlder || olderRef.current) return;
+    const raf = requestAnimationFrame(() => {
+      const feed = feedRef.current;
+      if (!feed) return;
+      if (feed.scrollHeight <= feed.clientHeight + 4) void loadOlder();
+    });
+    return () => cancelAnimationFrame(raf);
+  }, [messages, hasMore, loadingOlder, loadOlder]);
+
   const emojiOptions = useMemo(() => {
     const q = emojiSearch.trim().toLowerCase().replace(/[_-]+/g, " ");
     if (q) {

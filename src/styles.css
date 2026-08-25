@@ -4695,3 +4695,41 @@ body.chat-view-active .topbar,
     font-size: 22px;
   }
 }
+
+
+/* ---------- Social chat scroll hardening ----------
+   The feed must be the only scrolling surface in chat mode. Keep the message
+   content from flex-shrinking to the viewport height; otherwise descendant
+   overflow can be visually clipped without increasing the feed's scroll range. */
+.social-chat-mode .chat-feed-wrap {
+  flex: 1 1 0 !important;
+  min-height: 0 !important;
+  height: 0;
+  overflow: hidden !important;
+  position: relative;
+}
+.social-chat-mode .chat-feed-wrap > .chat-feed {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100% !important;
+  min-height: 0 !important;
+  max-height: none !important;
+  overflow-y: scroll !important;
+  overflow-x: hidden !important;
+  display: block !important;
+  overscroll-behavior-y: contain;
+  -webkit-overflow-scrolling: touch;
+}
+.social-chat-mode .chat-feed-content {
+  width: 100%;
+  min-height: 100%;
+  height: auto;
+  display: flex;
+  flex-direction: column;
+  justify-content: flex-end;
+  flex: 0 0 auto;
+}
+.social-chat-mode .telegram-chat {
+  overflow: hidden !important;
+}
