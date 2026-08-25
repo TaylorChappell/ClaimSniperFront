@@ -1528,13 +1528,6 @@ function Dashboard({
         </div>
       )}
 
-      <nav className="mobile-bottom-nav" aria-label="Quick navigation">
-        <button className={view === "dashboard" && dashTab === "arm" ? "on" : ""} onClick={() => setDashTab("arm")}><span>＋</span>Arm</button>
-        <button className={view === "dashboard" && dashTab === "snipes" ? "on" : ""} onClick={() => setDashTab("snipes")}><span>◎</span>Snipes</button>
-        <button className={view === "claims" ? "on" : ""} onClick={() => go("claims")}><span>⌕</span>Claims</button>
-        <button className={view === "social" ? "on" : ""} onClick={() => go("social")}><span>◌</span>Social{chatUnread && <i />}</button>
-        <button className={view === "dashboard" && dashTab === "wallets" ? "on" : ""} onClick={() => setDashTab("wallets")}><span>▰</span>Wallets</button>
-      </nav>
     </div>
   );
 }

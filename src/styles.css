@@ -4498,3 +4498,70 @@ button.admin-metric:hover { border-color: var(--green-glow); transform: translat
 .admin-engine-last { display: flex; gap: 6px; flex-wrap: wrap; margin-top: 9px; }
 .admin-engine-last span { border: 1px solid var(--line-soft); border-radius: 999px; padding: 5px 7px; color: var(--muted); font-size: 9px; }
 .admin-engine-last b { color: var(--text); font-weight: 700; }
+
+
+/* ---------- mobile browser mode ----------
+   Claim Sniper is a responsive website, not a forced standalone/PWA shell. */
+html,
+body,
+#root {
+  width: 100%;
+  max-width: 100%;
+  min-width: 0;
+  overflow-x: hidden;
+}
+html {
+  -webkit-text-size-adjust: 100%;
+  text-size-adjust: 100%;
+}
+.mobile-bottom-nav {
+  display: none !important;
+}
+
+@media (max-width: 720px) {
+  .wrap {
+    padding: 12px 12px 34px;
+  }
+
+  /* iOS zooms pages when focused form controls are below 16px. */
+  input,
+  textarea,
+  select {
+    font-size: 16px !important;
+  }
+
+  .who {
+    top: 66px;
+    max-height: calc(100dvh - 78px);
+    padding-bottom: max(12px, env(safe-area-inset-bottom));
+  }
+
+  .modal {
+    max-height: calc(100dvh - 24px);
+    overflow-y: auto;
+    overscroll-behavior: contain;
+  }
+
+  .page-intro {
+    align-items: flex-start;
+    flex-direction: column;
+    gap: 7px;
+  }
+
+  .chat-polished .chat-feed {
+    height: clamp(320px, 54dvh, 520px);
+    min-height: 280px;
+  }
+
+  .emoji-picker {
+    bottom: max(12px, env(safe-area-inset-bottom));
+    max-height: min(58dvh, 520px);
+  }
+
+  button,
+  .nav-btn,
+  .ghost,
+  .primary {
+    touch-action: manipulation;
+  }
+}
