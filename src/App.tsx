@@ -30,6 +30,11 @@ import {
   type Profile,
   type TradingPlatform,
   type LiveMarketCapSnapshot,
+  type DiscoverCoin,
+  type DiscoveryRedirect,
+  type DiscoveryFeed,
+  type DiscoverMetadata,
+  type AdminFeatureState,
 } from "./api";
 import { useLeaderPolling } from "./sync";
 import { EMOJIS } from "./emojiData";
@@ -106,7 +111,7 @@ type TradeOpenTarget = {
   ticker?: string | null;
 };
 
-type AppView = "dashboard" | "history" | "social" | "claims" | "settings" | "admin";
+type AppView = "dashboard" | "discovery" | "history" | "social" | "claims" | "settings" | "admin";
 type DashTab = "arm" | "snipes" | "wallets";
 type SocialTab = "trending" | "traders" | "chat";
 type AdminTab = "overview" | "snipes" | "users" | "records" | "notify";
@@ -232,7 +237,9 @@ function tradingPlatformUrl(platform: TradingPlatform, token: TradeOpenTarget) {
     return pair ? `https://trade.padre.gg/trade/solana/${pair}` : null;
   }
 
-  return pair ? `https://axiom.trade/meme/${pair}` : null;
+  // Axiom's current SOL token route accepts the mint directly, including
+  // bonding-curve Pump coins, so Discovery does not need to resolve a pair first.
+  return mint ? `https://axiom.trade/t/${mint}` : pair ? `https://axiom.trade/meme/${pair}` : null;
 }
 
 async function openInTradingPlatform(
@@ -299,6 +306,7 @@ function initialViewFromUrl(): AppView {
   const view = new URLSearchParams(window.location.search).get("view");
   if (
     view === "history" ||
+    view === "discovery" ||
     view === "social" ||
     view === "claims" ||
     view === "settings" ||
@@ -308,7 +316,7 @@ function initialViewFromUrl(): AppView {
   }
   return readSavedChoice<AppView>(
     NAV_VIEW_KEY,
-    ["dashboard", "history", "social", "claims", "settings", "admin"],
+    ["dashboard", "discovery", "history", "social", "claims", "settings", "admin"],
     "dashboard",
   );
 }
@@ -1334,6 +1342,12 @@ function Dashboard({
   }, [toast]);
 
   const { data, refresh, error: dashboardError } = useLeaderPolling("dash", fetchAll, 30000, username);
+  const { data: discoveryStatus } = useLeaderPolling(
+    "discovery-status",
+    () => api.discoveryStatus(),
+    30000,
+    username,
+  );
   const { data: marketCapData } = useLeaderPolling(
     "snipe-market-caps",
     () => api.snipeMarketCaps(),
@@ -1351,6 +1365,7 @@ function Dashboard({
   const [view, setView] = useState<AppView>(() => initialViewFromUrl());
   const [dashTab, setDashTabState] = useState<DashTab>(() => initialDashTabFromUrl());
   const [profile, setProfile] = useState<Profile>(() => defaultProfile(username, admin));
+  const [armPrefill, setArmPrefill] = useState<{ mint: string; watchWallet: string } | null>(null);
 
   useEffect(() => {
     let stop = false;
@@ -1383,6 +1398,31 @@ function Dashboard({
       scan: v === "claims" ? new URLSearchParams(location.search).get("scan") : null,
     }, !push);
   }, [dashTab]);
+
+  const [discoveryOverride, setDiscoveryOverride] = useState<boolean | null>(null);
+  useEffect(() => {
+    const handler = (event: Event) => {
+      const enabled = (event as CustomEvent<{ enabled?: boolean }>).detail?.enabled;
+      if (typeof enabled === "boolean") setDiscoveryOverride(enabled);
+    };
+    window.addEventListener("claimsnipe:discovery-feature", handler as EventListener);
+    return () => window.removeEventListener("claimsnipe:discovery-feature", handler as EventListener);
+  }, []);
+  useEffect(() => {
+    if (discoveryStatus?.enabled != null) setDiscoveryOverride(null);
+  }, [discoveryStatus?.enabled]);
+  const discoveryOn = discoveryOverride ?? discoveryStatus?.enabled === true;
+  const armFromDiscovery = useCallback((coin: DiscoverCoin, redirect: DiscoveryRedirect) => {
+    setArmPrefill({ mint: coin.mint, watchWallet: redirect.wallet });
+    setDashTab("arm");
+    toast(`Ready to arm ${coin.ticker ? "$" + coin.ticker : short(coin.mint)} against ${short(redirect.wallet)}`);
+  }, [setDashTab, toast]);
+
+  useEffect(() => {
+    if (discoveryStatus && !discoveryStatus.enabled && view === "discovery") {
+      go("dashboard", false);
+    }
+  }, [discoveryStatus?.enabled, view, go]);
 
   useEffect(() => {
     const pop = () => {
@@ -1477,6 +1517,7 @@ function Dashboard({
           )}
           <div className={`who ${menuOpen ? "open" : ""}`}>
             <button className={`nav-btn ${view === "dashboard" ? "on" : ""}`} onClick={() => go("dashboard")}>Dashboard</button>
+            {discoveryOn && <button className={`nav-btn ${view === "discovery" ? "on" : ""}`} onClick={() => go("discovery")}>Discover</button>}
             <button className={`nav-btn ${view === "history" ? "on" : ""}`} onClick={() => go("history")}>History</button>
             <button className={`nav-btn ${view === "claims" ? "on" : ""}`} onClick={() => go("claims")}>Claim Scanner</button>
             <button className={`nav-btn ${view === "social" ? "on" : ""}`} onClick={() => go("social")}>Social{chatUnread && <span className="nav-dot" />}</button>
@@ -1487,6 +1528,7 @@ function Dashboard({
       </div>
 
       {view === "history" ? <History tradingPlatform={profile.tradingPlatform} />
+      : view === "discovery" ? <Discovery tradingPlatform={profile.tradingPlatform} onArm={armFromDiscovery} />
       : view === "claims" ? <ClaimScanner wallets={wallets} tradingPlatform={profile.tradingPlatform} />
       : view === "social" ? <Social wallets={wallets} tradingPlatform={profile.tradingPlatform} currentUsername={profile.username} onCopied={() => { refresh(); setDashTab("snipes"); }} />
       : view === "settings" ? <SettingsPage profile={profile} onUpdated={(next) => { setProfile(next); localStorage.setItem("username", next.username); }} />
@@ -1521,9 +1563,14 @@ function Dashboard({
                 <NoWalletOnboarding onAdd={() => setDashTab("wallets")} />
               ) : (
                 <SnipeForm
+                  key={armPrefill ? `discovery-${armPrefill.mint}-${armPrefill.watchWallet}` : "arm-default"}
                   wallets={wallets}
                   snipes={snipes}
+                  initialMint={armPrefill?.mint}
+                  initialWatchWallet={armPrefill?.watchWallet}
+                  initialOnlyRedirected={Boolean(armPrefill)}
                   onCreated={() => {
+                    setArmPrefill(null);
                     refresh();
                     setTimeout(refresh, 6000);
                     setTimeout(refresh, 20000);
@@ -1768,12 +1815,16 @@ function SnipeForm({
   snipes = [],
   onCreated,
   initialMint,
+  initialWatchWallet,
+  initialOnlyRedirected,
   mintLocked,
 }: {
   wallets: Wallet[];
   snipes?: Snipe[];
   onCreated: () => void;
   initialMint?: string;
+  initialWatchWallet?: string;
+  initialOnlyRedirected?: boolean;
   mintLocked?: boolean;
 }) {
   const toast = useToast();
@@ -1793,8 +1844,8 @@ function SnipeForm({
   );
   const [mcMinUsd, setMcMinUsd] = useState("");
   const [mcMaxUsd, setMcMaxUsd] = useState("");
-  const [onlyRedirected, setOnlyRedirected] = useState(false);
-  const [watchWallet, setWatchWallet] = useState("");
+  const [onlyRedirected, setOnlyRedirected] = useState(initialOnlyRedirected ?? false);
+  const [watchWallet, setWatchWallet] = useState(initialWatchWallet ?? "");
   const [execMode, setExecMode] = useState<"PUMPPORTAL" | "LOCAL">("PUMPPORTAL");
   const [triggerMode, setTriggerMode] = useState<"CLAIM" | "REDIRECT">("CLAIM");
   const [claimMode, setClaimMode] = useState<"FAST" | "SAFE">("SAFE");
@@ -2874,6 +2925,413 @@ function ClaimScannerSkeleton() {
   </div>;
 }
 
+
+/* ---------------- redirect discovery ---------------- */
+function discoveryUsd(value: number | null | undefined) {
+  if (value == null || !Number.isFinite(value)) return "—";
+  if (value < 1) return `$${value.toLocaleString(undefined, { maximumFractionDigits: 4 })}`;
+  return `$${compactNumber.format(value)}`;
+}
+
+function discoveryAge(value?: string | null) {
+  if (!value) return "—";
+  const ms = Date.now() - new Date(value).getTime();
+  if (!Number.isFinite(ms)) return "—";
+  if (ms < 0) return "now";
+  if (ms < 60_000) return `${Math.max(1, Math.floor(ms / 1000))}s`;
+  if (ms < 3_600_000) return `${Math.floor(ms / 60_000)}m`;
+  if (ms < 86_400_000) return `${Math.floor(ms / 3_600_000)}h`;
+  return `${Math.floor(ms / 86_400_000)}d`;
+}
+
+function discoverySocialHref(kind: "twitter" | "telegram" | "website", value?: string | null) {
+  const raw = value?.trim();
+  if (!raw) return null;
+  try {
+    const url = new URL(/^https?:\/\//i.test(raw) ? raw : kind === "twitter"
+      ? `https://x.com/${raw.replace(/^@/, "")}`
+      : kind === "telegram"
+        ? `https://t.me/${raw.replace(/^@/, "")}`
+        : `https://${raw}`);
+    return url.protocol === "https:" || url.protocol === "http:" ? url.toString() : null;
+  } catch {
+    return null;
+  }
+}
+
+type DiscoveryColumnKey = "new" | "trending" | "graduated";
+
+function Discovery({
+  tradingPlatform,
+  onArm,
+}: {
+  tradingPlatform: TradingPlatform;
+  onArm: (coin: DiscoverCoin, redirect: DiscoveryRedirect) => void;
+}) {
+  const toast = useToast();
+  const [feed, setFeed] = useState<DiscoveryFeed | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState("");
+  const [query, setQuery] = useState("");
+  const [minMc, setMinMc] = useState("");
+  const [fullRedirectOnly, setFullRedirectOnly] = useState(false);
+  const [hiddenLocal, setHiddenLocal] = useState<Set<string>>(() => new Set());
+  const [detailMint, setDetailMint] = useState<string | null>(null);
+  const [detail, setDetail] = useState<DiscoverMetadata | null>(null);
+  const [detailBusy, setDetailBusy] = useState(false);
+  const [hiding, setHiding] = useState<Set<string>>(() => new Set());
+
+  const load = useCallback(async (quiet = false) => {
+    if (!quiet) setLoading(true);
+    try {
+      const next = await api.discover();
+      setFeed(next);
+      setError("");
+    } catch (e: any) {
+      setError(friendlyError(e?.message ?? "Discovery failed to load"));
+    } finally {
+      if (!quiet) setLoading(false);
+    }
+  }, []);
+
+  useEffect(() => {
+    void load();
+    const timer = window.setInterval(() => void load(true), 15_000);
+    return () => window.clearInterval(timer);
+  }, [load]);
+
+  useEffect(() => {
+    if (!detailMint) {
+      setDetail(null);
+      return;
+    }
+    let stop = false;
+    setDetailBusy(true);
+    api.discoverMetadata(detailMint)
+      .then((res) => { if (!stop) setDetail(res); })
+      .catch((e: any) => { if (!stop) toast(friendlyError(e?.message ?? "Could not load token details"), "err"); })
+      .finally(() => { if (!stop) setDetailBusy(false); });
+    return () => { stop = true; };
+  }, [detailMint, toast]);
+
+  const minMcValue = marketCapInputToNumber(minMc);
+  const filterCoin = useCallback((coin: DiscoverCoin) => {
+    if (hiddenLocal.has(coin.mint)) return false;
+    const q = query.trim().toLowerCase();
+    if (q && ![coin.ticker, coin.name, coin.mint, coin.originalCreator, ...coin.redirects.map((r) => r.wallet)]
+      .filter(Boolean)
+      .some((v) => String(v).toLowerCase().includes(q))) return false;
+    if (minMcValue != null && (coin.marketCapUsd ?? 0) < minMcValue) return false;
+    if (fullRedirectOnly && coin.totalRedirectSharePct < 99.99) return false;
+    return true;
+  }, [hiddenLocal, query, minMcValue, fullRedirectOnly]);
+
+  const columns = useMemo(() => {
+    const empty = { new: [], trending: [], graduated: [] } as Record<DiscoveryColumnKey, DiscoverCoin[]>;
+    if (!feed) return empty;
+    return {
+      new: feed.columns.new.filter(filterCoin),
+      trending: feed.columns.trending.filter(filterCoin),
+      graduated: feed.columns.graduated.filter(filterCoin),
+    };
+  }, [feed, filterCoin]);
+
+  async function hideCoin(mint: string) {
+    if (hiding.has(mint)) return;
+    setHiding((prev) => new Set(prev).add(mint));
+    setHiddenLocal((prev) => new Set(prev).add(mint));
+    try {
+      await api.discoverHide(mint);
+      toast("Hidden from Discovery");
+      if (detailMint === mint) setDetailMint(null);
+    } catch (e: any) {
+      setHiddenLocal((prev) => {
+        const next = new Set(prev);
+        next.delete(mint);
+        return next;
+      });
+      toast(friendlyError(e?.message ?? "Could not hide coin"), "err");
+    } finally {
+      setHiding((prev) => {
+        const next = new Set(prev);
+        next.delete(mint);
+        return next;
+      });
+    }
+  }
+
+  async function restoreHidden() {
+    try {
+      const res = await api.discoverResetHidden();
+      setHiddenLocal(new Set());
+      await load(true);
+      toast(res.restored ? `Restored ${res.restored} hidden coin${res.restored === 1 ? "" : "s"}` : "Nothing hidden");
+    } catch (e: any) {
+      toast(friendlyError(e?.message ?? "Could not restore hidden coins"), "err");
+    }
+  }
+
+  if (loading && !feed) return <DiscoverySkeleton />;
+  if (error && !feed) {
+    return <div className="discovery-page rise"><div className="card discovery-error"><h2>Discovery could not load</h2><p>{error}</p><button className="primary" onClick={() => void load()}>Retry</button></div></div>;
+  }
+  if (feed && !feed.enabled) {
+    return <div className="discovery-page rise"><div className="card discovery-error"><h2>Discovery is off</h2><p>An admin has disabled the redirect indexer.</p></div></div>;
+  }
+
+  const streamOk = Boolean(feed?.index.connected);
+  const visibleCount = columns.new.length + columns.trending.length + columns.graduated.length;
+
+  return (
+    <div className="discovery-page rise">
+      <div className="discovery-head">
+        <div>
+          <div className="discovery-eyebrow"><i className={streamOk ? "live" : "degraded"} /> REDIRECT DISCOVERY</div>
+          <h1>Unclaimed fee redirects</h1>
+          <p>Coins whose creator fees moved to another wallet and have not been claimed by that redirected wallet.</p>
+        </div>
+        <div className="discovery-head-status">
+          <span className={streamOk ? "ok" : "warn"}>{streamOk ? "Index live" : "Index reconnecting"}</span>
+          <small>{feed?.index.subscribedWallets ?? 0} unclaimed wallet{(feed?.index.subscribedWallets ?? 0) === 1 ? "" : "s"} watched</small>
+          <small>DB indexed · no chain queries from this page</small>
+        </div>
+      </div>
+
+      <div className="discovery-toolbar">
+        <div className="discovery-search"><span>⌕</span><input value={query} onChange={(e) => setQuery(e.target.value)} placeholder="Search ticker, CA, creator or redirect wallet…" /></div>
+        <div className="discovery-filter"><span>Min MC</span><input inputMode="decimal" value={minMc} onChange={(e) => setMinMc(e.target.value)} placeholder="e.g. 10000" /></div>
+        <button className={`discovery-filter-toggle ${fullRedirectOnly ? "on" : ""}`} onClick={() => setFullRedirectOnly((v) => !v)}><span className={`switch ${fullRedirectOnly ? "on" : ""}`}><span className="knob" /></span>100% redirects</button>
+        <button className="ghost mini" onClick={() => void restoreHidden()}>Restore hidden{feed?.hiddenCount ? ` (${feed.hiddenCount})` : ""}</button>
+        <button className="ghost mini" onClick={() => void load()} disabled={loading}>{loading ? "Refreshing…" : "Refresh"}</button>
+      </div>
+
+      <div className="discovery-summary-strip">
+        <span><b>{feed?.counts.total ?? 0}</b> unclaimed</span>
+        <span><b>{feed?.counts.new ?? 0}</b> bonding</span>
+        <span><b>{feed?.counts.graduated ?? 0}</b> graduated</span>
+        <span><b>{visibleCount}</b> cards shown</span>
+        {feed?.index.lastRedirectAt && <span>last redirect <b>{discoveryAge(feed.index.lastRedirectAt)}</b> ago</span>}
+        {feed?.index.lastClaimAt && <span>last claim removal <b>{discoveryAge(feed.index.lastClaimAt)}</b> ago</span>}
+      </div>
+
+      <div className="discovery-columns">
+        <DiscoveryColumn title="New" subtitle="Newest fee redirects" coins={columns.new} tone="new" tradingPlatform={tradingPlatform} onHide={hideCoin} onArm={onArm} onDetail={setDetailMint} hiding={hiding} />
+        <DiscoveryColumn title="Trending" subtitle="Volume, activity + recency" coins={columns.trending} tone="trending" tradingPlatform={tradingPlatform} onHide={hideCoin} onArm={onArm} onDetail={setDetailMint} hiding={hiding} />
+        <DiscoveryColumn title="Graduated" subtitle="Redirected coins on AMM" coins={columns.graduated} tone="graduated" tradingPlatform={tradingPlatform} onHide={hideCoin} onArm={onArm} onDetail={setDetailMint} hiding={hiding} />
+      </div>
+
+      {detailMint && (
+        <DiscoveryDetailModal
+          coin={detail}
+          loading={detailBusy}
+          tradingPlatform={tradingPlatform}
+          onClose={() => setDetailMint(null)}
+          onHide={hideCoin}
+          onArm={onArm}
+        />
+      )}
+    </div>
+  );
+}
+
+function DiscoveryColumn({
+  title,
+  subtitle,
+  coins,
+  tone,
+  tradingPlatform,
+  onHide,
+  onArm,
+  onDetail,
+  hiding,
+}: {
+  title: string;
+  subtitle: string;
+  coins: DiscoverCoin[];
+  tone: DiscoveryColumnKey;
+  tradingPlatform: TradingPlatform;
+  onHide: (mint: string) => void;
+  onArm: (coin: DiscoverCoin, redirect: DiscoveryRedirect) => void;
+  onDetail: (mint: string) => void;
+  hiding: Set<string>;
+}) {
+  return (
+    <section className={`discovery-column ${tone}`}>
+      <header><div><h2>{title}</h2><span>{subtitle}</span></div><b>{coins.length}</b></header>
+      <div className="discovery-column-scroll">
+        {coins.length === 0 ? <div className="discovery-column-empty">Nothing matching your filters.</div> : coins.map((coin) => (
+          <DiscoveryCoinCard key={`${tone}-${coin.mint}`} coin={coin} tradingPlatform={tradingPlatform} onHide={onHide} onArm={onArm} onDetail={onDetail} hiding={hiding.has(coin.mint)} />
+        ))}
+      </div>
+    </section>
+  );
+}
+
+function DiscoveryCoinCard({
+  coin,
+  tradingPlatform,
+  onHide,
+  onArm,
+  onDetail,
+  hiding,
+}: {
+  coin: DiscoverCoin;
+  tradingPlatform: TradingPlatform;
+  onHide: (mint: string) => void;
+  onArm: (coin: DiscoverCoin, redirect: DiscoveryRedirect) => void;
+  onDetail: (mint: string) => void;
+  hiding: boolean;
+}) {
+  const toast = useToast();
+  const [imageFailed, setImageFailed] = useState(false);
+  const [dragX, setDragX] = useState(0);
+  const touchStart = useRef<{ x: number; y: number } | null>(null);
+  const primaryRedirect = coin.redirects[0];
+  const staleMarket = !coin.marketDataUpdatedAt || Date.now() - new Date(coin.marketDataUpdatedAt).getTime() > 5 * 60_000;
+
+  return (
+    <div className={`discovery-swipe-wrap ${dragX < -36 ? "revealing" : ""}`}>
+      <button className="discovery-swipe-hide" onClick={() => onHide(coin.mint)}>Hide</button>
+      <article
+        className={`discovery-coin-card ${hiding ? "hiding" : ""}`}
+        style={{ transform: `translateX(${dragX}px)` }}
+        onTouchStart={(e) => {
+          const t = e.touches[0];
+          if (t) touchStart.current = { x: t.clientX, y: t.clientY };
+        }}
+        onTouchMove={(e) => {
+          const start = touchStart.current;
+          const t = e.touches[0];
+          if (!start || !t) return;
+          const dx = t.clientX - start.x;
+          const dy = t.clientY - start.y;
+          if (Math.abs(dx) <= Math.abs(dy)) return;
+          if (dx < 0) {
+            e.preventDefault();
+            setDragX(Math.max(-96, dx));
+          }
+        }}
+        onTouchEnd={() => {
+          if (dragX <= -70) onHide(coin.mint);
+          setDragX(0);
+          touchStart.current = null;
+        }}
+        onClick={() => onDetail(coin.mint)}
+      >
+        <div className="discovery-card-top">
+          <div className="discovery-token-id">
+            <div className="discovery-token-img">
+              {coin.image && !imageFailed ? <img src={coin.image} alt="" loading="lazy" onError={() => setImageFailed(true)} /> : <span>{(coin.ticker || coin.name || "?").slice(0, 1).toUpperCase()}</span>}
+            </div>
+            <div><strong>{coin.ticker ? `$${coin.ticker}` : short(coin.mint)}</strong><span>{coin.name || "Pump.fun token"}</span></div>
+          </div>
+          <div className="discovery-age"><b>{discoveryAge(coin.redirectedAt)}</b><span>redirect</span></div>
+        </div>
+
+        <div className="discovery-badges">
+          <span className={coin.graduated ? "graduated" : "bonding"}>{coin.graduated ? "Graduated" : "Bonding"}</span>
+          {coin.totalRedirectSharePct >= 99.99 && <span>100% fees</span>}
+          {coin.redirects.length > 1 && <span>{coin.redirects.length} wallets</span>}
+          {coin.isLikelyAgent && <span className="flag">Agent?</span>}
+          {coin.isLikelyCharity && <span className="flag">Charity?</span>}
+        </div>
+
+        <div className="discovery-market-grid">
+          <div><span>MC</span><b>{discoveryUsd(coin.marketCapUsd)}</b></div>
+          <div><span>Vol 1h</span><b>{discoveryUsd(coin.volume1hUsd)}</b></div>
+          <div><span>Vol 24h</span><b>{discoveryUsd(coin.volumeUsd)}</b></div>
+          <div><span>Liq</span><b>{discoveryUsd(coin.liquidityUsd)}</b></div>
+        </div>
+
+        {primaryRedirect && <div className="discovery-redirect-line"><span>{primaryRedirect.sharePct.toLocaleString(undefined, { maximumFractionDigits: 2 })}% →</span><code>{short(primaryRedirect.wallet)}</code><em>unclaimed</em></div>}
+        <div className="discovery-card-meta"><span>Token {discoveryAge(coin.tokenCreatedAt)} old</span><span>{coin.replyCount ?? 0} replies</span>{staleMarket && <span className="stale">MC stale</span>}</div>
+
+        <div className="discovery-card-actions" onClick={(e) => e.stopPropagation()}>
+          <button className="trade-open" onClick={() => void openInTradingPlatform(tradingPlatform, coin, toast)}>Open {tradingPlatformLabel(tradingPlatform)} ↗</button>
+          {primaryRedirect && <button className="arm-quick" onClick={() => onArm(coin, primaryRedirect)}>Arm</button>}
+          <CopyCA mint={coin.mint} />
+          <button className="hide-quick" onClick={() => onHide(coin.mint)}>Hide</button>
+        </div>
+      </article>
+    </div>
+  );
+}
+
+function DiscoveryDetailModal({
+  coin,
+  loading,
+  tradingPlatform,
+  onClose,
+  onHide,
+  onArm,
+}: {
+  coin: DiscoverMetadata | null;
+  loading: boolean;
+  tradingPlatform: TradingPlatform;
+  onClose: () => void;
+  onHide: (mint: string) => void;
+  onArm: (coin: DiscoverCoin, redirect: DiscoveryRedirect) => void;
+}) {
+  const toast = useToast();
+  if (loading && !coin) return <div className="modal-overlay" onMouseDown={onClose}><div className="modal discovery-detail-modal" onMouseDown={(e) => e.stopPropagation()}><div className="admin-loading"><span className="spin dark" /> Loading coin details…</div></div></div>;
+  if (!coin) return null;
+  const twitter = discoverySocialHref("twitter", coin.twitter);
+  const telegram = discoverySocialHref("telegram", coin.telegram);
+  const website = discoverySocialHref("website", coin.website);
+
+  return (
+    <div className="modal-overlay" onMouseDown={onClose}>
+      <div className="modal discovery-detail-modal" onMouseDown={(e) => e.stopPropagation()}>
+        <div className="discovery-detail-head">
+          <div><span className="discovery-detail-kicker">Redirected · unclaimed</span><h2>{coin.ticker ? `$${coin.ticker}` : coin.name || short(coin.mint)}</h2><p>{coin.name && coin.ticker ? coin.name : "Pump.fun token"}</p></div>
+          <button className="ghost mini" onClick={onClose}>Close</button>
+        </div>
+        <div className="discovery-detail-stats">
+          <div><span>Market cap</span><b>{discoveryUsd(coin.marketCapUsd)}</b></div>
+          <div><span>1h volume</span><b>{discoveryUsd(coin.volume1hUsd)}</b></div>
+          <div><span>24h volume</span><b>{discoveryUsd(coin.volumeUsd)}</b></div>
+          <div><span>Liquidity</span><b>{discoveryUsd(coin.liquidityUsd)}</b></div>
+          <div><span>Replies</span><b>{coin.replyCount ?? "—"}</b></div>
+          <div><span>Status</span><b>{coin.graduated ? "Graduated" : "Bonding curve"}</b></div>
+        </div>
+
+        <div className="discovery-detail-section">
+          <div className="discovery-detail-section-head"><h3>Fee redirect</h3><span>{discoveryAge(coin.redirectedAt)} ago</span></div>
+          {coin.originalCreator && <div className="discovery-origin"><span>Original creator</span><CopyAddr address={coin.originalCreator} /></div>}
+          <div className="discovery-redirect-list">
+            {coin.redirects.map((r) => <div className="discovery-redirect-row" key={`${r.wallet}-${r.redirectSignature}`}>
+              <div><strong>{r.sharePct.toLocaleString(undefined, { maximumFractionDigits: 2 })}% share</strong><CopyAddr address={r.wallet} /></div>
+              <span>Unclaimed since {new Date(r.redirectedAt).toLocaleString()}</span>
+              <div><a href={`https://solscan.io/tx/${r.redirectSignature}`} target="_blank" rel="noreferrer">Redirect tx ↗</a><button className="primary mini" onClick={() => onArm(coin, r)}>Arm this wallet</button></div>
+            </div>)}
+          </div>
+        </div>
+
+        <div className="discovery-detail-section">
+          <div className="discovery-detail-section-head"><h3>Token</h3><CopyCA mint={coin.mint} ticker={coin.ticker} /></div>
+          <div className="discovery-token-links">
+            <button className="primary" onClick={() => void openInTradingPlatform(tradingPlatform, coin, toast)}>Open in {tradingPlatformLabel(tradingPlatform)} ↗</button>
+            <a className="ghost-link" href={`https://pump.fun/coin/${coin.mint}`} target="_blank" rel="noreferrer">Pump.fun ↗</a>
+            <a className="ghost-link" href={`https://solscan.io/token/${coin.mint}`} target="_blank" rel="noreferrer">Solscan ↗</a>
+            {twitter && <a className="ghost-link" href={twitter} target="_blank" rel="noreferrer">X ↗</a>}
+            {telegram && <a className="ghost-link" href={telegram} target="_blank" rel="noreferrer">Telegram ↗</a>}
+            {website && <a className="ghost-link" href={website} target="_blank" rel="noreferrer">Website ↗</a>}
+          </div>
+          <div className="discovery-detail-foot"><span>Created {discoveryAge(coin.tokenCreatedAt)} ago</span><span>Market data {coin.marketDataUpdatedAt ? `${discoveryAge(coin.marketDataUpdatedAt)} ago` : "pending"}</span><span>Trend score {coin.trendScore.toFixed(1)}</span></div>
+        </div>
+
+        {coin.history.length > coin.redirects.length && <details className="discovery-history"><summary>Redirect history ({coin.history.length})</summary><div>{coin.history.slice(0, 20).map((h, i) => <div key={`${h.wallet}-${h.epoch}-${i}`}><span>Epoch {h.epoch}</span><code>{short(h.wallet)}</code><b>{h.sharePct}%</b><em>{h.claimedAt ? `claimed ${discoveryAge(h.claimedAt)} ago` : h.active ? "active" : "replaced"}</em></div>)}</div></details>}
+
+        <div className="modal-actions"><button className="ghost danger-text" onClick={() => onHide(coin.mint)}>Hide coin</button><button className="ghost" onClick={onClose}>Close</button></div>
+      </div>
+    </div>
+  );
+}
+
+function DiscoverySkeleton() {
+  return <div className="discovery-page rise"><div className="discovery-head"><div><div className="skeleton-line sm"/><div className="skeleton-line"/><div className="skeleton-line sm"/></div></div><div className="discovery-columns">{[0, 1, 2].map((c) => <section className="discovery-column" key={c}><header><div><span className="skeleton-line"/><span className="skeleton-line sm"/></div></header><div className="discovery-column-scroll">{[0, 1, 2, 3].map((n) => <div className="discovery-coin-card discovery-card-skeleton" key={n}><span className="skeleton-line"/><span className="skeleton-line sm"/><span className="skeleton-line"/></div>)}</div></section>)}</div></div>;
+}
+
 /* ---------------- history (permanent fill history) ---------------- */
 function History({ tradingPlatform }: { tradingPlatform: TradingPlatform }) {
   const toast = useToast();
@@ -2972,6 +3430,8 @@ function AdminPanel({ wallets }: { wallets: Wallet[] }) {
   const [snipes, setSnipes] = useState<AdminSnipe[]>([]);
   const [users, setUsers] = useState<AdminUser[]>([]);
   const [records, setRecords] = useState<AdminRecord[]>([]);
+  const [features, setFeatures] = useState<AdminFeatureState | null>(null);
+  const [featureBusy, setFeatureBusy] = useState(false);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [copyFrom, setCopyFrom] = useState<AdminSnipe | null>(null);
@@ -2995,6 +3455,14 @@ function AdminPanel({ wallets }: { wallets: Wallet[] }) {
       if (!quiet) toast(e.message, "err");
     } finally {
       if (!quiet) setRefreshing(false);
+    }
+  }, [toast]);
+
+  const loadFeatures = useCallback(async (quiet = false) => {
+    try {
+      setFeatures(await api.adminFeatures());
+    } catch (e: any) {
+      if (!quiet) toast(e.message, "err");
     }
   }, [toast]);
 
@@ -3033,17 +3501,18 @@ function AdminPanel({ wallets }: { wallets: Wallet[] }) {
 
   const refreshAll = useCallback(async () => {
     setRefreshing(true);
-    await Promise.all([loadOverview(true), loadSnipes(true), loadUsers(true)]);
+    await Promise.all([loadOverview(true), loadSnipes(true), loadUsers(true), loadFeatures(true)]);
     if (tab === "records") await loadRecords(true);
     setRefreshing(false);
-  }, [loadOverview, loadSnipes, loadUsers, loadRecords, tab]);
+  }, [loadOverview, loadSnipes, loadUsers, loadFeatures, loadRecords, tab]);
 
   useEffect(() => {
-    Promise.all([api.adminOverview(), api.adminSnipes({ limit: 400 }), api.adminUsers()])
-      .then(([o, s, u]) => {
+    Promise.all([api.adminOverview(), api.adminSnipes({ limit: 400 }), api.adminUsers(), api.adminFeatures()])
+      .then(([o, s, u, f]) => {
         setOverview(o);
         setSnipes(s.snipes);
         setUsers(u.users);
+        setFeatures(f);
       })
       .catch((e) => toast(e.message, "err"))
       .finally(() => setLoading(false));
@@ -3067,6 +3536,23 @@ function AdminPanel({ wallets }: { wallets: Wallet[] }) {
     }, 15_000);
     return () => window.clearInterval(timer);
   }, [tab, loadOverview, loadSnipes]);
+
+  async function toggleDiscoveryFeature() {
+    if (!features?.discovery.available || featureBusy) return;
+    const next = !features.discovery.enabled;
+    setFeatureBusy(true);
+    try {
+      const res = await api.adminSetDiscovery(next);
+      setFeatures({ discovery: res.discovery });
+      window.dispatchEvent(new CustomEvent("claimsnipe:discovery-feature", { detail: { enabled: res.discovery.enabled } }));
+      toast(`Discovery ${res.discovery.enabled ? "enabled" : "disabled"}`);
+      void loadOverview(true);
+    } catch (e: any) {
+      toast(friendlyError(e?.message ?? "Could not change Discovery"), "err");
+    } finally {
+      setFeatureBusy(false);
+    }
+  }
 
   async function openSnipe(id: string) {
     setDetailBusy(true);
@@ -3206,6 +3692,38 @@ function AdminPanel({ wallets }: { wallets: Wallet[] }) {
               <span>TX queue</span><strong>{health?.queue.queued ?? 0}</strong><small>{health?.queue.limitPerSecond ?? 0}/s limit · {health?.queue.priorityQueued ?? 0} priority</small>
             </div>
           </div>
+
+          <section className={`admin-feature-control ${features?.discovery.enabled ? "enabled" : "disabled"}`}>
+            <div className="admin-feature-main">
+              <div>
+                <span className="admin-feature-kicker">FEATURE CONTROL</span>
+                <h3>Redirect Discovery</h3>
+                <p>Event-driven redirect index. Turning this off stops the Pump Fees watcher, filtered Helius claim stream and background enrichment, and hides Discovery from users. It does not run a historical chain scan when enabled.</p>
+              </div>
+              <button
+                type="button"
+                className="admin-feature-switch"
+                aria-pressed={Boolean(features?.discovery.enabled)}
+                onClick={() => void toggleDiscoveryFeature()}
+                disabled={!features?.discovery.available || featureBusy}
+              >
+                <span className={`switch ${features?.discovery.enabled ? "on" : ""}`}><span className="knob" /></span>
+                <b>{featureBusy ? "Changing…" : features?.discovery.enabled ? "Enabled" : "Disabled"}</b>
+              </button>
+            </div>
+            <div className="admin-feature-stats">
+              <span>Redirect feed <b>{(features?.discovery.runtime?.subscriptions ?? 0) > 0 ? "live" : features?.discovery.enabled ? "starting" : "off"}</b></span>
+              <span>Unclaimed wallets <b>{features?.discovery.runtime?.claimStream?.subscribedWallets ?? 0}</b></span>
+              <span>Filtered WSS <b>{features?.discovery.runtime?.claimStream?.connected ? "connected" : features?.discovery.enabled ? "reconnecting" : "off"}</b></span>
+              <span>Redirects indexed <b>{features?.discovery.runtime?.redirectsIndexed ?? 0}</b></span>
+              <span>Claims removed <b>{features?.discovery.runtime?.claimStream?.redirectsMarkedClaimed ?? 0}</b></span>
+              <span>Enrichment queue <b>{features?.discovery.runtime?.marketQueueDepth ?? 0}</b></span>
+              <span>Solana RPC reads <b>{features?.discovery.runtime?.redirectRpcReads ?? 0}</b></span>
+              <span>Page-triggered RPC <b>{features?.discovery.runtime?.pageTriggeredRpcReads ?? 0}</b></span>
+            </div>
+            {features?.discovery.runtime?.lastError && <div className="admin-feature-error">{features.discovery.runtime.lastError}</div>}
+            {features?.discovery.runtime?.claimStream?.lastError && <div className="admin-feature-error">Claim stream: {features.discovery.runtime.claimStream.lastError}</div>}
+          </section>
 
           <div className="admin-dashboard-grid">
             <section className="admin-card admin-services">
@@ -5071,7 +5589,7 @@ function ChatBox({ tradingPlatform }: { tradingPlatform: TradingPlatform }) {
     if (pollingRef.current) return;
     pollingRef.current = true;
     try {
-      const r = await api.socialChat({ limit: 40 });
+      const r = await api.socialChat({ limit: 30 });
       setMessages((prev) => mergeMessages(prev, r.messages));
       setHasMore(r.hasMore);
       initializedRef.current = true;
@@ -5088,7 +5606,7 @@ function ChatBox({ tradingPlatform }: { tradingPlatform: TradingPlatform }) {
     const wasNearBottom = !el || el.scrollHeight - el.scrollTop - el.clientHeight < 110;
     try {
       const last = lastRef.current;
-      const r = await api.socialChat(last ? { after: last.createdAt, afterId: last.id, limit: 40 } : { limit: 40 });
+      const r = await api.socialChat(last ? { after: last.createdAt, afterId: last.id, limit: 30 } : { limit: 30 });
       if (r.messages.length) {
         setMessages((prev) => mergeMessages(prev, r.messages));
         if (wasNearBottom) scrollToBottom(true);
@@ -5107,7 +5625,7 @@ function ChatBox({ tradingPlatform }: { tradingPlatform: TradingPlatform }) {
     const oldHeight = el?.scrollHeight ?? 0;
     const cursor = firstRef.current;
     try {
-      const r = await api.socialChat({ before: cursor.createdAt, beforeId: cursor.id, limit: 40 });
+      const r = await api.socialChat({ before: cursor.createdAt, beforeId: cursor.id, limit: 30 });
       setMessages((prev) => mergeMessages(prev, r.messages));
       setHasMore(r.hasMore);
       requestAnimationFrame(() => {
@@ -5247,6 +5765,7 @@ function ChatBox({ tradingPlatform }: { tradingPlatform: TradingPlatform }) {
           if (el.scrollTop <= 80) void loadOlder();
           if (el.scrollHeight - el.scrollTop - el.clientHeight < 80) setNewWhileUp(0);
         }}>
+          <div className="chat-feed-content">
           {loadingOlder && <div className="chat-loading"><span className="spin" /> Loading earlier messages…</div>}
           {!loadingOlder && hasMore && <p className="sub chat-history-hint">Scroll up for earlier messages</p>}
           {messages.length === 0 && <p className="sub">No messages yet. Say hi.</p>}
@@ -5323,6 +5842,7 @@ function ChatBox({ tradingPlatform }: { tradingPlatform: TradingPlatform }) {
               </div>
             </div>
           ))}
+          </div>
         </div>
         {newWhileUp > 0 && <button className="new-messages-btn" onClick={() => scrollToBottom(true)}>↓ {newWhileUp} new {newWhileUp === 1 ? "message" : "messages"}</button>}
       </div>

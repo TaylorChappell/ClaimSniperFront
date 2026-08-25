@@ -440,6 +440,15 @@ export interface PushTestResult {
   error?: string;
 }
 
+export interface DiscoveryRedirect {
+  wallet: string;
+  shareBps: number;
+  sharePct: number;
+  redirectedAt: string;
+  redirectSignature: string;
+  redirectSlot: string | null;
+}
+
 export interface DiscoverCoin {
   mint: string;
   ticker: string | null;
@@ -447,6 +456,7 @@ export interface DiscoverCoin {
   image: string | null;
   marketCapUsd: number | null;
   volumeUsd: number | null;
+  volume1hUsd: number | null;
   liquidityUsd: number | null;
   priceUsd: number | null;
   pairAddress: string | null;
@@ -454,18 +464,72 @@ export interface DiscoverCoin {
   pairUrl: string | null;
   pairCreatedAt: string | null;
   marketDataUpdatedAt: string | null;
-  createdAt: string | null;
-  migrated: boolean;
-  creator?: string | null;
-  redirectedAt?: string | null;
-  source?: string | null;
-  signature?: string | null;
-  authority?: string | null;
-  sharingConfig?: string | null;
-  metadataUpdatedAt?: string | null;
-  isLikelyAgent?: boolean;
-  isLikelyCharity?: boolean;
-  classificationReason?: string | null;
+  tokenCreatedAt: string | null;
+  lastTradeAt: string | null;
+  graduated: boolean;
+  graduatedAt: string | null;
+  originalCreator: string | null;
+  redirectedAt: string;
+  source: string | null;
+  signature: string | null;
+  sharingConfig: string | null;
+  replyCount: number | null;
+  trendScore: number;
+  twitter: string | null;
+  telegram: string | null;
+  website: string | null;
+  metadataUpdatedAt: string | null;
+  isLikelyAgent: boolean;
+  isLikelyCharity: boolean;
+  classificationReason: string | null;
+  redirects: DiscoveryRedirect[];
+  totalRedirectSharePct: number;
+}
+
+export interface DiscoveryStatus {
+  available: boolean;
+  enabled: boolean;
+}
+
+export interface DiscoveryFeed {
+  enabled: boolean;
+  available: boolean;
+  columns: { new: DiscoverCoin[]; trending: DiscoverCoin[]; graduated: DiscoverCoin[] };
+  counts: { total: number; new: number; trending: number; graduated: number };
+  index: {
+    connected: boolean;
+    redirectFeedConnected?: boolean;
+    claimStreamConnected?: boolean;
+    subscribedWallets: number;
+    lastClaimAt?: string | null;
+    lastRedirectAt?: string | null;
+  };
+  hiddenCount?: number;
+  generatedAt: string;
+}
+
+export interface AdminFeatureState {
+  discovery: {
+    available: boolean;
+    enabled: boolean;
+    runtime?: {
+      enabled: boolean;
+      subscriptions: number;
+      redirectsIndexed?: number;
+      configEventsIndexed?: number;
+      marketQueueDepth?: number;
+      redirectRpcReads?: number;
+      enrichmentRuns?: number;
+      pageTriggeredRpcReads?: number;
+      lastRedirectAt?: string | null;
+      lastError?: string | null;
+      claimStream?: {
+        running: boolean; connected: boolean; subscribedWallets: number; subscriptions: number;
+        transactions: number; claimsSeen: number; redirectsMarkedClaimed: number; reconnects: number;
+        lastMessageAt?: string | null; lastClaimAt?: string | null; lastError?: string | null;
+      };
+    };
+  };
 }
 
 export interface ClaimScannerCoin {
@@ -498,31 +562,12 @@ export interface ClaimScannerResult {
   cached: boolean;
 }
 
-export interface DiscoverMetadata {
-  mint: string;
-  ticker: string | null;
-  name: string | null;
-  image: string | null;
-  marketCapUsd: number | null;
-  volumeUsd: number | null;
-  liquidityUsd: number | null;
-  priceUsd: number | null;
-  pairAddress: string | null;
-  pairDexId: string | null;
-  pairUrl: string | null;
-  pairCreatedAt: string | null;
-  marketDataUpdatedAt: string | null;
-  creator: string | null;
-  source: string | null;
-  signature: string | null;
-  authority: string | null;
-  sharingConfig: string | null;
+export interface DiscoverMetadata extends DiscoverCoin {
   firstSeenAt: string;
-  redirectedAt: string;
-  metadataUpdatedAt: string | null;
-  isLikelyAgent: boolean;
-  isLikelyCharity: boolean;
-  classificationReason: string | null;
+  history: Array<{
+    wallet: string; shareBps: number; sharePct: number; epoch: number; active: boolean; isRedirect: boolean;
+    redirectedAt: string; redirectSignature: string; claimedAt: string | null; claimSignature: string | null;
+  }>;
   metadata: unknown;
 }
 
@@ -765,15 +810,8 @@ export const api = {
     req<{ snipe: Snipe }>(`/snipes/${id}/cancel-exit`, { method: "POST" }),
   claimScanner: (wallet: string) =>
     req<ClaimScannerResult>(`/claim-scanner?wallet=${encodeURIComponent(wallet.trim())}`),
-  discover: (includeSpecial = false) =>
-    req<{
-      coins: DiscoverCoin[];
-      configured: boolean;
-      message?: string;
-      total?: number;
-      includeSpecial?: boolean;
-      mode?: string;
-    }>(`/discover?includeSpecial=${includeSpecial ? "true" : "false"}`),
+  discoveryStatus: () => req<DiscoveryStatus>("/discover/status"),
+  discover: () => req<DiscoveryFeed>("/discover"),
   discoverMetadata: (mint: string) =>
     req<DiscoverMetadata>(`/discover/${encodeURIComponent(mint)}/metadata`),
   resolveTokenMarket: (mint: string) =>
@@ -786,5 +824,11 @@ export const api = {
       body: JSON.stringify({ mint }),
     }),
   discoverResetHidden: () =>
-    req<{ ok: true }>("/discover/reset-hidden", { method: "POST" }),
+    req<{ ok: true; restored: number }>("/discover/reset-hidden", { method: "POST" }),
+  adminFeatures: () => req<AdminFeatureState>("/admin/features"),
+  adminSetDiscovery: (enabled: boolean) =>
+    req<{ ok: true; discovery: AdminFeatureState["discovery"] }>("/admin/features/discovery", {
+      method: "PATCH",
+      body: JSON.stringify({ enabled }),
+    }),
 };
