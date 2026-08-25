@@ -4605,9 +4605,9 @@ html {
 @media(max-width:620px){.discovery-head{margin-bottom:10px}.discovery-head p{font-size:11px}.discovery-toolbar{padding:7px}.discovery-filter-toggle{flex:1;justify-content:center}.discovery-toolbar>.ghost{flex:1}.discovery-summary-strip{gap:14px}.discovery-coin-card{padding:10px 9px}.discovery-market-grid{grid-template-columns:repeat(4,minmax(0,1fr))}.discovery-token-id span{max-width:150px}.discovery-card-actions .trade-open{font-size:9px}.discovery-detail-modal{width:96vw;padding:14px}.discovery-detail-stats{grid-template-columns:repeat(3,1fr)}.discovery-token-links>*{flex:1;justify-content:center}.discovery-history>div>div{grid-template-columns:46px 1fr 45px}.discovery-history em{display:none}.admin-feature-main{flex-direction:column}.admin-feature-switch{width:100%;justify-content:flex-start}.admin-feature-stats{display:grid;grid-template-columns:repeat(2,1fr);gap:7px}.discovery-swipe-wrap.revealing .discovery-swipe-hide{box-shadow:inset 8px 0 18px rgba(0,0,0,.18)}}
 
 
-/* ---------- Desktop chat density fix ----------
-   Keep Chat website-like instead of stretching to the full viewport, bottom-align
-   sparse conversations, and keep the emoji keyboard compact with square cells. */
+/* ---------- Contained Social chat ----------
+   Chat owns the remaining viewport height. The document itself must not scroll;
+   only the message feed scrolls, while the composer remains anchored to the card. */
 .chat-feed-content {
   min-height: 100%;
   display: flex;
@@ -4615,33 +4615,60 @@ html {
   justify-content: flex-end;
 }
 
-@media (min-width: 721px) {
-  body.chat-view-active {
-    overflow-y: auto;
-  }
-  body.chat-view-active .wrap {
-    height: auto;
-    min-height: 100dvh;
-    overflow: visible;
-  }
-  .social-chat-mode {
-    flex: 0 0 auto;
-    height: auto;
-    overflow: visible;
-  }
-  .social-chat-mode .telegram-chat {
-    flex: 0 0 auto;
-    height: clamp(500px, calc(100dvh - 380px), 640px);
-    min-height: 500px;
-    max-height: 640px;
-  }
-  .chat-polished .chat-feed,
-  .telegram-feed {
-    height: auto;
-    min-height: 0;
-    max-height: none !important;
-  }
+body.chat-view-active {
+  overflow: hidden !important;
+}
+body.chat-view-active .wrap {
+  height: 100dvh !important;
+  min-height: 0 !important;
+  padding-bottom: 12px;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden !important;
+}
+body.chat-view-active .topbar,
+.social-chat-mode .page-intro,
+.social-chat-mode .dash-tabs {
+  flex: 0 0 auto;
+}
+.social-chat-mode {
+  flex: 1 1 auto !important;
+  min-height: 0 !important;
+  height: auto !important;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden !important;
+}
+.social-chat-mode .telegram-chat {
+  flex: 1 1 auto !important;
+  min-height: 0 !important;
+  height: auto !important;
+  max-height: none !important;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden !important;
+}
+.social-chat-mode .chat-feed-wrap {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow: hidden;
+}
+.social-chat-mode .chat-polished .chat-feed,
+.social-chat-mode .telegram-feed {
+  height: 100% !important;
+  min-height: 0 !important;
+  max-height: none !important;
+  overflow-y: auto !important;
+  overscroll-behavior: contain;
+  scrollbar-gutter: stable;
+}
+.social-chat-mode .sticky-composer,
+.social-chat-mode .chat-compose-context,
+.social-chat-mode .chat-image-preview {
+  flex: 0 0 auto;
+}
 
+@media (min-width: 721px) {
   .telegram-emoji-panel {
     left: auto;
     right: 12px;
