@@ -126,6 +126,7 @@ type ArmSnipePreset = {
   watchWallet: string;
   execMode: "PUMPPORTAL" | "LOCAL";
   triggerMode: "CLAIM" | "REDIRECT";
+  claimMode: "FAST" | "SAFE";
   exit: ExitPresetDraft;
 };
 
@@ -190,6 +191,7 @@ function presetFingerprint(preset?: Partial<ArmSnipePreset> | null) {
     watchWallet: preset?.watchWallet ?? "",
     execMode: preset?.execMode === "LOCAL" ? "LOCAL" : "PUMPPORTAL",
     triggerMode: preset?.triggerMode === "REDIRECT" ? "REDIRECT" : "CLAIM",
+    claimMode: preset?.claimMode === "FAST" ? "FAST" : "SAFE",
     exit: {
       tpOn: !!exit.tpOn,
       tpTrail: !!exit.tpTrail,
@@ -1795,6 +1797,7 @@ function SnipeForm({
   const [watchWallet, setWatchWallet] = useState("");
   const [execMode, setExecMode] = useState<"PUMPPORTAL" | "LOCAL">("PUMPPORTAL");
   const [triggerMode, setTriggerMode] = useState<"CLAIM" | "REDIRECT">("CLAIM");
+  const [claimMode, setClaimMode] = useState<"FAST" | "SAFE">("SAFE");
   const [advancedOpen, setAdvancedOpen] = useState(false);
   const [exitOpen, setExitOpen] = useState(false);
   const ex = useExit();
@@ -1824,6 +1827,7 @@ function SnipeForm({
       watchWallet,
       execMode,
       triggerMode,
+      claimMode,
       exit: ex.snapshot(),
     };
   }
@@ -1843,6 +1847,7 @@ function SnipeForm({
     setWatchWallet(preset.watchWallet ?? "");
     setExecMode(preset.execMode === "LOCAL" ? "LOCAL" : "PUMPPORTAL");
     setTriggerMode(preset.triggerMode === "REDIRECT" ? "REDIRECT" : "CLAIM");
+    setClaimMode(preset.claimMode === "FAST" ? "FAST" : "SAFE");
     ex.applyPreset(preset.exit);
   }
 
@@ -1897,6 +1902,7 @@ function SnipeForm({
         mcMaxUsd: marketCapInputToNumber(mcMaxUsd),
         execMode,
         triggerMode,
+        claimMode,
         onlyRedirected,
         watchWallet: onlyRedirected ? watchWallet.trim() : null,
         exit: ex.build(),
@@ -1996,6 +2002,7 @@ function SnipeForm({
 
         <div className="form-step"><span>2</span><strong>Trigger</strong></div>
         <TriggerModeSelect value={triggerMode} onChange={setTriggerMode} />
+        <ClaimModeSelect value={claimMode} onChange={setClaimMode} triggerMode={triggerMode} />
         <div className="trigger-explain">
           <strong>{triggerMode === "REDIRECT" ? "Fee Redirect" : "Fee Claim"}</strong>
           <span>{triggerMode === "REDIRECT" ? "Buy when the creator fee recipient changes." : "Buy the moment this coin's creator fees are claimed."}</span>
@@ -2066,6 +2073,7 @@ function SnipeForm({
         <div className="summary-block"><span>Trigger</span><p>{triggerSummary}</p></div>
         <div className="summary-line"><span>Take profit</span><strong>{tpSummary}</strong></div>
         <div className="summary-line"><span>Stop loss</span><strong>{slSummary}</strong></div>
+        <div className="summary-line"><span>Detection</span><strong>{claimMode === "FAST" ? "Fast · accelerated" : "Safe · confirmed"}</strong></div>
         <div className="summary-line"><span>Execution</span><strong>{execMode === "LOCAL" ? "Local" : "PumpPortal"}</strong></div>
         <div className="summary-line"><span>Slippage</span><strong>{adaptiveSlippage ? `${slippage}% → max ${maxSlippage}% · ${maxBuyRetries} retries` : `${slippage}% fixed`}</strong></div>
         <div className="summary-line"><span>Market cap</span><strong>{mcSummary}</strong></div>
@@ -2108,6 +2116,7 @@ function EditSnipeModal({
   const [triggerMode, setTriggerMode] = useState<"CLAIM" | "REDIRECT">(
     snipe.triggerMode === "REDIRECT" ? "REDIRECT" : "CLAIM",
   );
+  const [claimMode, setClaimMode] = useState<"FAST" | "SAFE">(snipe.claimMode === "FAST" ? "FAST" : "SAFE");
   const ex = useExit(snipe);
   const [busy, setBusy] = useState(false);
 
@@ -2146,6 +2155,7 @@ function EditSnipeModal({
         watchWallet: redir ? watchWallet.trim() : null,
         execMode,
         triggerMode,
+        claimMode,
         exit: ex.build(),
       });
       toast(armed ? "Snipe updated & re-armed" : snipe.status === "PAUSED" ? "Paused snipe updated" : "Snipe updated");
@@ -2245,6 +2255,7 @@ function EditSnipeModal({
 
             <ExecModeSelect value={execMode} onChange={setExecMode} />
             <TriggerModeSelect value={triggerMode} onChange={setTriggerMode} />
+            <ClaimModeSelect value={claimMode} onChange={setClaimMode} triggerMode={triggerMode} />
             <label className="switch-row" onClick={() => setRedir((v) => !v)}>
               <span className={`switch ${redir ? "on" : ""}`}>
                 <span className="knob" />
@@ -2497,6 +2508,7 @@ function Snipes({
             <div><span>Priority</span><strong>{s.priorityFee} SOL</strong></div>
             <div><span>Extra priority</span><strong>{s.bribe} SOL</strong></div>
             <div><span>Execution</span><strong>{s.execMode === "LOCAL" ? "Local" : "PumpPortal"}</strong></div>
+            <div><span>Detection</span><strong>{s.claimMode === "FAST" ? "Fast · accelerated" : "Safe · confirmed"}</strong></div>
             {s.claimCheckInstruction && <div><span>Claim check</span><strong>{s.claimCheckInstruction}</strong></div>}
             {s.signature && <div><span>Entry transaction</span><a href={`https://solscan.io/tx/${s.signature}`} target="_blank" rel="noreferrer">Solscan ↗</a></div>}
           </div>}
@@ -3200,6 +3212,12 @@ function AdminPanel({ wallets }: { wallets: Wallet[] }) {
               <div className="admin-card-head"><div><h3>System health</h3><p>Live checks from this backend instance.</p></div><span className="admin-updated">{overview ? adminAgo(overview.generatedAt) : "—"}</span></div>
               <AdminServiceRow name="PostgreSQL" ok={health?.database.ok ?? false} value={health ? `${health.database.latencyMs}ms` : "—"} detail={health?.database.error ?? "query responsive"} />
               <AdminServiceRow name="Solana RPC" ok={health?.rpc.ok ?? false} value={health ? `${health.rpc.latencyMs}ms` : "—"} detail={health?.rpc.slot ? `slot ${health.rpc.slot.toLocaleString()}` : health?.rpc.error ?? "unavailable"} />
+              <AdminServiceRow
+                name="Claim feed"
+                ok={!health?.engine.globalClaimFeed?.enabled || (!!health?.engine.globalClaimFeed?.connected && !health?.engine.globalClaimFeed?.reconnecting)}
+                value={!health?.engine.globalClaimFeed?.enabled ? "disabled" : health?.engine.globalClaimFeed?.reconnecting ? "reconnecting" : health?.engine.globalClaimFeed?.connected ? "connected" : "offline"}
+                detail={health?.engine.globalClaimFeed?.enabled ? `${health.engine.globalClaimFeed.endpointCount} RPC route${health.engine.globalClaimFeed.endpointCount === 1 ? "" : "s"} · ${health.engine.globalClaimFeed.claimSignals} claim signals · ${health.engine.globalClaimFeed.reconnects} reconnects` : "global resilience feed disabled"}
+              />
               <AdminServiceRow name="Market-cap feed" ok={health?.marketFeed.ok ?? false} value={health?.marketFeed.connected ? "connected" : (health?.marketFeed.subscribed ? "offline" : "idle")} detail={`${health?.marketFeed.subscribed ?? 0} subscribed · ${health?.marketFeed.cached ?? 0} cached`} />
               <AdminServiceRow name="Redirect radar" ok={!health?.radar.enabled || (health?.radar.subscriptions ?? 0) > 0} value={health?.radar.enabled ? `${health.radar.subscriptions} live` : "disabled"} detail={`${health?.radar.inFlight ?? 0} processing · ${health?.radar.marketQueueDepth ?? 0} enrichment queue`} />
               <div className="admin-queue-block">
@@ -3218,6 +3236,10 @@ function AdminPanel({ wallets }: { wallets: Wallet[] }) {
                 <div><span>Arming now</span><b>{health?.engine.armingInFlight ?? 0}</b></div>
                 <div><span>Buy reconcile</span><b className={(health?.engine.buyReconciliationsPending ?? 0) ? "amber" : ""}>{health?.engine.buyReconciliationsPending ?? 0}</b></div>
                 <div><span>Wallet watchers</span><b>{health?.balances.subscriptions ?? 0}</b></div>
+                <div><span>Fast creator watchers</span><b>{health?.engine.fastCreatorSubscriptions ?? 0}</b></div>
+                <div><span>Fast redirect watchers</span><b>{health?.engine.fastRedirectSubscriptions ?? 0}</b></div>
+                <div><span>Backfills</span><b>{health?.engine.backfillRuns ?? 0}</b></div>
+                <div><span>Recovered sigs</span><b>{health?.engine.backfilledSignatures ?? 0}</b></div>
               </div>
               <div className="admin-engine-last">
                 <span>Last claim <b>{adminAgo(health?.engine.lastClaimAt)}</b></span>
@@ -3378,7 +3400,7 @@ function AdminSnipeDebugModal({ data, onClose }: { data: AdminSnipeDebug; onClos
         <div className="admin-timeline">{timeline.map(([label, value], i) => <div key={label}><i className={i === timeline.length - 1 ? "last" : ""} /><span>{label}</span><b>{new Date(value).toLocaleString()}</b>{i > 0 && <small>+{adminDurationMs(new Date(value).getTime() - new Date(timeline[i - 1][1]).getTime())}</small>}</div>)}</div>
         <div className="admin-debug-grid">
           <section><h4>Execution</h4><AdminDebugKV k="Snipe ID" v={s.id} mono /><AdminDebugKV k="Wallet" v={`${s.wallet.name} · ${s.wallet.publicKey}`} mono /><AdminDebugKV k="Amount" v={`${s.amountSol} SOL`} /><AdminDebugKV k="Base slippage" v={`${s.slippagePct}%`} /><AdminDebugKV k="Adaptive" v={s.adaptiveSlippage === false ? "Off" : `On · max ${s.maxSlippagePct ?? "—"}%`} /><AdminDebugKV k="Buy attempts" v={`${s.buyAttempts ?? 0} / ${(s.maxBuyRetries ?? 0) + 1}`} /><AdminDebugKV k="Final slippage" v={s.finalSlippagePct != null ? `${s.finalSlippagePct}%` : "—"} /><AdminDebugKV k="Priority / tip" v={`${s.priorityFee} / ${s.bribe} SOL`} /><AdminDebugKV k="Trigger → fill" v={adminDurationMs(s.triggerToFillMs)} /></section>
-          <section><h4>Trigger / filters</h4><AdminDebugKV k="Mode" v={s.triggerMode ?? "CLAIM"} /><AdminDebugKV k="Watch wallet" v={s.watchWallet ?? "default creator"} mono /><AdminDebugKV k="MC min" v={s.mcMinUsd != null ? `$${compactNumber.format(s.mcMinUsd)}` : "none"} /><AdminDebugKV k="MC max" v={s.mcMaxUsd != null ? `$${compactNumber.format(s.mcMaxUsd)}` : "none"} /><AdminDebugKV k="Claim check" v={s.claimCheckStatus ?? "—"} /><AdminDebugKV k="Claim signer" v={s.claimCheckSigner ? "yes" : "no"} /><AdminDebugKV k="Claim tx" v={s.claimCheckTx ?? "—"} mono /></section>
+          <section><h4>Trigger / filters</h4><AdminDebugKV k="Mode" v={s.triggerMode ?? "CLAIM"} /><AdminDebugKV k="Claim detection" v={s.claimMode === "FAST" ? "FAST · accelerated" : "SAFE · confirmed"} /><AdminDebugKV k="Watch wallet" v={s.watchWallet ?? "default creator"} mono /><AdminDebugKV k="MC min" v={s.mcMinUsd != null ? `$${compactNumber.format(s.mcMinUsd)}` : "none"} /><AdminDebugKV k="MC max" v={s.mcMaxUsd != null ? `$${compactNumber.format(s.mcMaxUsd)}` : "none"} /><AdminDebugKV k="Claim check" v={s.claimCheckStatus ?? "—"} /><AdminDebugKV k="Claim signer" v={s.claimCheckSigner ? "yes" : "no"} /><AdminDebugKV k="Claim tx" v={s.claimCheckTx ?? "—"} mono /></section>
           <section><h4>Exit / position</h4><AdminDebugKV k="TP status" v={s.tpStatus ?? "NONE"} /><AdminDebugKV k="Exit kind" v={s.exitKind ?? "—"} /><AdminDebugKV k="Entry MC" v={s.entryMcSol != null ? `${s.entryMcSol.toFixed(2)} SOL` : "—"} /><AdminDebugKV k="Peak MC" v={s.peakMcSol != null ? `${s.peakMcSol.toFixed(2)} SOL` : "—"} /><AdminDebugKV k="Position" v={data.position?.status ?? "none"} /><AdminDebugKV k="Realized" v={data.position ? `${data.position.realizedSol.toFixed(6)} SOL` : "—"} /><AdminDebugKV k="Realized P&L" v={data.position ? `${data.position.realizedProfitSol >= 0 ? "+" : ""}${data.position.realizedProfitSol.toFixed(6)} SOL` : "—"} /></section>
         </div>
         <div className="admin-debug-signatures"><div><span>Buy transaction</span>{s.signature ? <a href={`https://solscan.io/tx/${s.signature}`} target="_blank" rel="noreferrer">{s.signature} ↗</a> : <b>none</b>}</div>{s.tpSignature && <div><span>Exit transaction</span><a href={`https://solscan.io/tx/${s.tpSignature}`} target="_blank" rel="noreferrer">{s.tpSignature} ↗</a></div>}</div>
@@ -4011,6 +4033,40 @@ function ExecModeSelect({
           stop-loss sells still use PumpPortal.
         </div>
       )}
+    </div>
+  );
+}
+
+/* ---------------- claim confirmation selector ---------------- */
+function ClaimModeSelect({
+  value,
+  onChange,
+  triggerMode,
+}: {
+  value: "FAST" | "SAFE";
+  onChange: (v: "FAST" | "SAFE") => void;
+  triggerMode: "CLAIM" | "REDIRECT";
+}) {
+  return (
+    <div className="exec-mode claim-mode">
+      <label>Detection</label>
+      <div className="seg">
+        <button type="button" className={value === "FAST" ? "on" : ""} onClick={() => onChange("FAST")}>
+          Fast
+        </button>
+        <button type="button" className={value === "SAFE" ? "on" : ""} onClick={() => onChange("SAFE")}>
+          Safe
+        </button>
+      </div>
+      <div className="hint">
+        {value === "FAST"
+          ? triggerMode === "REDIRECT"
+            ? "Watches the redirect at processed, then actively verifies the new fee owner at confirmed before buying. If fast verification misses, the confirmed feed fires automatically."
+            : "Watches the claim at processed, then actively waits for confirmed transaction visibility and performs the full claim checks immediately. It never buys an unconfirmed claim."
+          : triggerMode === "REDIRECT"
+            ? "Uses the normal confirmed account-change feed. Simpler and slightly more conservative, but can react later than Fast."
+            : "Uses the normal confirmed claim feed. Simpler and slightly more conservative, but can react later than Fast."}
+      </div>
     </div>
   );
 }
@@ -5660,6 +5716,9 @@ function CopyPublicModal({
   const [execMode, setExecMode] = useState<"PUMPPORTAL" | "LOCAL">(
     source?.execMode === "LOCAL" ? "LOCAL" : "PUMPPORTAL",
   );
+  const [claimMode, setClaimMode] = useState<"FAST" | "SAFE">(
+    source?.claimMode === "FAST" ? "FAST" : "SAFE",
+  );
   const [onlyWallet, setOnlyWallet] = useState(!!source?.watchWallet);
   const [watchWallet, setWatchWallet] = useState(source?.watchWallet ?? "");
   const ex = useExit(source as Partial<Snipe> | undefined);
@@ -5684,6 +5743,7 @@ function CopyPublicModal({
         bribe: Number(bribe),
         execMode,
         triggerMode,
+        claimMode,
         onlyRedirected: onlyWallet,
         watchWallet: onlyWallet ? watchWallet.trim() : null,
         exit: ex.build(),
@@ -5746,6 +5806,7 @@ function CopyPublicModal({
           </div>
         </div>
         <ExecModeSelect value={execMode} onChange={setExecMode} />
+        <ClaimModeSelect value={claimMode} onChange={setClaimMode} triggerMode={triggerMode} />
         <label className="switch-row" onClick={() => setOnlyWallet((v) => !v)}>
           <span className={`switch ${onlyWallet ? "on" : ""}`}>
             <span className="knob" />
