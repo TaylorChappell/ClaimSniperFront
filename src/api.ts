@@ -225,6 +225,21 @@ export interface AdminOverview {
   recentFailures: { id: string; userId: string; username: string; snipeId?: string | null; message: string; createdAt: string }[];
 }
 
+
+export interface AdminRpcUsage {
+  generatedAt: string;
+  range: "1h" | "24h" | "month";
+  rangeStart: string;
+  estimateNotice: string;
+  total: { requests: number; estimatedHeliusCredits: number; streamedBytes: number; streamedMb: number; errors: number; avgLatencyMs: number };
+  budget: { monthlyCredits: number; estimatedUsedThisMonth: number; estimatedRemaining: number; usedPct: number };
+  subsystems: Array<{ name: string; requests: number; credits: number; bytes: number; errors: number; latencyMs: number; avgLatencyMs: number; sharePct: number }>;
+  methods: Array<{ subsystem: string; method: string; kind: "http" | "wss" | string; requests: number; credits: number; bytes: number; errors: number; latencyMs: number; avgLatencyMs: number }>;
+  providers: Array<{ name: string; requests: number; credits: number; bytes: number; errors: number; latencyMs: number; avgLatencyMs: number }>;
+  timeline: Array<{ at: string; credits: number; requests: number; bytes: number; errors: number }>;
+  pricing: { standardRpc: number; getProgramAccounts: number; getProgramAccountsV2: number; enhancedTransactions: number; getTransactionsForAddress: number; getTransfersByAddress: number; websocketCreditsPerMb: number };
+}
+
 export interface AdminRecord {
   id: string;
   sourceId: string;
@@ -681,6 +696,7 @@ export const api = {
       body: JSON.stringify(body),
     }),
   adminOverview: () => req<AdminOverview>("/admin/overview"),
+  adminRpcUsage: (range: "1h" | "24h" | "month" = "24h") => req<AdminRpcUsage>(`/admin/rpc-usage?range=${encodeURIComponent(range)}`),
   adminSnipes: (filters: { status?: string; q?: string; limit?: number } = {}) => {
     const p = new URLSearchParams();
     if (filters.status) p.set("status", filters.status);

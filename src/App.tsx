@@ -21,6 +21,7 @@ import {
   type TrendingCoin,
   type ChatMessage,
   type AdminOverview,
+  type AdminRpcUsage,
   type AdminRecord,
   type AdminUserDetail,
   type AdminSnipeDebug,
@@ -114,7 +115,7 @@ type TradeOpenTarget = {
 type AppView = "dashboard" | "discovery" | "history" | "social" | "claims" | "settings" | "admin";
 type DashTab = "arm" | "snipes" | "wallets";
 type SocialTab = "trending" | "traders" | "chat";
-type AdminTab = "overview" | "snipes" | "users" | "records" | "notify";
+type AdminTab = "overview" | "snipes" | "users" | "rpc" | "records" | "notify";
 type PresetSlot = "1" | "2" | "3";
 type ArmSnipePreset = {
   walletId: string;
@@ -352,7 +353,7 @@ function initialAdminTabFromStorage(): AdminTab {
   const saved = localStorage.getItem(NAV_ADMIN_TAB_KEY);
   if (saved === "armed") return "snipes";
   if (saved === "logs") return "records";
-  if (["overview", "snipes", "users", "records", "notify"].includes(saved ?? "")) return saved as AdminTab;
+  if (["overview", "snipes", "users", "rpc", "records", "notify"].includes(saved ?? "")) return saved as AdminTab;
   return "overview";
 }
 
@@ -3423,6 +3424,102 @@ function adminUptime(seconds?: number | null) {
   return d ? `${d}d ${h}h` : h ? `${h}h ${m}m` : `${m}m`;
 }
 
+
+function rpcCredits(n?: number | null) {
+  const value = Number(n ?? 0);
+  if (value < 1000) return value.toFixed(value < 10 ? 2 : 0);
+  return compactNumber.format(value);
+}
+
+function rpcBytes(n?: number | null) {
+  const value = Number(n ?? 0);
+  if (value < 1000) return `${Math.round(value)} B`;
+  if (value < 1_000_000) return `${(value / 1000).toFixed(1)} KB`;
+  return `${(value / 1_000_000).toFixed(value < 10_000_000 ? 2 : 1)} MB`;
+}
+
+function AdminRpcUsageView({
+  usage,
+  range,
+  onRange,
+  onRefresh,
+}: {
+  usage: AdminRpcUsage | null;
+  range: "1h" | "24h" | "month";
+  onRange: (r: "1h" | "24h" | "month") => void;
+  onRefresh: () => void;
+}) {
+  const subs = usage?.subsystems ?? [];
+  const discovery = subs.filter((x) => x.name.startsWith("discovery-")).reduce((a, x) => ({ credits: a.credits + x.credits, requests: a.requests + x.requests, bytes: a.bytes + x.bytes }), { credits: 0, requests: 0, bytes: 0 });
+  const claim = subs.filter((x) => x.name.startsWith("claim-") || x.name === "fee-share-index").reduce((a, x) => ({ credits: a.credits + x.credits, requests: a.requests + x.requests }), { credits: 0, requests: 0 });
+  const trading = subs.filter((x) => x.name.startsWith("execution-") || x.name.startsWith("transaction-") || x.name === "tp-sl-market").reduce((a, x) => ({ credits: a.credits + x.credits, requests: a.requests + x.requests }), { credits: 0, requests: 0 });
+  const maxTimeline = Math.max(1, ...(usage?.timeline ?? []).map((x) => x.credits));
+
+  return (
+    <div className="admin-section rpc-usage-page">
+      <div className="admin-record-info rpc-usage-head">
+        <div>
+          <strong>RPC Usage</strong>
+          <p>App-side Helius credit estimate grouped by the ClaimSniper subsystem that caused it. Opening this page only reads Postgres.</p>
+        </div>
+        <div className="admin-row-actions rpc-range-actions">
+          {(["1h", "24h", "month"] as const).map((r) => <button key={r} className={`ghost mini ${range === r ? "on" : ""}`} onClick={() => onRange(r)}>{r === "month" ? "This month" : r}</button>)}
+          <button className="ghost mini" onClick={onRefresh}>Refresh</button>
+        </div>
+      </div>
+
+      {!usage ? <div className="admin-loading"><span className="spin dark" /> Loading RPC usage…</div> : <>
+        <div className="admin-metric-grid rpc-metrics">
+          <div className="admin-metric"><span>Estimated Helius credits</span><strong>{rpcCredits(usage.total.estimatedHeliusCredits)}</strong><small>{usage.total.requests.toLocaleString()} HTTP calls / WSS events</small></div>
+          <div className="admin-metric"><span>Discovery</span><strong>{rpcCredits(discovery.credits)}</strong><small>{discovery.requests.toLocaleString()} events/calls · {rpcBytes(discovery.bytes)} streamed</small></div>
+          <div className="admin-metric"><span>Claim detection</span><strong>{rpcCredits(claim.credits)}</strong><small>{claim.requests.toLocaleString()} events/calls</small></div>
+          <div className="admin-metric"><span>Trading / confirms</span><strong>{rpcCredits(trading.credits)}</strong><small>{trading.requests.toLocaleString()} calls/events</small></div>
+          <div className="admin-metric"><span>WSS streamed</span><strong>{usage.total.streamedMb.toFixed(2)} MB</strong><small>estimated uncompressed app payload</small></div>
+          <div className="admin-metric"><span>Errors</span><strong className={usage.total.errors ? "red" : ""}>{usage.total.errors.toLocaleString()}</strong><small>avg HTTP latency {Math.round(usage.total.avgLatencyMs)}ms</small></div>
+        </div>
+
+        <section className="admin-card rpc-budget-card">
+          <div className="admin-card-head"><div><h3>Monthly Helius allowance</h3><p>Local estimate. Use the Helius dashboard as the billing source of truth.</p></div><strong>{usage.budget.usedPct.toFixed(2)}%</strong></div>
+          <div className="rpc-budget-track"><span style={{ width: `${Math.max(0.4, usage.budget.usedPct)}%` }} /></div>
+          <div className="rpc-budget-meta"><span>{rpcCredits(usage.budget.estimatedUsedThisMonth)} used</span><span>{rpcCredits(usage.budget.estimatedRemaining)} remaining</span><span>{rpcCredits(usage.budget.monthlyCredits)} monthly</span></div>
+        </section>
+
+        <div className="admin-grid-two rpc-grid">
+          <section className="admin-card">
+            <div className="admin-card-head"><div><h3>Top consumers</h3><p>Sorted by estimated Helius credits.</p></div></div>
+            <div className="rpc-table-wrap"><table className="rpc-table"><thead><tr><th>Subsystem</th><th>Credits</th><th>Share</th><th>Calls/events</th><th>WSS</th><th>Errors</th></tr></thead><tbody>
+              {!subs.length ? <tr><td colSpan={6} className="dim">No usage recorded for this range yet.</td></tr> : subs.map((x) => <tr key={x.name} className={x.name.startsWith("discovery-") ? "discovery-row" : ""}><td><strong>{x.name}</strong></td><td>{rpcCredits(x.credits)}</td><td>{x.sharePct.toFixed(1)}%</td><td>{x.requests.toLocaleString()}</td><td>{rpcBytes(x.bytes)}</td><td className={x.errors ? "red" : ""}>{x.errors}</td></tr>)}
+            </tbody></table></div>
+          </section>
+
+          <section className="admin-card">
+            <div className="admin-card-head"><div><h3>Providers</h3><p>Only Helius traffic contributes estimated credits; fallback providers are still counted.</p></div></div>
+            <div className="admin-kv-list rpc-provider-list">
+              {!usage.providers.length ? <div><span>No provider activity yet</span><b>—</b></div> : usage.providers.map((p) => <div key={p.name}><span><b>{p.name}</b><small>{p.requests.toLocaleString()} calls/events · {rpcBytes(p.bytes)}</small></span><strong>{rpcCredits(p.credits)} cr</strong></div>)}
+            </div>
+          </section>
+        </div>
+
+        <section className="admin-card">
+          <div className="admin-card-head"><div><h3>Usage over time</h3><p>Five-minute buckets. Spikes make it easy to spot a runaway poller or subscription.</p></div></div>
+          <div className="rpc-timeline" title="Estimated credits per five-minute bucket">
+            {(usage.timeline.length ? usage.timeline : [{ at: new Date().toISOString(), credits: 0, requests: 0, bytes: 0, errors: 0 }]).map((x) => <div key={x.at} className="rpc-timeline-col" title={`${new Date(x.at).toLocaleString()} · ${rpcCredits(x.credits)} credits · ${x.requests} calls/events`}><span style={{ height: `${Math.max(3, (x.credits / maxTimeline) * 100)}%` }} /><i /></div>)}
+          </div>
+        </section>
+
+        <section className="admin-card">
+          <div className="admin-card-head"><div><h3>Most expensive methods</h3><p>Use this to find the exact call or stream responsible for usage.</p></div></div>
+          <div className="rpc-table-wrap"><table className="rpc-table"><thead><tr><th>Subsystem</th><th>Method</th><th>Type</th><th>Credits</th><th>Calls/events</th><th>Avg latency</th><th>Errors</th></tr></thead><tbody>
+            {usage.methods.map((x, i) => <tr key={`${x.subsystem}-${x.method}-${x.kind}-${i}`}><td>{x.subsystem}</td><td><code>{x.method}</code></td><td><span className={`rpc-kind ${x.kind}`}>{x.kind.toUpperCase()}</span></td><td>{rpcCredits(x.credits)}</td><td>{x.requests.toLocaleString()}</td><td>{x.kind === "http" ? `${Math.round(x.avgLatencyMs)}ms` : "—"}</td><td className={x.errors ? "red" : ""}>{x.errors}</td></tr>)}
+          </tbody></table></div>
+        </section>
+
+        <div className="rpc-estimate-note"><strong>How this works</strong><span>{usage.estimateNotice} WSS usage is estimated from payload bytes seen by this backend. It does not make any extra Solana/Helius requests to calculate these numbers.</span></div>
+      </>}
+    </div>
+  );
+}
+
 function AdminPanel({ wallets }: { wallets: Wallet[] }) {
   const toast = useToast();
   const [tab, setTab] = useState<AdminTab>(() => initialAdminTabFromStorage());
@@ -3430,6 +3527,8 @@ function AdminPanel({ wallets }: { wallets: Wallet[] }) {
   const [snipes, setSnipes] = useState<AdminSnipe[]>([]);
   const [users, setUsers] = useState<AdminUser[]>([]);
   const [records, setRecords] = useState<AdminRecord[]>([]);
+  const [rpcUsage, setRpcUsage] = useState<AdminRpcUsage | null>(null);
+  const [rpcRange, setRpcRange] = useState<"1h" | "24h" | "month">("24h");
   const [features, setFeatures] = useState<AdminFeatureState | null>(null);
   const [featureBusy, setFeatureBusy] = useState(false);
   const [loading, setLoading] = useState(true);
@@ -3484,6 +3583,14 @@ function AdminPanel({ wallets }: { wallets: Wallet[] }) {
     }
   }, [toast]);
 
+  const loadRpcUsage = useCallback(async (quiet = false) => {
+    try {
+      setRpcUsage(await api.adminRpcUsage(rpcRange));
+    } catch (e: any) {
+      if (!quiet) toast(e.message, "err");
+    }
+  }, [rpcRange, toast]);
+
   const loadRecords = useCallback(async (quiet = false) => {
     try {
       const res = await api.adminRecords({
@@ -3503,8 +3610,9 @@ function AdminPanel({ wallets }: { wallets: Wallet[] }) {
     setRefreshing(true);
     await Promise.all([loadOverview(true), loadSnipes(true), loadUsers(true), loadFeatures(true)]);
     if (tab === "records") await loadRecords(true);
+    if (tab === "rpc") await loadRpcUsage(true);
     setRefreshing(false);
-  }, [loadOverview, loadSnipes, loadUsers, loadFeatures, loadRecords, tab]);
+  }, [loadOverview, loadSnipes, loadUsers, loadFeatures, loadRecords, loadRpcUsage, tab]);
 
   useEffect(() => {
     Promise.all([api.adminOverview(), api.adminSnipes({ limit: 400 }), api.adminUsers(), api.adminFeatures()])
@@ -3530,12 +3638,18 @@ function AdminPanel({ wallets }: { wallets: Wallet[] }) {
   }, [tab, loadRecords]);
 
   useEffect(() => {
+    if (tab !== "rpc") return;
+    void loadRpcUsage(true);
+  }, [tab, rpcRange, loadRpcUsage]);
+
+  useEffect(() => {
     const timer = window.setInterval(() => {
       void loadOverview(true);
       if (tab === "snipes") void loadSnipes(true);
+      if (tab === "rpc") void loadRpcUsage(true);
     }, 15_000);
     return () => window.clearInterval(timer);
-  }, [tab, loadOverview, loadSnipes]);
+  }, [tab, loadOverview, loadSnipes, loadRpcUsage]);
 
   async function toggleDiscoveryFeature() {
     if (!features?.discovery.available || featureBusy) return;
@@ -3655,6 +3769,7 @@ function AdminPanel({ wallets }: { wallets: Wallet[] }) {
           ["overview", "Overview"],
           ["snipes", `Snipes${overview ? ` (${overview.snipes.armed + overview.snipes.paused + overview.snipes.triggered})` : ""}`],
           ["users", `Users${users.length ? ` (${users.length})` : ""}`],
+          ["rpc", "RPC Usage"],
           ["records", "Records"],
           ["notify", "Notification"],
         ] as [AdminTab, string][]).map(([id, label]) => (
@@ -3856,6 +3971,8 @@ function AdminPanel({ wallets }: { wallets: Wallet[] }) {
             ))}
           </div>
         </div>
+      ) : tab === "rpc" ? (
+        <AdminRpcUsageView usage={rpcUsage} range={rpcRange} onRange={setRpcRange} onRefresh={() => void loadRpcUsage()} />
       ) : tab === "records" ? (
         <div className="admin-section">
           <div className="admin-record-info"><div><strong>Activity records</strong><p>Snipe lifecycle, on-chain position events and billing records in one timeline.</p></div><div className="admin-row-actions"><button className="ghost mini" onClick={() => { const blob = new Blob([JSON.stringify(records, null, 2)], { type: "application/json" }); const url = URL.createObjectURL(blob); const a = document.createElement("a"); a.href = url; a.download = `claimsniper-admin-records-${new Date().toISOString().replace(/[:.]/g, "-")}.json`; a.click(); URL.revokeObjectURL(url); }}>Export JSON</button><button className="ghost mini" onClick={() => void loadRecords()}>Refresh</button></div></div>
