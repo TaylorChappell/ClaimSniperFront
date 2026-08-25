@@ -12,6 +12,7 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 export function useLeaderPolling<T>(name: string, fetcher: () => Promise<T>, intervalMs: number, scope = "default") {
   const [data, setData] = useState<T | null>(null);
   const [isLeader, setIsLeader] = useState(false);
+  const [error, setError] = useState<string | null>(null);
   const leaderRef = useRef(false);
   const lastRef = useRef<T | null>(null);
   const chanRef = useRef<BroadcastChannel | null>(null);
@@ -21,10 +22,12 @@ export function useLeaderPolling<T>(name: string, fetcher: () => Promise<T>, int
   const doFetch = useCallback(async () => {
     try {
       const d = await fetcherRef.current();
+      setError(null);
       lastRef.current = d;
       setData(d);
       chanRef.current?.postMessage({ type: 'data', payload: d });
-    } catch {
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "Unable to load data");
       /* keep last good data */
     }
   }, []);
@@ -95,5 +98,5 @@ export function useLeaderPolling<T>(name: string, fetcher: () => Promise<T>, int
     else chanRef.current?.postMessage({ type: 'refresh' });
   }, [doFetch]);
 
-  return { data, isLeader, refresh };
+  return { data, isLeader, refresh, error };
 }

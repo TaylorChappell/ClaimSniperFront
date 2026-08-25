@@ -1,25 +1,49 @@
 const BASE = import.meta.env.VITE_API_URL ?? "http://localhost:8080";
 
-// Authentication is cookie-only. Clear tokens left by older builds so a JWT is
-// never persisted in JavaScript-readable storage.
-localStorage.removeItem("token");
-sessionStorage.removeItem("token");
+// Prefer the secure HttpOnly cookie. Safari/iOS may block that cookie when the
+// frontend and API live on different sites, so login also provides a token
+// fallback kept only for this browser session. It is never persisted in
+// localStorage.
+const ACCESS_TOKEN_KEY = "cs_access_token";
+localStorage.removeItem("token"); // clear legacy long-lived JWTs from old builds
+
+function accessToken() {
+  try { return sessionStorage.getItem(ACCESS_TOKEN_KEY); } catch { return null; }
+}
+
+function saveAccessToken(token?: string | null) {
+  try {
+    if (token) sessionStorage.setItem(ACCESS_TOKEN_KEY, token);
+    else sessionStorage.removeItem(ACCESS_TOKEN_KEY);
+  } catch { /* strict/private browser storage may be unavailable */ }
+}
+
+export class ApiError extends Error {
+  status: number;
+  constructor(message: string, status: number) {
+    super(message);
+    this.name = "ApiError";
+    this.status = status;
+  }
+}
 
 async function req<T>(path: string, opts: RequestInit = {}): Promise<T> {
   const hasBody = opts.body != null;
+  const token = accessToken();
   const res = await fetch(BASE + path, {
     credentials: "include",
     ...opts,
     headers: {
       ...(hasBody ? { "Content-Type": "application/json" } : {}),
+      ...(token ? { Authorization: `Bearer ${token}` } : {}),
       ...(opts.headers ?? {}),
     },
   });
   const data = res.status === 204 ? null : await res.json().catch(() => null);
-  if (!res.ok)
-    throw new Error(
-      (data && (data as any).error) || `Request failed (${res.status})`,
-    );
+  if (!res.ok) {
+    const message = (data && (data as any).error) || `Request failed (${res.status})`;
+    throw new ApiError(message, res.status);
+  }
   return data as T;
 }
 
@@ -480,19 +504,30 @@ export interface DiscoverMetadata {
   metadata: unknown;
 }
 
+type AuthSession = Profile & { accessToken?: string };
+
 export const api = {
-  register: (username: string, password: string) =>
-    req<Profile>("/auth/register", {
+  register: async (username: string, password: string) => {
+    const result = await req<AuthSession>("/auth/register", {
       method: "POST",
       body: JSON.stringify({ username, password }),
-    }),
-  login: (username: string, password: string) =>
-    req<Profile>("/auth/login", {
+    });
+    saveAccessToken(result.accessToken);
+    return result;
+  },
+  login: async (username: string, password: string) => {
+    const result = await req<AuthSession>("/auth/login", {
       method: "POST",
       body: JSON.stringify({ username, password }),
-    }),
+    });
+    saveAccessToken(result.accessToken);
+    return result;
+  },
   me: () => req<Profile>("/auth/me"),
-  logout: () => req<{ ok: true }>("/auth/logout", { method: "POST" }),
+  logout: async () => {
+    try { return await req<{ ok: true }>("/auth/logout", { method: "POST" }); }
+    finally { saveAccessToken(null); }
+  },
   profile: () => req<{ profile: Profile }>("/profile"),
   updateProfile: (body: {
     avatarDataUrl?: string | null;

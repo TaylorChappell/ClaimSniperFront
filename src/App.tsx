@@ -1330,7 +1330,7 @@ function Dashboard({
     return { wallets: w.wallets, snipes: list, stats: st };
   }, [toast]);
 
-  const { data, refresh } = useLeaderPolling("dash", fetchAll, 30000, username);
+  const { data, refresh, error: dashboardError } = useLeaderPolling("dash", fetchAll, 30000, username);
   const { data: marketCapData } = useLeaderPolling(
     "snipe-market-caps",
     () => api.snipeMarketCaps(),
@@ -1490,7 +1490,17 @@ function Dashboard({
       : view === "admin" ? <AdminPanel wallets={wallets} />
       : (
         <div className="dash">
-          {!data ? <DashboardSkeleton /> : <DashboardOverview active={activeCount} open={openCount} balance={totalBalance} stats={stats} />}
+          {!data && dashboardError ? (
+            <div className="card dashboard-load-error rise">
+              <div className="eyebrow">Unable to load dashboard</div>
+              <h2>Session or API connection failed</h2>
+              <p className="sub">{dashboardError}</p>
+              <div className="row-actions">
+                <button className="primary" onClick={refresh}>Retry</button>
+                <button className="ghost" onClick={onLogout}>Sign in again</button>
+              </div>
+            </div>
+          ) : !data ? <DashboardSkeleton /> : <DashboardOverview active={activeCount} open={openCount} balance={totalBalance} stats={stats} />}
           {pausedSnipes.length > 0 && (
             <div className="global-pause-bar">
               <strong>Snipes paused</strong>
