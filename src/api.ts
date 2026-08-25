@@ -137,6 +137,10 @@ export interface Snipe {
   exitKind?: string | null;
   exitSubmittedAt?: string | null;
   wallet: { name: string; publicKey: string };
+  copyTradeId?: string | null;
+  copySourceSnipeId?: string | null;
+  copyLeaderUserId?: string | null;
+  copyLeaderUsername?: string | null;
   tpEnabled: boolean;
   tpMultiplier?: number | null;
   tpSellPct?: number | null;
@@ -311,6 +315,9 @@ export interface PublicSnipe {
   triggerMode?: "CLAIM" | "REDIRECT";
   execMode?: "PUMPPORTAL" | "LOCAL";
   slippagePct?: number;
+  adaptiveSlippage?: boolean;
+  maxSlippagePct?: number;
+  maxBuyRetries?: number;
   priorityFee?: number;
   bribe?: number;
   watchWallet?: string | null;
@@ -332,6 +339,19 @@ export interface PublicSnipe {
   filledAt?: string | null;
   signature?: string | null;
 }
+export interface CopyTrade {
+  id: string;
+  followerUserId: string;
+  leaderUserId: string;
+  walletId: string;
+  enabled: boolean;
+  createdAt: string;
+  updatedAt: string;
+  activeMirrors: number;
+  leader: { id: string; username: string; avatarDataUrl?: string | null; chatColor?: string | null } | null;
+  wallet: { id: string; name: string; publicKey: string } | null;
+}
+
 export interface TrendingCoin {
   mint: string;
   pairAddress?: string | null;
@@ -674,6 +694,13 @@ export const api = {
     const qs = p.toString();
     return req<{ logs: AdminLog[] }>(`/admin/logs${qs ? `?${qs}` : ""}`);
   },
+  copyTrades: () => req<{ copyTrades: CopyTrade[] }>("/copy-trades"),
+  startCopyTrade: (body: { leaderUserId: string; walletId: string; syncExisting?: boolean }) =>
+    req<{ copyTrade: CopyTrade; synced: number }>("/copy-trades", { method: "POST", body: JSON.stringify(body) }),
+  updateCopyTrade: (id: string, body: { walletId?: string; enabled?: boolean; syncExisting?: boolean; cancelActive?: boolean }) =>
+    req<{ copyTrade: CopyTrade }>(`/copy-trades/${id}`, { method: "PATCH", body: JSON.stringify(body) }),
+  deleteCopyTrade: (id: string) =>
+    req<{ ok: true; cancelled: number; inFlight: number }>(`/copy-trades/${id}`, { method: "DELETE" }),
   socialUsers: () => req<{ users: SocialUser[] }>("/social/users"),
   socialUserSnipes: (id: string) =>
     req<{ username: string; active: PublicSnipe[]; filled: PublicSnipe[] }>(

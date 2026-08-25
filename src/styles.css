@@ -4565,3 +4565,26 @@ html {
     touch-action: manipulation;
   }
 }
+
+/* ---------- copy trading ---------- */
+.copytrade-active-strip{display:flex;align-items:center;justify-content:space-between;gap:12px;padding:11px 12px;margin-bottom:12px;border:1px solid rgba(32,224,112,.16);border-radius:11px;background:rgba(32,224,112,.035)}
+.copytrade-active-strip>div:first-child{display:flex;flex-direction:column;gap:2px}.copytrade-active-strip strong{font-size:11px}.copytrade-active-strip>div:first-child span{font-size:9px;color:var(--muted)}
+.copytrade-active-list{display:flex;flex-wrap:wrap;justify-content:flex-end;gap:5px}.copytrade-chip{display:flex;align-items:center;gap:5px;padding:5px 7px;border:1px solid var(--line-soft);border-radius:999px;background:var(--surface-2);color:var(--muted);font-size:9px}.copytrade-chip.on{color:var(--green);border-color:rgba(32,224,112,.2);background:var(--green-soft)}.copytrade-chip small{color:var(--muted);font-size:8px}
+.trader-card{padding:0!important;overflow:hidden;display:flex!important;align-items:stretch!important}.trader-card.copying{border-color:rgba(32,224,112,.25)}.trader-card-main{flex:1;min-width:0;display:flex;align-items:center;gap:10px;padding:12px;border:0;background:transparent;color:inherit;text-align:left}.trader-card-main:hover{transform:none;border:0;background:rgba(255,255,255,.018)}.copytrade-action{flex:0 0 auto;margin:8px 8px 8px 0;padding:7px 9px;border-radius:8px;border:1px solid var(--line-soft);background:rgba(255,255,255,.02);color:var(--muted);font-size:9px}.copytrade-action:hover{color:var(--green);border-color:rgba(32,224,112,.25)}.copytrade-action.on{color:var(--green);background:var(--green-soft);border-color:rgba(32,224,112,.22)}
+.mode-copy{color:#8cebb5!important;border-color:rgba(32,224,112,.2)!important;background:rgba(32,224,112,.055)!important}
+.copytrader-modal{width:min(560px,calc(100vw - 28px))}.copytrader-head{display:grid;grid-template-columns:auto minmax(0,1fr) auto;align-items:center;gap:12px;margin-bottom:14px}.copytrader-head h3{margin:2px 0 2px}.copytrader-head p{margin:0;color:var(--muted);font-size:10px}.copytrade-live{display:flex;align-items:center;gap:5px;color:var(--green);font:700 9px var(--mono);text-transform:uppercase}.copytrade-live i{width:6px;height:6px;border-radius:50%;background:var(--green);box-shadow:0 0 7px var(--green)}
+.copytrader-summary{display:grid;grid-template-columns:repeat(3,1fr);gap:7px;margin:0 0 12px}.copytrader-summary>div{display:flex;flex-direction:column;gap:4px;padding:10px;border:1px solid var(--line-soft);border-radius:9px;background:rgba(0,0,0,.09)}.copytrader-summary span{color:var(--muted);font-size:8px;text-transform:uppercase;letter-spacing:.07em}.copytrader-summary strong{font:600 11px var(--mono)}
+.copytrader-explainer{padding:12px;margin-bottom:13px;border:1px solid var(--line-soft);border-radius:10px;background:var(--surface-2)}.copytrader-explainer>strong{font-size:11px}.copytrader-explainer>p{margin:4px 0 10px;color:var(--muted);font-size:10px;line-height:1.45}.copytrader-settings-grid{display:flex;flex-wrap:wrap;gap:5px}.copytrader-settings-grid span{padding:4px 6px;border-radius:999px;border:1px solid var(--line-soft);color:#91a29d;background:rgba(255,255,255,.02);font-size:8px}
+.copytrader-wallet-note{margin:6px 0 12px;color:var(--muted);font-size:9px;line-height:1.4}.copytrader-check{display:flex!important;align-items:flex-start;gap:9px;padding:10px;border:1px solid var(--line-soft);border-radius:9px;background:rgba(255,255,255,.018);cursor:pointer}.copytrader-check input{width:15px;height:15px;margin:1px 0 0;flex:0 0 auto}.copytrader-check span{display:flex;flex-direction:column;gap:2px}.copytrader-check strong{font-size:10px}.copytrader-check small{color:var(--muted);font-size:9px;line-height:1.35}.copytrader-safety{display:flex;gap:8px;margin:9px 0 0;padding:8px 9px;border-radius:8px;background:rgba(255,206,77,.035);color:#a89965}.copytrader-safety>span{font:700 12px var(--mono)}.copytrader-safety p{margin:0;font-size:8px;line-height:1.45}.copytrader-actions{margin-top:14px}.copytrader-actions .danger{margin-right:auto}
+
+/* Restore normal mobile website navigation. An earlier app-style rule hid both
+   the hamburger and the bottom nav, leaving authenticated users trapped on the dashboard. */
+@media (max-width:720px){
+  .hamburger{display:block!important;position:relative;z-index:1003}
+  .top-actions .who{bottom:auto!important}
+  .who.open{display:flex!important}
+  .mobile-bottom-nav{display:none!important}
+  .copytrade-active-strip{align-items:flex-start;flex-direction:column}.copytrade-active-list{justify-content:flex-start}
+  .trader-card{display:grid!important;grid-template-columns:minmax(0,1fr) auto}.trader-card-main{min-width:0}.copytrade-action{align-self:center}
+  .copytrader-head{grid-template-columns:auto minmax(0,1fr)}.copytrade-live{grid-column:1/-1}.copytrader-summary{grid-template-columns:1fr 1fr}.copytrader-summary>div:last-child{grid-column:1/-1}
+}

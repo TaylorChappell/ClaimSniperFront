@@ -16,6 +16,7 @@ import {
   type AdminSnipe,
   type AdminUser,
   type SocialUser,
+  type CopyTrade,
   type PublicSnipe,
   type TrendingCoin,
   type ChatMessage,
@@ -1485,7 +1486,7 @@ function Dashboard({
 
       {view === "history" ? <History tradingPlatform={profile.tradingPlatform} />
       : view === "claims" ? <ClaimScanner wallets={wallets} tradingPlatform={profile.tradingPlatform} />
-      : view === "social" ? <Social wallets={wallets} tradingPlatform={profile.tradingPlatform} onCopied={() => { refresh(); setDashTab("snipes"); }} />
+      : view === "social" ? <Social wallets={wallets} tradingPlatform={profile.tradingPlatform} currentUsername={profile.username} onCopied={() => { refresh(); setDashTab("snipes"); }} />
       : view === "settings" ? <SettingsPage profile={profile} onUpdated={(next) => { setProfile(next); localStorage.setItem("username", next.username); }} />
       : view === "admin" ? <AdminPanel wallets={wallets} />
       : (
@@ -2453,6 +2454,7 @@ function Snipes({
             <div className="snipe-title-block">
               <span className="ticker">{s.ticker ? `$${s.ticker}` : short(s.mint)}</span>
               <span className={`mode-tag ${s.triggerMode === "REDIRECT" ? "mode-redirect" : "mode-claim"}`}>{s.triggerMode === "REDIRECT" ? "Fee redirect" : "Fee claim"}</span>
+              {s.copySourceSnipeId && <span className="mode-tag mode-copy">Copy · @{s.copyLeaderUsername ?? "trader"}</span>}
             </div>
             <div className="snipe-status-cluster">
               <span className={`market-cap-value ${s.liveMarketCapUsd == null ? "loading" : ""}`} title={s.liveMarketCapUpdatedAt ? `Market cap updated ${new Date(s.liveMarketCapUpdatedAt).toLocaleTimeString()} from ${s.liveMarketCapSource ?? "live feed"}` : "Waiting for live Pump market-cap update"}>
@@ -2502,7 +2504,7 @@ function Snipes({
           <div className="snipe-actions clean-actions">
             <button className="ghost" onClick={() => setDetails((set) => { const next = new Set(set); next.has(s.id) ? next.delete(s.id) : next.add(s.id); return next; })}>{open ? "Hide details" : "Details"}</button>
             <button className="ghost" onClick={() => void openInTradingPlatform(tradingPlatform, s, toast)}>Open ↗</button>
-            <button className="ghost" onClick={() => setEdit(s)}>Edit</button>
+            {s.copySourceSnipeId ? <button className="ghost" disabled title="Managed by Copy Trading">Managed</button> : <button className="ghost" onClick={() => setEdit(s)}>Edit</button>}
             {s.status === "FILLED" && s.tpStatus === "PENDING" && (s.tpEnabled || s.slEnabled) && <button className="warning-btn" onClick={() => api.cancelExit(s.id).then(onChange).catch((e) => toast(friendlyError(e.message), "err"))}>Cancel TP/SL</button>}
             {(s.status === "ARMED" || s.status === "PAUSED") && <button className="snipe-pause-one" onClick={() => toggleOnePause(s)} disabled={pauseOneBusy.has(s.id)} title={s.status === "ARMED" ? "Pause this snipe" : "Unpause this snipe"} aria-label={s.status === "ARMED" ? "Pause this snipe" : "Unpause this snipe"}>{pauseOneBusy.has(s.id) ? <span className="spin" /> : <AppIcon name={s.status === "ARMED" ? "pause" : "play"} />}</button>}
             {(s.status === "ARMED" || s.status === "PAUSED") ? <button className="warning-btn" onClick={() => remove(s.id)}>Disarm</button> : s.status === "TRIGGERED" ? <button className="warning-btn" disabled>Buying…</button> : <button className="danger" onClick={() => remove(s.id)}>Remove</button>}
@@ -4826,10 +4828,12 @@ function MobileNotificationGuide() {
 function Social({
   wallets,
   tradingPlatform,
+  currentUsername,
   onCopied,
 }: {
   wallets: Wallet[];
   tradingPlatform: TradingPlatform;
+  currentUsername: string;
   onCopied: () => void;
 }) {
   const toast = useToast();
@@ -4848,6 +4852,8 @@ function Social({
 
   const [users, setUsers] = useState<SocialUser[]>([]);
   const [trending, setTrending] = useState<TrendingCoin[]>([]);
+  const [copyTrades, setCopyTrades] = useState<CopyTrade[]>([]);
+  const [copyTrader, setCopyTrader] = useState<SocialUser | null>(null);
   const [openUserId, setOpenUserId] = useState<string | null>(null);
   const [copy, setCopy] = useState<{
     mint: string;
@@ -4859,6 +4865,7 @@ function Social({
   function load() {
     api.socialUsers().then((r) => setUsers(r.users)).catch(() => {});
     api.socialTrending().then((r) => setTrending(r.coins)).catch(() => {});
+    api.copyTrades().then((r) => setCopyTrades(r.copyTrades)).catch(() => {});
   }
   useEffect(() => {
     load();
@@ -4906,21 +4913,43 @@ function Social({
       ) : tab === "traders" ? (
         <div className="card rise d1 social-card">
           <div className="section-heading"><div><h2>Traders</h2><p>Browse public trading activity and inspect shared snipes.</p></div></div>
+          {copyTrades.length > 0 && (
+            <div className="copytrade-active-strip">
+              <div><strong>Copy trading</strong><span>{copyTrades.filter((c) => c.enabled).length} trader{copyTrades.filter((c) => c.enabled).length === 1 ? "" : "s"} active</span></div>
+              <div className="copytrade-active-list">
+                {copyTrades.slice(0, 5).map((c) => (
+                  <button key={c.id} className={`copytrade-chip ${c.enabled ? "on" : ""}`} onClick={() => { const u = users.find((x) => x.id === c.leaderUserId); if (u) setCopyTrader(u); }}>
+                    <span>{c.enabled ? "●" : "○"}</span>@{c.leader?.username ?? "trader"}<small>{c.activeMirrors} live</small>
+                  </button>
+                ))}
+              </div>
+            </div>
+          )}
           {users.length === 0 && <p className="sub">No paid traders yet.</p>}
           <div className="trader-grid">
-            {users.map((u) => (
-              <button className="trader-card" key={u.id} onClick={() => setOpenUserId(u.id)}>
-                <AvatarBubble username={u.username} avatarDataUrl={u.avatarDataUrl ?? null} size="sm" />
-                <div className="trader-main"><strong>@{u.username}</strong><span>{u.filledCount} filled · {u.snipeCount} snipes</span></div>
-                <Pnl net={u.netSol} />
-              </button>
-            ))}
+            {users.map((u) => {
+              const followed = copyTrades.find((c) => c.leaderUserId === u.id);
+              const isSelf = u.username.toLowerCase() === currentUsername.toLowerCase();
+              return (
+                <div className={`trader-card ${followed?.enabled ? "copying" : ""}`} key={u.id}>
+                  <button className="trader-card-main" onClick={() => setOpenUserId(u.id)}>
+                    <AvatarBubble username={u.username} avatarDataUrl={u.avatarDataUrl ?? null} size="sm" />
+                    <div className="trader-main"><strong>@{u.username}</strong><span>{u.filledCount} filled · {u.snipeCount} snipes</span></div>
+                    <Pnl net={u.netSol} />
+                  </button>
+                  <button className={`copytrade-action ${followed?.enabled ? "on" : ""}`} disabled={isSelf} onClick={() => !isSelf && setCopyTrader(u)}>
+                    {isSelf ? "You" : followed?.enabled ? "Copying" : "Copy trade"}
+                  </button>
+                </div>
+              );
+            })}
           </div>
         </div>
       ) : (
         <ChatBox tradingPlatform={tradingPlatform} />
       )}
 
+      {copyTrader && <CopyTraderModal trader={copyTrader} wallets={wallets} existing={copyTrades.find((c) => c.leaderUserId === copyTrader.id) ?? null} onClose={() => setCopyTrader(null)} onChanged={() => { load(); onCopied(); }} />}
       {openUserId && <UserSnipesModal userId={openUserId} tradingPlatform={tradingPlatform} onClose={() => setOpenUserId(null)} onCopy={(s) => setCopy({ mint: s.mint, ticker: s.ticker, triggerMode: s.triggerMode === "REDIRECT" ? "REDIRECT" : "CLAIM", source: s })} />}
       {copy && <CopyPublicModal mint={copy.mint} ticker={copy.ticker} triggerMode={copy.triggerMode} source={copy.source} wallets={wallets} onClose={() => setCopy(null)} onCopied={() => { setCopy(null); toast("Snipe armed from copied coin"); onCopied(); }} />}
     </div>
@@ -5346,6 +5375,120 @@ function ChatBox({ tradingPlatform }: { tradingPlatform: TradingPlatform }) {
         >
           {busy ? <span className="spin" /> : <AppIcon name="send" />}
         </button>
+      </div>
+    </div>
+  );
+}
+
+function CopyTraderModal({
+  trader,
+  wallets,
+  existing,
+  onClose,
+  onChanged,
+}: {
+  trader: SocialUser;
+  wallets: Wallet[];
+  existing: CopyTrade | null;
+  onClose: () => void;
+  onChanged: () => void;
+}) {
+  const toast = useToast();
+  const [walletId, setWalletId] = useState(existing?.walletId ?? wallets[0]?.id ?? "");
+  const [syncExisting, setSyncExisting] = useState(true);
+  const [busy, setBusy] = useState(false);
+
+  async function save() {
+    if (!walletId) return toast("Add a wallet before enabling copy trading", "err");
+    setBusy(true);
+    try {
+      if (existing) {
+        await api.updateCopyTrade(existing.id, {
+          walletId,
+          enabled: true,
+          syncExisting,
+        });
+        toast(`Copy trading @${trader.username} updated`);
+      } else {
+        const result = await api.startCopyTrade({
+          leaderUserId: trader.id,
+          walletId,
+          syncExisting,
+        });
+        toast(result.synced > 0
+          ? `Copying @${trader.username} · ${result.synced} active snipe${result.synced === 1 ? "" : "s"} mirrored`
+          : `Now copy trading @${trader.username}`);
+      }
+      onChanged();
+      onClose();
+    } catch (e: any) {
+      toast(friendlyError(e.message), "err");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function stop() {
+    if (!existing) return;
+    setBusy(true);
+    try {
+      const result = await api.deleteCopyTrade(existing.id);
+      toast(`Stopped copy trading @${trader.username}${result.cancelled ? ` · ${result.cancelled} pending copied snipe${result.cancelled === 1 ? "" : "s"} disarmed` : ""}${result.inFlight ? ` · ${result.inFlight} already buying left untouched` : ""}`);
+      onChanged();
+      onClose();
+    } catch (e: any) {
+      toast(friendlyError(e.message), "err");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  return (
+    <div className="modal-overlay" onMouseDown={onClose}>
+      <div className="modal copytrader-modal" onMouseDown={(e) => e.stopPropagation()}>
+        <div className="copytrader-head">
+          <AvatarBubble username={trader.username} avatarDataUrl={trader.avatarDataUrl ?? null} size="md" />
+          <div><span className="page-kicker">Copy trader</span><h3>@{trader.username}</h3><p>Mirror this trader&apos;s original snipe actions automatically.</p></div>
+          {existing?.enabled && <span className="copytrade-live"><i /> Active</span>}
+        </div>
+
+        <div className="copytrader-summary">
+          <div><span>Trader activity</span><strong>{trader.snipeCount} snipes</strong></div>
+          <div><span>Filled</span><strong>{trader.filledCount}</strong></div>
+          <div><span>Net P&amp;L</span><Pnl net={trader.netSol} /></div>
+        </div>
+
+        <div className="copytrader-explainer">
+          <strong>What gets mirrored</strong>
+          <p>When @{trader.username} arms, edits, pauses, unpauses or disarms an original snipe, Claim Sniper mirrors that action for you server-side.</p>
+          <div className="copytrader-settings-grid">
+            <span>Amount</span><span>Trigger</span><span>Slippage</span><span>Priority / tip</span><span>MC limits</span><span>TP / SL</span><span>Execution mode</span><span>Watched wallet</span>
+          </div>
+        </div>
+
+        <label>Use your wallet</label>
+        {wallets.length ? (
+          <WalletSelect wallets={wallets} value={walletId} onChange={setWalletId} />
+        ) : (
+          <div className="warning-box">You need to add a trading wallet before you can copy a trader.</div>
+        )}
+        <p className="copytrader-wallet-note">All settings are mirrored from the trader, but transactions are signed only by your selected wallet. Their private key is never involved.</p>
+
+        <label className="copytrader-check">
+          <input type="checkbox" checked={syncExisting} onChange={(e) => setSyncExisting(e.target.checked)} />
+          <span><strong>Mirror currently active snipes</strong><small>Also copy the trader&apos;s ARMED or PAUSED original snipes immediately.</small></span>
+        </label>
+
+        <div className="copytrader-safety">
+          <span>↳</span>
+          <p>Copied snipes never cascade into another copy trader, so copy loops cannot form. If one of your copied snipes is already buying when the trader disarms, it will not be force-cancelled mid-transaction.</p>
+        </div>
+
+        <div className="modal-actions copytrader-actions">
+          {existing && <button className="danger" disabled={busy} onClick={stop}>Stop copying</button>}
+          <button className="ghost" disabled={busy} onClick={onClose}>Cancel</button>
+          <button className="primary" disabled={busy || !walletId} onClick={save}>{busy ? <span className="spin" /> : existing ? "Save copy trader" : "Start copy trading"}</button>
+        </div>
       </div>
     </div>
   );
