@@ -2975,6 +2975,7 @@ function Discovery({
   const [error, setError] = useState("");
   const [query, setQuery] = useState("");
   const [minMc, setMinMc] = useState("");
+  const [maxMc, setMaxMc] = useState("");
   const [fullRedirectOnly, setFullRedirectOnly] = useState(false);
   const [hiddenLocal, setHiddenLocal] = useState<Set<string>>(() => new Set());
   const [detailMint, setDetailMint] = useState<string | null>(null);
@@ -3016,6 +3017,7 @@ function Discovery({
   }, [detailMint, toast]);
 
   const minMcValue = marketCapInputToNumber(minMc);
+  const maxMcValue = marketCapInputToNumber(maxMc);
   const filterCoin = useCallback((coin: DiscoverCoin) => {
     if (hiddenLocal.has(coin.mint)) return false;
     const q = query.trim().toLowerCase();
@@ -3023,9 +3025,10 @@ function Discovery({
       .filter(Boolean)
       .some((v) => String(v).toLowerCase().includes(q))) return false;
     if (minMcValue != null && (coin.marketCapUsd ?? 0) < minMcValue) return false;
+    if (maxMcValue != null && (coin.marketCapUsd == null || coin.marketCapUsd > maxMcValue)) return false;
     if (fullRedirectOnly && coin.totalRedirectSharePct < 99.99) return false;
     return true;
-  }, [hiddenLocal, query, minMcValue, fullRedirectOnly]);
+  }, [hiddenLocal, query, minMcValue, maxMcValue, fullRedirectOnly]);
 
   const columns = useMemo(() => {
     const empty = { new: [], trending: [], graduated: [] } as Record<DiscoveryColumnKey, DiscoverCoin[]>;
@@ -3100,7 +3103,8 @@ function Discovery({
 
       <div className="discovery-toolbar">
         <div className="discovery-search"><span>⌕</span><input value={query} onChange={(e) => setQuery(e.target.value)} placeholder="Search ticker, CA, creator or redirect wallet…" /></div>
-        <div className="discovery-filter"><span>Min MC</span><input inputMode="decimal" value={minMc} onChange={(e) => setMinMc(e.target.value)} placeholder="e.g. 10000" /></div>
+        <div className="discovery-filter"><span>Min MC</span><input inputMode="decimal" value={minMc} onChange={(e) => setMinMc(e.target.value)} placeholder="e.g. 10k" /></div>
+        <div className="discovery-filter"><span>Max MC</span><input inputMode="decimal" value={maxMc} onChange={(e) => setMaxMc(e.target.value)} placeholder="e.g. 500k" /></div>
         <button className={`discovery-filter-toggle ${fullRedirectOnly ? "on" : ""}`} onClick={() => setFullRedirectOnly((v) => !v)}><span className={`switch ${fullRedirectOnly ? "on" : ""}`}><span className="knob" /></span>100% redirects</button>
         <button className="ghost mini" onClick={() => void restoreHidden()}>Restore hidden{feed?.hiddenCount ? ` (${feed.hiddenCount})` : ""}</button>
         <button className="ghost mini" onClick={() => void load()} disabled={loading}>{loading ? "Refreshing…" : "Refresh"}</button>
@@ -3289,11 +3293,13 @@ function DiscoveryDetailModal({
         </div>
         <div className="discovery-detail-stats">
           <div><span>Market cap</span><b>{discoveryUsd(coin.marketCapUsd)}</b></div>
+          <div><span>Price</span><b>{coin.priceUsd != null ? `$${coin.priceUsd.toLocaleString(undefined, { maximumSignificantDigits: 6 })}` : "—"}</b></div>
           <div><span>1h volume</span><b>{discoveryUsd(coin.volume1hUsd)}</b></div>
           <div><span>24h volume</span><b>{discoveryUsd(coin.volumeUsd)}</b></div>
           <div><span>Liquidity</span><b>{discoveryUsd(coin.liquidityUsd)}</b></div>
           <div><span>Replies</span><b>{coin.replyCount ?? "—"}</b></div>
           <div><span>Status</span><b>{coin.graduated ? "Graduated" : "Bonding curve"}</b></div>
+          <div><span>Redirected</span><b>{coin.totalRedirectSharePct.toLocaleString(undefined, { maximumFractionDigits: 2 })}%</b></div>
         </div>
 
         <div className="discovery-detail-section">
@@ -3314,11 +3320,12 @@ function DiscoveryDetailModal({
             <button className="primary" onClick={() => void openInTradingPlatform(tradingPlatform, coin, toast)}>Open in {tradingPlatformLabel(tradingPlatform)} ↗</button>
             <a className="ghost-link" href={`https://pump.fun/coin/${coin.mint}`} target="_blank" rel="noreferrer">Pump.fun ↗</a>
             <a className="ghost-link" href={`https://solscan.io/token/${coin.mint}`} target="_blank" rel="noreferrer">Solscan ↗</a>
+            {coin.pairUrl && <a className="ghost-link" href={coin.pairUrl} target="_blank" rel="noreferrer">DexScreener ↗</a>}
             {twitter && <a className="ghost-link" href={twitter} target="_blank" rel="noreferrer">X ↗</a>}
             {telegram && <a className="ghost-link" href={telegram} target="_blank" rel="noreferrer">Telegram ↗</a>}
             {website && <a className="ghost-link" href={website} target="_blank" rel="noreferrer">Website ↗</a>}
           </div>
-          <div className="discovery-detail-foot"><span>Created {discoveryAge(coin.tokenCreatedAt)} ago</span><span>Market data {coin.marketDataUpdatedAt ? `${discoveryAge(coin.marketDataUpdatedAt)} ago` : "pending"}</span><span>Trend score {coin.trendScore.toFixed(1)}</span></div>
+          <div className="discovery-detail-foot"><span>Created {discoveryAge(coin.tokenCreatedAt)} ago</span><span>Market data {coin.marketDataUpdatedAt ? `${discoveryAge(coin.marketDataUpdatedAt)} ago` : "pending"}</span>{coin.pairDexId && <span>DEX {coin.pairDexId}</span>}<span>Trend score {coin.trendScore.toFixed(1)}</span></div>
         </div>
 
         {coin.history.length > coin.redirects.length && <details className="discovery-history"><summary>Redirect history ({coin.history.length})</summary><div>{coin.history.slice(0, 20).map((h, i) => <div key={`${h.wallet}-${h.epoch}-${i}`}><span>Epoch {h.epoch}</span><code>{short(h.wallet)}</code><b>{h.sharePct}%</b><em>{h.claimedAt ? `claimed ${discoveryAge(h.claimedAt)} ago` : h.active ? "active" : "replaced"}</em></div>)}</div></details>}
@@ -3813,7 +3820,7 @@ function AdminPanel({ wallets }: { wallets: Wallet[] }) {
               <div>
                 <span className="admin-feature-kicker">FEATURE CONTROL</span>
                 <h3>Redirect Discovery</h3>
-                <p>Event-driven redirect index. Turning this off stops the Pump Fees watcher, filtered Helius claim stream and background enrichment, and hides Discovery from users. It does not run a historical chain scan when enabled.</p>
+                <p>Event-driven redirect index. Turning this off stops the filtered SharingConfig watcher, Helius claim stream and background enrichment, and hides Discovery from users. Page views never trigger Solana RPC work or a historical chain scan.</p>
               </div>
               <button
                 type="button"
