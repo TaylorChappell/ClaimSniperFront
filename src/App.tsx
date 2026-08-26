@@ -50,6 +50,23 @@ const compactNumber = new Intl.NumberFormat("en", {
   maximumFractionDigits: 2,
 });
 
+function formatSolBalance(value: number | null | undefined) {
+  if (value == null || !Number.isFinite(value)) return "—";
+  if (value === 0) return "0";
+  const decimals = Math.abs(value) >= 100 ? 3
+    : Math.abs(value) >= 1 ? 4
+      : Math.abs(value) >= 0.001 ? 6
+        : 9;
+  return value.toFixed(decimals).replace(/\.?0+$/, "");
+}
+
+function totalWalletBalance(wallets: Wallet[]) {
+  const known = wallets
+    .map((wallet) => wallet.balanceSol)
+    .filter((value): value is number => value != null && Number.isFinite(value));
+  return known.length ? known.reduce((sum, value) => sum + value, 0) : null;
+}
+
 function formatMarketCapValue(value: number | null | undefined, suffix = "") {
   if (value == null || !Number.isFinite(value)) return null;
   return `${compactNumber.format(value)}${suffix}`;
@@ -1486,7 +1503,7 @@ function Dashboard({
 
   const activeCount = snipes.filter((s) => s.status === "ARMED" || s.status === "TRIGGERED").length;
   const openCount = snipes.filter((s) => snipeUiState(s).group === "positions").length;
-  const totalBalance = wallets.reduce((sum, w) => sum + (w.balanceSol ?? 0), 0);
+  const totalBalance = totalWalletBalance(wallets);
 
   return (
     <div className="wrap">
@@ -1591,12 +1608,12 @@ function Dashboard({
   );
 }
 
-function DashboardOverview({ active, open, balance, stats }: { active: number; open: number; balance: number; stats: Stats | null }) {
+function DashboardOverview({ active, open, balance, stats }: { active: number; open: number; balance: number | null; stats: Stats | null }) {
   const net = stats?.netSol ?? 0;
   return <div className="overview-strip rise">
     <div><span>Active snipes</span><strong>{active}</strong></div>
     <div><span>Open positions</span><strong>{open}</strong></div>
-    <div><span>Wallet balance</span><strong>{balance.toFixed(3)} SOL</strong></div>
+    <div><span>Wallet balance</span><strong>{formatSolBalance(balance)} SOL</strong></div>
     <div><span>Realized P&amp;L</span><strong className={net >= 0 ? "green" : "red"}>{net >= 0 ? "+" : ""}{net.toFixed(3)} SOL</strong></div>
   </div>;
 }
@@ -1702,19 +1719,19 @@ function Wallets({
     toast(`${w.name} address copied`);
   }
 
-  const total = wallets.reduce((sum, w) => sum + (w.balanceSol ?? 0), 0);
+  const total = totalWalletBalance(wallets);
 
   return (
     <div className="wallet-page-grid">
       <div className="card wallet-list-card">
         <div className="section-heading">
-          <div><h2>Trading wallets</h2><p>{wallets.length} connected · {total.toFixed(4)} SOL total</p></div>
+          <div><h2>Trading wallets</h2><p>{wallets.length} connected · {formatSolBalance(total)} SOL total</p></div>
         </div>
         {wallets.length === 0 && <div className="empty">No wallets yet. Add your first wallet using the form.</div>}
         {wallets.map((w) => (
           <div className={`wallet wallet-polished ${exiting.has(w.id) ? "exiting" : ""}`} key={w.id}>
             <div className="wallet-main">
-              <div className="wallet-balance">{(w.balanceSol ?? 0).toFixed(4)} <small>SOL</small></div>
+              <div className="wallet-balance">{formatSolBalance(w.balanceSol)} <small>SOL</small></div>
               <div className="name">{w.name}</div>
               <div className="pk">{short(w.publicKey)}</div>
             </div>
@@ -1799,7 +1816,7 @@ function WalletSelect({
               }}
             >
               <span>{w.name}</span>
-              <span className="pk">{(w.balanceSol ?? 0).toFixed(3)} SOL</span>
+              <span className="pk">{formatSolBalance(w.balanceSol)} SOL</span>
             </div>
           ))}
         </div>
@@ -1999,7 +2016,7 @@ function SnipeForm({
   const ready = !!mint.trim() && !!walletId && Number(amount) > 0 && Number(slippage) > 0 && !mcFilterInvalid && !adaptiveInvalid && (!onlyRedirected || watchWallet.trim().length >= 32);
   const fees = Math.max(0, Number(priority) || 0) + Math.max(0, Number(bribe) || 0);
   const needed = Math.max(0, Number(amount) || 0) + fees;
-  const insufficient = !!selectedWallet && needed > 0 && (selectedWallet.balanceSol ?? 0) < needed;
+  const insufficient = !!selectedWallet && selectedWallet.balanceSol != null && needed > 0 && selectedWallet.balanceSol < needed;
   const triggerSummary = triggerMode === "REDIRECT"
     ? onlyRedirected ? `when fees are redirected to ${watchWallet ? short(watchWallet) : "the selected wallet"}` : "when the creator fee recipient changes"
     : onlyRedirected ? `when ${watchWallet ? short(watchWallet) : "the selected wallet"} claims creator fees` : "when creator fees are claimed";
@@ -2047,7 +2064,7 @@ function SnipeForm({
         <WalletSelect wallets={wallets} value={walletId} onChange={setWalletId} />
         <label>Amount (SOL)</label>
         <input value={amount} inputMode="decimal" onChange={(e) => setAmount(e.target.value)} placeholder="0.5" />
-        {selectedWallet && <div className={`field-balance ${insufficient ? "bad" : ""}`}>{selectedWallet.name}: {(selectedWallet.balanceSol ?? 0).toFixed(4)} SOL available</div>}
+        {selectedWallet && <div className={`field-balance ${insufficient ? "bad" : ""}`}>{selectedWallet.name}: {formatSolBalance(selectedWallet.balanceSol)} SOL available</div>}
 
         <div className="form-step"><span>2</span><strong>Trigger</strong></div>
         <TriggerModeSelect value={triggerMode} onChange={setTriggerMode} />

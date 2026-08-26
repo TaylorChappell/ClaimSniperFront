@@ -100,7 +100,9 @@ export interface Wallet {
   id: string;
   name: string;
   publicKey: string;
-  balanceSol?: number;
+  // null means the RPC read is temporarily unavailable; it is never presented
+  // as a real zero balance.
+  balanceSol?: number | null;
 }
 export type TradingPlatform = "AXIOM" | "GMGN" | "TERMINAL";
 export interface Profile {
