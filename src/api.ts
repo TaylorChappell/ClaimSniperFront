@@ -174,7 +174,7 @@ export interface Snipe {
   bribe: number;
   execMode?: "PUMPPORTAL" | "LOCAL";
   triggerMode?: "CLAIM" | "REDIRECT";
-  claimMode?: "FAST" | "SAFE";
+  claimMode?: "PROCESSED";
   ticker?: string | null;
   onlyRedirected: boolean;
   watchWallet?: string | null;
@@ -261,7 +261,7 @@ export interface AdminOverview {
     rpc: { ok: boolean; latencyMs: number; slot?: number | null; error?: string | null };
     marketFeed: { ok: boolean; connected: boolean; subscribed: number; cached: number; solUsd?: number | null };
     queue: { ok: boolean; queued: number; priorityQueued: number; limitPerSecond: number; maxDepth: number; maxWaitMs: number; draining: boolean };
-    engine: { creatorSubscriptions: number; creatorSnipeBindings: number; redirectSubscriptions: number; currentlyFiring: number; armingInFlight: number; seenSignatures: number; claimProcessingInFlight?: number; preparedExecutionPlans?: number; buyReconciliationsPending: number; fastCreatorSubscriptions?: number; fastRedirectSubscriptions?: number; backupRedirectSubscriptions?: number; backfillRuns?: number; backfilledSignatures?: number; globalClaimFeed?: { enabled: boolean; connected: boolean; activeRpc?: string | null; activeWs?: string | null; endpointCount: number; subscriptions: number; events: number; claimSignals: number; lastAnyEventAt?: string | null; lastClaimSignalAt?: string | null; reconnects: number; reconnecting: boolean; lastReconnectReason?: string | null; silenceMs?: number | null; silenceThresholdMs?: number }; fullTransactionFeed?: { enabled: boolean; connected: boolean; watchedWallets: number; subscriptions: number; events: number; claimFrames: number; reconnects: number; lastMessageAt?: string | null; lastError?: string | null }; latency?: Record<string, { count: number; p50Ms: number | null; p95Ms: number | null; maxMs: number | null }>; feeShareIndex?: { wallets: number; mappings: number }; lastClaimAt?: string | null; lastClaimSignature?: string | null; lastRedirectAt?: string | null; lastTriggerAt?: string | null; lastFillAt?: string | null };
+    engine: { creatorSubscriptions: number; creatorSnipeBindings: number; redirectSubscriptions: number; currentlyFiring: number; armingInFlight: number; seenSignatures: number; claimProcessingInFlight?: number; preparedExecutionPlans?: number; buyReconciliationsPending: number; processedCreatorSubscriptions?: number; processedRedirectSubscriptions?: number; backupRedirectSubscriptions?: number; backfillRuns?: number; backfilledSignatures?: number; globalClaimFeed?: { enabled: boolean; connected: boolean; activeRpc?: string | null; activeWs?: string | null; endpointCount: number; subscriptions: number; events: number; claimSignals: number; lastAnyEventAt?: string | null; lastClaimSignalAt?: string | null; reconnects: number; reconnecting: boolean; lastReconnectReason?: string | null; silenceMs?: number | null; silenceThresholdMs?: number }; fullTransactionFeed?: { enabled: boolean; connected: boolean; watchedWallets: number; subscriptions: number; events: number; claimFrames: number; reconnects: number; lastMessageAt?: string | null; lastError?: string | null }; latency?: Record<string, { count: number; p50Ms: number | null; p95Ms: number | null; maxMs: number | null }>; feeShareIndex?: { wallets: number; mappings: number }; lastClaimAt?: string | null; lastClaimSignature?: string | null; lastRedirectAt?: string | null; lastTriggerAt?: string | null; lastFillAt?: string | null };
     balances: { cachedWallets: number; subscriptions: number; references: number };
     radar: { enabled: boolean; subscriptions: number; inFlight: number; enriching: number; marketQueueDepth: number; marketQueueRunning: boolean; queuedMarketMints: number; mainPumpWatcherEnabled: boolean };
     process: { uptimeSeconds: number; rssMb: number; heapUsedMb: number; heapTotalMb: number; node: string };
@@ -378,7 +378,7 @@ export interface PublicSnipe {
   soldSol: number;
   status: string;
   triggerMode?: "CLAIM" | "REDIRECT";
-  claimMode?: "FAST" | "SAFE";
+  claimMode?: "PROCESSED";
   execMode?: "PUMPPORTAL" | "LOCAL";
   slippagePct?: number;
   adaptiveSlippage?: boolean;
@@ -731,7 +731,6 @@ export const api = {
     bribe?: number;
     execMode?: "PUMPPORTAL" | "LOCAL";
     triggerMode?: "CLAIM" | "REDIRECT";
-    claimMode?: "FAST" | "SAFE";
     onlyRedirected?: boolean;
     watchWallet?: string | null;
     mcMinUsd?: number | null;
@@ -754,7 +753,6 @@ export const api = {
       bribe?: number;
       execMode?: "PUMPPORTAL" | "LOCAL";
       triggerMode?: "CLAIM" | "REDIRECT";
-      claimMode?: "FAST" | "SAFE";
       onlyRedirected?: boolean;
       watchWallet?: string | null;
       mcMinUsd?: number | null;
