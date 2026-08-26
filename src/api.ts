@@ -1,10 +1,10 @@
 const BASE = import.meta.env.VITE_API_URL ?? "http://localhost:8080";
 
-// Prefer the secure HttpOnly cookie. Safari/iOS may block that cookie when the
-// frontend and API live on different sites, so login also provides a token
-// fallback kept only for this browser session. It is never persisted in
-// localStorage.
+// Prefer the secure HttpOnly cookie. Safari/iOS can block that cookie when the
+// installed web app and API are on different sites. A revocable random refresh
+// token therefore persists the device login; access JWTs remain session-only.
 const ACCESS_TOKEN_KEY = "cs_access_token";
+const REFRESH_TOKEN_KEY = "cs_refresh_token";
 localStorage.removeItem("token"); // clear legacy long-lived JWTs from old builds
 
 function accessToken() {
@@ -18,6 +18,17 @@ function saveAccessToken(token?: string | null) {
   } catch { /* strict/private browser storage may be unavailable */ }
 }
 
+function persistentRefreshToken() {
+  try { return localStorage.getItem(REFRESH_TOKEN_KEY); } catch { return null; }
+}
+
+function saveRefreshToken(token?: string | null) {
+  try {
+    if (token) localStorage.setItem(REFRESH_TOKEN_KEY, token);
+    else localStorage.removeItem(REFRESH_TOKEN_KEY);
+  } catch { /* strict/private browser storage may be unavailable */ }
+}
+
 export class ApiError extends Error {
   status: number;
   constructor(message: string, status: number) {
@@ -27,7 +38,32 @@ export class ApiError extends Error {
   }
 }
 
-async function req<T>(path: string, opts: RequestInit = {}): Promise<T> {
+let refreshInFlight: Promise<AuthSession> | null = null;
+
+async function refreshAccess(): Promise<AuthSession> {
+  const refreshToken = persistentRefreshToken();
+  if (!refreshToken) throw new ApiError("Session expired", 401);
+  if (refreshInFlight) return refreshInFlight;
+  refreshInFlight = (async () => {
+    const res = await fetch(BASE + "/auth/refresh", {
+      method: "POST",
+      credentials: "include",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ refreshToken }),
+    });
+    const data = await res.json().catch(() => null);
+    if (!res.ok) {
+      saveAccessToken(null);
+      saveRefreshToken(null);
+      throw new ApiError((data && data.error) || "Session expired", res.status);
+    }
+    saveAccessToken(data?.accessToken);
+    return data as AuthSession;
+  })().finally(() => { refreshInFlight = null; });
+  return refreshInFlight;
+}
+
+async function req<T>(path: string, opts: RequestInit = {}, allowRefresh = true): Promise<T> {
   const hasBody = opts.body != null;
   const token = accessToken();
   const res = await fetch(BASE + path, {
@@ -40,6 +76,19 @@ async function req<T>(path: string, opts: RequestInit = {}): Promise<T> {
     },
   });
   const data = res.status === 204 ? null : await res.json().catch(() => null);
+  if (
+    res.status === 401 &&
+    allowRefresh &&
+    persistentRefreshToken() &&
+    !path.startsWith("/auth/login") &&
+    !path.startsWith("/auth/register") &&
+    !path.startsWith("/auth/refresh") &&
+    !path.startsWith("/auth/logout")
+  ) {
+    const restored = await refreshAccess();
+    if (path === "/auth/me") return restored as T;
+    return req<T>(path, opts, false);
+  }
   if (!res.ok) {
     const message = (data && (data as any).error) || `Request failed (${res.status})`;
     throw new ApiError(message, res.status);
@@ -212,7 +261,7 @@ export interface AdminOverview {
     rpc: { ok: boolean; latencyMs: number; slot?: number | null; error?: string | null };
     marketFeed: { ok: boolean; connected: boolean; subscribed: number; cached: number; solUsd?: number | null };
     queue: { ok: boolean; queued: number; priorityQueued: number; limitPerSecond: number; maxDepth: number; maxWaitMs: number; draining: boolean };
-    engine: { creatorSubscriptions: number; creatorSnipeBindings: number; redirectSubscriptions: number; currentlyFiring: number; armingInFlight: number; seenSignatures: number; buyReconciliationsPending: number; fastCreatorSubscriptions?: number; fastRedirectSubscriptions?: number; backupRedirectSubscriptions?: number; backfillRuns?: number; backfilledSignatures?: number; globalClaimFeed?: { enabled: boolean; connected: boolean; activeRpc?: string | null; activeWs?: string | null; endpointCount: number; subscriptions: number; events: number; claimSignals: number; lastAnyEventAt?: string | null; lastClaimSignalAt?: string | null; reconnects: number; reconnecting: boolean; lastReconnectReason?: string | null; silenceMs?: number | null; silenceThresholdMs?: number }; feeShareIndex?: { wallets: number; mappings: number }; lastClaimAt?: string | null; lastClaimSignature?: string | null; lastRedirectAt?: string | null; lastTriggerAt?: string | null; lastFillAt?: string | null };
+    engine: { creatorSubscriptions: number; creatorSnipeBindings: number; redirectSubscriptions: number; currentlyFiring: number; armingInFlight: number; seenSignatures: number; claimProcessingInFlight?: number; preparedExecutionPlans?: number; buyReconciliationsPending: number; fastCreatorSubscriptions?: number; fastRedirectSubscriptions?: number; backupRedirectSubscriptions?: number; backfillRuns?: number; backfilledSignatures?: number; globalClaimFeed?: { enabled: boolean; connected: boolean; activeRpc?: string | null; activeWs?: string | null; endpointCount: number; subscriptions: number; events: number; claimSignals: number; lastAnyEventAt?: string | null; lastClaimSignalAt?: string | null; reconnects: number; reconnecting: boolean; lastReconnectReason?: string | null; silenceMs?: number | null; silenceThresholdMs?: number }; fullTransactionFeed?: { enabled: boolean; connected: boolean; watchedWallets: number; subscriptions: number; events: number; claimFrames: number; reconnects: number; lastMessageAt?: string | null; lastError?: string | null }; latency?: Record<string, { count: number; p50Ms: number | null; p95Ms: number | null; maxMs: number | null }>; feeShareIndex?: { wallets: number; mappings: number }; lastClaimAt?: string | null; lastClaimSignature?: string | null; lastRedirectAt?: string | null; lastTriggerAt?: string | null; lastFillAt?: string | null };
     balances: { cachedWallets: number; subscriptions: number; references: number };
     radar: { enabled: boolean; subscriptions: number; inFlight: number; enriching: number; marketQueueDepth: number; marketQueueRunning: boolean; queuedMarketMints: number; mainPumpWatcherEnabled: boolean };
     process: { uptimeSeconds: number; rssMb: number; heapUsedMb: number; heapTotalMb: number; node: string };
@@ -586,7 +635,7 @@ export interface DiscoverMetadata extends DiscoverCoin {
   metadata: unknown;
 }
 
-type AuthSession = Profile & { accessToken?: string };
+type AuthSession = Profile & { accessToken?: string; refreshToken?: string };
 
 export const api = {
   register: async (username: string, password: string) => {
@@ -595,6 +644,7 @@ export const api = {
       body: JSON.stringify({ username, password }),
     });
     saveAccessToken(result.accessToken);
+    saveRefreshToken(result.refreshToken);
     return result;
   },
   login: async (username: string, password: string) => {
@@ -603,12 +653,33 @@ export const api = {
       body: JSON.stringify({ username, password }),
     });
     saveAccessToken(result.accessToken);
+    saveRefreshToken(result.refreshToken);
     return result;
   },
-  me: () => req<Profile>("/auth/me"),
+  me: async () => {
+    const profile = await req<Profile>("/auth/me");
+    if (!persistentRefreshToken()) {
+      try {
+        const device = await req<{ refreshToken: string }>("/auth/device-session", { method: "POST" });
+        saveRefreshToken(device.refreshToken);
+      } catch {
+        // Keep the already-valid cookie/access session during a rolling deploy
+        // or if durable browser storage is unavailable.
+      }
+    }
+    return profile;
+  },
   logout: async () => {
-    try { return await req<{ ok: true }>("/auth/logout", { method: "POST" }); }
-    finally { saveAccessToken(null); }
+    const refreshToken = persistentRefreshToken();
+    try {
+      return await req<{ ok: true }>("/auth/logout", {
+        method: "POST",
+        body: JSON.stringify(refreshToken ? { refreshToken } : {}),
+      });
+    } finally {
+      saveAccessToken(null);
+      saveRefreshToken(null);
+    }
   },
   profile: () => req<{ profile: Profile }>("/profile"),
   updateProfile: (body: {

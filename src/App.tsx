@@ -195,9 +195,9 @@ function presetFingerprint(preset?: Partial<ArmSnipePreset> | null) {
     mcMaxUsd: preset?.mcMaxUsd ?? "",
     onlyRedirected: !!preset?.onlyRedirected,
     watchWallet: preset?.watchWallet ?? "",
-    execMode: preset?.execMode === "LOCAL" ? "LOCAL" : "PUMPPORTAL",
+    execMode: preset?.execMode === "PUMPPORTAL" ? "PUMPPORTAL" : "LOCAL",
     triggerMode: preset?.triggerMode === "REDIRECT" ? "REDIRECT" : "CLAIM",
-    claimMode: preset?.claimMode === "FAST" ? "FAST" : "SAFE",
+    claimMode: preset?.claimMode === "SAFE" ? "SAFE" : "FAST",
     exit: {
       tpOn: !!exit.tpOn,
       tpTrail: !!exit.tpTrail,
@@ -1847,9 +1847,13 @@ function SnipeForm({
   const [mcMaxUsd, setMcMaxUsd] = useState("");
   const [onlyRedirected, setOnlyRedirected] = useState(initialOnlyRedirected ?? false);
   const [watchWallet, setWatchWallet] = useState(initialWatchWallet ?? "");
-  const [execMode, setExecMode] = useState<"PUMPPORTAL" | "LOCAL">("PUMPPORTAL");
+  const [execMode, setExecMode] = useState<"PUMPPORTAL" | "LOCAL">(
+    () => readSavedChoice("cs.execMode", ["LOCAL", "PUMPPORTAL"] as const, "LOCAL"),
+  );
   const [triggerMode, setTriggerMode] = useState<"CLAIM" | "REDIRECT">("CLAIM");
-  const [claimMode, setClaimMode] = useState<"FAST" | "SAFE">("SAFE");
+  const [claimMode, setClaimMode] = useState<"FAST" | "SAFE">(
+    () => readSavedChoice("cs.claimMode", ["FAST", "SAFE"] as const, "FAST"),
+  );
   const [advancedOpen, setAdvancedOpen] = useState(false);
   const [exitOpen, setExitOpen] = useState(false);
   const ex = useExit();
@@ -1897,9 +1901,9 @@ function SnipeForm({
     setMcMaxUsd(preset.mcMaxUsd ?? "");
     setOnlyRedirected(!!preset.onlyRedirected);
     setWatchWallet(preset.watchWallet ?? "");
-    setExecMode(preset.execMode === "LOCAL" ? "LOCAL" : "PUMPPORTAL");
+    setExecMode(preset.execMode === "PUMPPORTAL" ? "PUMPPORTAL" : "LOCAL");
     setTriggerMode(preset.triggerMode === "REDIRECT" ? "REDIRECT" : "CLAIM");
-    setClaimMode(preset.claimMode === "FAST" ? "FAST" : "SAFE");
+    setClaimMode(preset.claimMode === "SAFE" ? "SAFE" : "FAST");
     ex.applyPreset(preset.exit);
   }
 
@@ -1940,6 +1944,8 @@ function SnipeForm({
     try {
       localStorage.setItem("cs.priority", priority);
       localStorage.setItem("cs.bribe", bribe);
+      saveChoice("cs.execMode", execMode);
+      saveChoice("cs.claimMode", claimMode);
       await api.createSnipe({
         mint: mint.trim(),
         walletId,
@@ -2094,7 +2100,7 @@ function SnipeForm({
               </>
             )}
           </div>
-          <label>Bribe / extra priority (SOL) <InfoTip text="Additional execution priority budget. Keep this low unless you understand the trade-off." /></label>
+          <label>Landing tip / extra priority (SOL) <InfoTip text="For direct local execution this can be sent as a real Helius Sender landing tip when Sender is enabled. Otherwise it remains additional compute priority. Keep it low." /></label>
           <input value={bribe} onChange={(e) => setBribe(e.target.value)} />
           <ExecModeSelect value={execMode} onChange={setExecMode} />
           <div className="market-filter-box compact">
@@ -2266,7 +2272,7 @@ function EditSnipeModal({
                 />
               </div>
               <div>
-                <label>Bribe (SOL)</label>
+                <label>Landing tip (SOL)</label>
                 <input
                   value={bribe}
                   onChange={(e) => setBribe(e.target.value)}
@@ -3858,6 +3864,12 @@ function AdminPanel({ wallets }: { wallets: Wallet[] }) {
                 value={!health?.engine.globalClaimFeed?.enabled ? "disabled" : health?.engine.globalClaimFeed?.reconnecting ? "reconnecting" : health?.engine.globalClaimFeed?.connected ? "connected" : "offline"}
                 detail={health?.engine.globalClaimFeed?.enabled ? `${health.engine.globalClaimFeed.endpointCount} RPC route${health.engine.globalClaimFeed.endpointCount === 1 ? "" : "s"} · ${health.engine.globalClaimFeed.claimSignals} claim signals · ${health.engine.globalClaimFeed.reconnects} reconnects` : "global resilience feed disabled"}
               />
+              <AdminServiceRow
+                name="Full transaction feed"
+                ok={!health?.engine.fullTransactionFeed?.enabled || !health.engine.fullTransactionFeed.watchedWallets || Boolean(health.engine.fullTransactionFeed.connected)}
+                value={!health?.engine.fullTransactionFeed?.enabled ? "disabled" : health.engine.fullTransactionFeed.connected ? "connected" : health.engine.fullTransactionFeed.watchedWallets ? "fallback active" : "idle"}
+                detail={health?.engine.fullTransactionFeed?.enabled ? `${health.engine.fullTransactionFeed.watchedWallets} wallet filters · ${health.engine.fullTransactionFeed.claimFrames} full frames · ${health.engine.fullTransactionFeed.reconnects} reconnects` : "legacy log feed remains active"}
+              />
               <AdminServiceRow name="Market-cap feed" ok={health?.marketFeed.ok ?? false} value={health?.marketFeed.connected ? "connected" : (health?.marketFeed.subscribed ? "offline" : "idle")} detail={`${health?.marketFeed.subscribed ?? 0} subscribed · ${health?.marketFeed.cached ?? 0} cached`} />
               <AdminServiceRow name="Redirect radar" ok={!health?.radar.enabled || (health?.radar.subscriptions ?? 0) > 0} value={health?.radar.enabled ? `${health.radar.subscriptions} live` : "disabled"} detail={`${health?.radar.inFlight ?? 0} processing · ${health?.radar.marketQueueDepth ?? 0} enrichment queue`} />
               <div className="admin-queue-block">
@@ -3874,6 +3886,8 @@ function AdminPanel({ wallets }: { wallets: Wallet[] }) {
                 <div><span>Snipe bindings</span><b>{health?.engine.creatorSnipeBindings ?? 0}</b></div>
                 <div><span>Redirect watchers</span><b>{health?.engine.redirectSubscriptions ?? 0}</b></div>
                 <div><span>Arming now</span><b>{health?.engine.armingInFlight ?? 0}</b></div>
+                <div><span>Prepared plans</span><b>{health?.engine.preparedExecutionPlans ?? 0}</b></div>
+                <div><span>Claim work</span><b>{health?.engine.claimProcessingInFlight ?? 0}</b></div>
                 <div><span>Buy reconcile</span><b className={(health?.engine.buyReconciliationsPending ?? 0) ? "amber" : ""}>{health?.engine.buyReconciliationsPending ?? 0}</b></div>
                 <div><span>Wallet watchers</span><b>{health?.balances.subscriptions ?? 0}</b></div>
                 <div><span>Fast creator watchers</span><b>{health?.engine.fastCreatorSubscriptions ?? 0}</b></div>
@@ -3885,6 +3899,11 @@ function AdminPanel({ wallets }: { wallets: Wallet[] }) {
                 <span>Last claim <b>{adminAgo(health?.engine.lastClaimAt)}</b></span>
                 <span>Last trigger <b>{adminAgo(health?.engine.lastTriggerAt)}</b></span>
                 <span>Last fill <b>{adminAgo(health?.engine.lastFillAt)}</b></span>
+              </div>
+              <div className="admin-kv-list">
+                {Object.entries(health?.engine.latency ?? {}).map(([name, metric]) => (
+                  <div key={name}><span>{name}</span><b>{metric.p50Ms ?? "—"} / {metric.p95Ms ?? "—"} ms</b></div>
+                ))}
               </div>
               <div className="admin-server-strip">
                 <div><span>Uptime</span><b>{adminUptime(health?.process.uptimeSeconds)}</b></div>
@@ -4664,15 +4683,15 @@ function ExecModeSelect({
           className={value === "LOCAL" ? "on" : ""}
           onClick={() => onChange("LOCAL")}
         >
-          Local (beta)
+          Local
         </button>
       </div>
       {value === "LOCAL" && (
         <div className="hint">
-          Builds the buy on our server and sends it straight through Helius (no
-          PumpPortal). Faster and removes that dependency, but it is
-          experimental and untested, so try a tiny amount first. Take-profit and
-          stop-loss sells still use PumpPortal.
+          Uses Pump's current official Pump and PumpSwap transaction builders,
+          prepares the route before the claim confirms, and broadcasts directly.
+          PumpPortal is retained as a pre-sign fallback if a route cannot be built.
+          Take-profit and stop-loss sells still use PumpPortal.
         </div>
       )}
     </div>
@@ -6482,7 +6501,7 @@ function CopyPublicModal({
             />
           </div>
           <div>
-            <label>Bribe (SOL)</label>
+            <label>Landing tip (SOL)</label>
             <input value={bribe} onChange={(e) => setBribe(e.target.value)} />
           </div>
         </div>
