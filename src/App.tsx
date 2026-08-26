@@ -4,6 +4,7 @@ import {
   useCallback,
   useContext,
   useEffect,
+  useLayoutEffect,
   useMemo,
   useRef,
   useState,
@@ -41,7 +42,7 @@ import { useLeaderPolling } from "./sync";
 import { EMOJIS } from "./emojiData";
 
 const BRAND_IMG = `${import.meta.env.BASE_URL}sniper.png`;
-const SNIPE_SOUND = `${import.meta.env.BASE_URL}snipe.mp3`;
+const SNIPE_SOUND = `${import.meta.env.BASE_URL}sniper.mp3`;
 const DEFAULT_CHAT_COLOR = "#20e070";
 const DEFAULT_PLATFORM: TradingPlatform = "AXIOM";
 const short = (s: string) => `${s.slice(0, 4)}…${s.slice(-4)}`;
@@ -1550,7 +1551,7 @@ function Dashboard({
             />
           )}
           <div className={`who ${menuOpen ? "open" : ""}`}>
-            <button className={`nav-btn ${view === "dashboard" ? "on" : ""}`} onClick={() => go("dashboard")}>Dashboard</button>
+            <button className={`nav-btn ${view === "dashboard" ? "on" : ""}`} onClick={() => go("dashboard")}>Sniper</button>
             {discoveryOn && <button className={`nav-btn ${view === "discovery" ? "on" : ""}`} onClick={() => go("discovery")}>Discover</button>}
             <button className={`nav-btn ${view === "history" ? "on" : ""}`} onClick={() => go("history")}>History</button>
             <button className={`nav-btn ${view === "claims" ? "on" : ""}`} onClick={() => go("claims")}>Claim Scanner</button>
@@ -5749,6 +5750,7 @@ function ChatBox({ tradingPlatform }: { tradingPlatform: TradingPlatform }) {
   const initialBottomPinRef = useRef(false);
   const initialBottomPinTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const feedRef = useRef<HTMLDivElement | null>(null);
+  const bottomRef = useRef<HTMLDivElement | null>(null);
 
   const mergeMessages = useCallback((prev: ChatMessage[], incoming: ChatMessage[]) => {
     const byId = new Map(prev.map((m) => [m.id, m]));
@@ -5765,8 +5767,10 @@ function ChatBox({ tradingPlatform }: { tradingPlatform: TradingPlatform }) {
     const apply = () => {
       const el = feedRef.current;
       if (!el) return;
-      if (smooth) el.scrollTo({ top: el.scrollHeight, behavior: "smooth" });
-      else el.scrollTop = el.scrollHeight;
+      const top = Math.max(0, el.scrollHeight - el.clientHeight);
+      if (smooth) el.scrollTo({ top, behavior: "smooth" });
+      else el.scrollTop = top;
+      bottomRef.current?.scrollIntoView({ behavior: smooth ? "smooth" : "auto", block: "end" });
       setNewWhileUp(0);
     };
 
@@ -5784,7 +5788,7 @@ function ChatBox({ tradingPlatform }: { tradingPlatform: TradingPlatform }) {
 
     // Data-URL images can decode after React has committed. Keep the initial
     // viewport pinned briefly, then release it so normal user scrolling wins.
-    const delays = [60, 180, 420, 850];
+    const delays = [60, 180, 420, 850, 1500, 2400];
     for (const delay of delays) {
       setTimeout(() => {
         if (initialBottomPinRef.current) scrollToBottom(false);
@@ -5794,7 +5798,7 @@ function ChatBox({ tradingPlatform }: { tradingPlatform: TradingPlatform }) {
     initialBottomPinTimerRef.current = setTimeout(() => {
       initialBottomPinRef.current = false;
       initialBottomPinTimerRef.current = null;
-    }, 1000);
+    }, 2600);
   }, [scrollToBottom]);
 
   const loadInitial = useCallback(async () => {
@@ -5857,6 +5861,26 @@ function ChatBox({ tradingPlatform }: { tradingPlatform: TradingPlatform }) {
       initialBottomPinRef.current = false;
     };
   }, [loadInitial, pollNew]);
+
+  // Pin after React has committed the initial batch, not just after the API
+  // request resolves. This closes the render-timing gap that could leave chat
+  // a few messages above the real bottom.
+  useLayoutEffect(() => {
+    if (initializedRef.current && initialBottomPinRef.current) scrollToBottom(false);
+  }, [messages, scrollToBottom]);
+
+  // Mobile viewport changes, fonts and decoded images can alter the feed height
+  // after the first render. Keep following those changes until the initial pin
+  // settles; scrolling up manually immediately releases the pin.
+  useEffect(() => {
+    const content = feedRef.current?.querySelector<HTMLElement>(".chat-feed-content");
+    if (!content || typeof ResizeObserver === "undefined") return;
+    const observer = new ResizeObserver(() => {
+      if (initialBottomPinRef.current) scrollToBottom(false);
+    });
+    observer.observe(content);
+    return () => observer.disconnect();
+  }, [scrollToBottom]);
 
   const emojiOptions = useMemo(() => {
     const q = emojiSearch.trim().toLowerCase().replace(/[_-]+/g, " ");
@@ -6060,6 +6084,7 @@ function ChatBox({ tradingPlatform }: { tradingPlatform: TradingPlatform }) {
               </div>
             </div>
           ))}
+          <div className="chat-bottom-anchor" ref={bottomRef} aria-hidden="true" />
           </div>
         </div>
         {newWhileUp > 0 && <button className="new-messages-btn" onClick={() => scrollToBottom(true)}>↓ {newWhileUp} new {newWhileUp === 1 ? "message" : "messages"}</button>}
