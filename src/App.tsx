@@ -338,11 +338,9 @@ function initialViewFromUrl(): AppView {
 }
 
 function initialDashTabFromStorage(): DashTab {
-  return readSavedChoice<DashTab>(
-    NAV_DASH_TAB_KEY,
-    ["arm", "snipes", "wallets"],
-    "arm",
-  );
+  // The dashboard now always opens on the unified Snipes list. Arm and Wallets
+  // are still addressable through explicit routes from their new buttons.
+  return "snipes";
 }
 
 function initialSocialTabFromUrl(): SocialTab {
@@ -357,10 +355,10 @@ function initialSocialTabFromUrl(): SocialTab {
 }
 
 function initialDashTabFromUrl(): DashTab {
-  if (typeof window === "undefined") return "arm";
+  if (typeof window === "undefined") return "snipes";
   const tab = new URLSearchParams(window.location.search).get("tab");
-  if (tab === "snipes" || tab === "wallets") return tab;
-  return readSavedChoice<DashTab>(NAV_DASH_TAB_KEY, ["arm", "snipes", "wallets"], "arm");
+  if (tab === "arm" || tab === "snipes" || tab === "wallets") return tab;
+  return initialDashTabFromStorage();
 }
 
 function initialAdminTabFromStorage(): AdminTab {
@@ -397,15 +395,15 @@ function friendlyError(message: string) {
 }
 
 function snipeUiState(s: Snipe) {
-  if (s.status === "FAILED") return { label: "FAILED", tone: "FAILED", group: "failed" as const };
-  if (s.status === "CANCELLED") return { label: "CANCELLED", tone: "CANCELLED", group: "finished" as const };
-  if (s.status === "TRIGGERED") return { label: "BUYING", tone: "TRIGGERED", group: "active" as const };
-  if (s.status === "ARMED") return { label: "ARMED", tone: "ARMED", group: "active" as const };
-  if (s.status === "PAUSED") return { label: "PAUSED", tone: "PAUSED", group: "active" as const };
+  if (s.status === "FAILED") return { label: "FAILED", tone: "FAILED", group: "failed" as const, glow: "failed" as const };
+  if (s.status === "CANCELLED") return { label: "CANCELLED", tone: "CANCELLED", group: "finished" as const, glow: "finished" as const };
+  if (s.status === "TRIGGERED") return { label: "BUYING", tone: "TRIGGERED", group: "active" as const, glow: "active" as const };
+  if (s.status === "ARMED") return { label: "ARMED", tone: "ARMED", group: "active" as const, glow: "active" as const };
+  if (s.status === "PAUSED") return { label: "PAUSED", tone: "PAUSED", group: "active" as const, glow: "active" as const };
   const exitDone = s.tpStatus === "SOLD" || s.tpStatus === "STOPPED";
   if (s.status === "FILLED" && !exitDone)
-    return { label: "POSITION OPEN", tone: "OPEN", group: "positions" as const };
-  return { label: "CLOSED", tone: "CLOSED", group: "finished" as const };
+    return { label: "POSITION OPEN", tone: "OPEN", group: "positions" as const, glow: "open" as const };
+  return { label: "CLOSED", tone: "CLOSED", group: "finished" as const, glow: "finished" as const };
 }
 
 type ToastKind = "ok" | "err" | "fill";
@@ -695,10 +693,12 @@ function AvatarBubble({
 function ProfileMenu({
   profile,
   openSettings,
+  openWallets,
   onLogout,
 }: {
   profile: Profile;
   openSettings: () => void;
+  openWallets: () => void;
   onLogout: () => void;
 }) {
   const [open, setOpen] = useState(false);
@@ -761,6 +761,17 @@ function ProfileMenu({
           >
             <span>⚙</span>
             <b>Settings</b>
+            <em>›</em>
+          </button>
+          <button
+            className="profile-row"
+            onClick={() => {
+              setOpen(false);
+              openWallets();
+            }}
+          >
+            <span className="profile-row-icon"><AppIcon name="wallet" /></span>
+            <b>Wallets</b>
             <em>›</em>
           </button>
           <button className="profile-row danger" onClick={onLogout}>
@@ -987,6 +998,7 @@ type IconName =
   | "pause"
   | "play"
   | "send"
+  | "wallet"
   | "close";
 
 function AppIcon({ name, className }: { name: IconName; className?: string }) {
@@ -1031,6 +1043,8 @@ function AppIcon({ name, className }: { name: IconName; className?: string }) {
       return <svg {...common}><path d="m8 5 11 7-11 7V5Z" /></svg>;
     case "send":
       return <svg {...common}><path d="M21 3 10 14" /><path d="m21 3-7 18-4-7-7-4 18-7Z" /></svg>;
+    case "wallet":
+      return <svg {...common}><path d="M4 7.5A2.5 2.5 0 0 1 6.5 5H18a2 2 0 0 1 2 2v11H6.5A2.5 2.5 0 0 1 4 15.5v-8Z" /><path d="M4 8h13" /><path d="M15 11h5v4h-5a2 2 0 0 1 0-4Z" /></svg>;
     case "close":
       return <svg {...common}><path d="M6 6l12 12" /><path d="M18 6 6 18" /></svg>;
     default:
@@ -1400,20 +1414,24 @@ function Dashboard({
     setDashTabState(tab);
     saveChoice(NAV_DASH_TAB_KEY, tab);
     saveChoice(NAV_VIEW_KEY, "dashboard");
-    updateRoute({ view: null, tab: tab === "arm" ? null : tab, socialTab: null, scan: null }, !push);
+    updateRoute({ view: null, tab: tab === "snipes" ? null : tab, socialTab: null, scan: null }, !push);
   }, []);
 
   const go = useCallback((v: AppView, push = true) => {
     setView(v);
     setMenuOpen(false);
     saveChoice(NAV_VIEW_KEY, v);
+    if (v === "dashboard") {
+      setDashTabState("snipes");
+      saveChoice(NAV_DASH_TAB_KEY, "snipes");
+    }
     updateRoute({
       view: v === "dashboard" ? null : v,
-      tab: v === "dashboard" && dashTab !== "arm" ? dashTab : null,
+      tab: null,
       socialTab: v === "social" ? new URLSearchParams(location.search).get("socialTab") : null,
       scan: v === "claims" ? new URLSearchParams(location.search).get("scan") : null,
     }, !push);
-  }, [dashTab]);
+  }, []);
 
   const [discoveryOverride, setDiscoveryOverride] = useState<boolean | null>(null);
   useEffect(() => {
@@ -1539,7 +1557,12 @@ function Dashboard({
             <button className={`nav-btn ${view === "social" ? "on" : ""}`} onClick={() => go("social")}>Social{chatUnread && <span className="nav-dot" />}</button>
             {admin && <button className={`nav-btn admin ${view === "admin" ? "on" : ""}`} onClick={() => go("admin")}>Admin</button>}
           </div>
-          <ProfileMenu profile={profile} openSettings={() => go("settings")} onLogout={onLogout} />
+          <ProfileMenu
+            profile={profile}
+            openSettings={() => go("settings")}
+            openWallets={() => setDashTab("wallets")}
+            onLogout={onLogout}
+          />
         </div>
       </div>
 
@@ -1568,11 +1591,6 @@ function Dashboard({
               <span>{pausedSnipes.length} snipe{pausedSnipes.length === 1 ? "" : "s"} will not fire until unpaused.</span>
             </div>
           )}
-          <div className="seg dash-tabs" aria-label="Dashboard sections">
-            <button className={`seg-btn ${dashTab === "arm" ? "on" : ""}`} onClick={() => setDashTab("arm")}>Arm snipe</button>
-            <button className={`seg-btn ${dashTab === "snipes" ? "on" : ""}`} onClick={() => setDashTab("snipes")}>Snipes {activeCount + openCount > 0 && <span className="tab-count">{activeCount + openCount}</span>}</button>
-            <button className={`seg-btn ${dashTab === "wallets" ? "on" : ""}`} onClick={() => setDashTab("wallets")}>Wallets</button>
-          </div>
           {dashTab === "arm" ? (
             <div className="rise d1">
               {data && wallets.length === 0 ? (
@@ -1585,6 +1603,10 @@ function Dashboard({
                   initialMint={armPrefill?.mint}
                   initialWatchWallet={armPrefill?.watchWallet}
                   initialOnlyRedirected={Boolean(armPrefill)}
+                  onBack={() => {
+                    setArmPrefill(null);
+                    setDashTab("snipes");
+                  }}
                   onCreated={() => {
                     setArmPrefill(null);
                     refresh();
@@ -1599,7 +1621,7 @@ function Dashboard({
           ) : dashTab === "wallets" ? (
             <div className="rise d1"><Wallets wallets={wallets} onChange={refresh} /></div>
           ) : (
-            <div className="rise d1"><Snipes snipes={snipes} wallets={wallets} tradingPlatform={profile.tradingPlatform} onChange={refresh} /></div>
+            <div className="rise d1"><Snipes snipes={snipes} tradingPlatform={profile.tradingPlatform} onArm={() => setDashTab("arm")} onChange={refresh} /></div>
           )}
         </div>
       )}
@@ -1830,6 +1852,7 @@ function SnipeForm({
   wallets,
   snipes = [],
   onCreated,
+  onBack,
   initialMint,
   initialWatchWallet,
   initialOnlyRedirected,
@@ -1838,6 +1861,7 @@ function SnipeForm({
   wallets: Wallet[];
   snipes?: Snipe[];
   onCreated: () => void;
+  onBack: () => void;
   initialMint?: string;
   initialWatchWallet?: string;
   initialOnlyRedirected?: boolean;
@@ -2034,6 +2058,7 @@ function SnipeForm({
         <div className="section-heading form-head">
           <div><h2>Arm a snipe</h2><p>Set the coin, funding wallet and exact event that should trigger the buy.</p></div>
           <div className="form-head-actions">
+            <button type="button" className="ghost arm-back-btn" onClick={onBack}>← Snipes</button>
             <div className="preset-actions" aria-label="Snipe presets">
               {(["1", "2", "3"] as PresetSlot[]).map((slot) => (
                 <button
@@ -2386,17 +2411,19 @@ function EditSnipeModal({
 function Snipes({
   snipes,
   tradingPlatform,
+  onArm,
   onChange,
 }: {
   snipes: Snipe[];
-  wallets: Wallet[];
   tradingPlatform: TradingPlatform;
+  onArm: () => void;
   onChange: () => void;
 }) {
   const toast = useToast();
   const [exiting, setExiting] = useState<Set<string>>(new Set());
   const [edit, setEdit] = useState<Snipe | null>(null);
   const [pauseBusy, setPauseBusy] = useState(false);
+  const [discardBusy, setDiscardBusy] = useState<Set<string>>(new Set());
   const armedCount = snipes.filter((s) => s.status === "ARMED").length;
   const pausedCount = snipes.filter((s) => s.status === "PAUSED").length;
   const canTogglePause = armedCount > 0 || pausedCount > 0;
@@ -2461,15 +2488,58 @@ function Snipes({
 
   const [pauseOneBusy, setPauseOneBusy] = useState<Set<string>>(new Set());
 
-  const [filter, setFilter] = useState<"active" | "positions" | "finished" | "failed">("active");
   const [details, setDetails] = useState<Set<string>>(new Set());
 
-  function remove(id: string) {
-    setExiting((s) => new Set(s).add(id));
-    setTimeout(() => api.cancelSnipe(id).then(onChange).catch((e) => {
-      setExiting((set) => { const next = new Set(set); next.delete(id); return next; });
+  async function disarm(snipe: Snipe) {
+    if (snipe.status !== "ARMED" && snipe.status !== "PAUSED") return;
+    setDiscardBusy((current) => new Set(current).add(snipe.id));
+    try {
+      await api.cancelSnipe(snipe.id);
+      toast("Snipe disarmed");
+      onChange();
+    } catch (e: any) {
       toast(friendlyError(e.message), "err");
-    }), 330);
+      onChange();
+    } finally {
+      setDiscardBusy((current) => {
+        const next = new Set(current);
+        next.delete(snipe.id);
+        return next;
+      });
+    }
+  }
+
+  async function discard(snipe: Snipe) {
+    const ui = snipeUiState(snipe);
+    if (ui.group === "active" || discardBusy.has(snipe.id)) return;
+    if (snipe.tpStatus === "SELLING") {
+      toast("This position is selling and cannot be discarded yet.", "err");
+      return;
+    }
+
+    const isOpenPosition = ui.group === "positions";
+    if (isOpenPosition && !confirm("Discard this open position? This cancels its TP and SL. Your tokens stay in the wallet and the trade remains in History.")) return;
+
+    setDiscardBusy((current) => new Set(current).add(snipe.id));
+    try {
+      if (isOpenPosition && snipe.tpStatus !== "CANCELLED") {
+        await api.cancelExit(snipe.id);
+      }
+      await api.deleteSnipe(snipe.id);
+      setExiting((current) => new Set(current).add(snipe.id));
+      toast(isOpenPosition ? "Position discarded and TP/SL cancelled" : "Snipe discarded");
+      await new Promise<void>((resolve) => window.setTimeout(resolve, 280));
+      onChange();
+    } catch (e: any) {
+      toast(friendlyError(e.message), "err");
+      onChange();
+    } finally {
+      setDiscardBusy((current) => {
+        const next = new Set(current);
+        next.delete(snipe.id);
+        return next;
+      });
+    }
   }
 
   async function toggleOnePause(snipe: Snipe) {
@@ -2496,41 +2566,31 @@ function Snipes({
     }
   }
 
-  const counts = useMemo(() => {
-    const out = { active: 0, positions: 0, finished: 0, failed: 0 };
-    for (const s of snipes) out[snipeUiState(s).group]++;
-    return out;
-  }, [snipes]);
-  const visible = snipes.filter((s) => snipeUiState(s).group === filter);
-
   return (
-    <div className={`card snipes-card ${pausedCount > 0 ? "paused" : ""}`}>
+    <div className="card snipes-card">
       <div className="section-heading snipes-top">
         <div><h2>Snipes</h2><p>Monitor what the bot is watching, buying and managing.</p></div>
-        <button
-          className="pause-all-btn"
-          onClick={togglePauseAll}
-          disabled={!canTogglePause || pauseBusy}
-          title={pauseMode === "pause" ? "Pause every armed snipe so they do not fire" : "Unpause every paused snipe and arm them again"}
-        >
-          {pauseBusy ? <span className="spin" /> : <><span className="pause-icon" aria-hidden="true"><AppIcon name={pauseMode === "pause" ? "pause" : "play"} /></span>{pauseMode === "pause" ? "Pause All" : "Unpause All"}</>}
-        </button>
-      </div>
-
-      <div className="seg snipe-filters">
-        {(["active", "positions", "finished", "failed"] as const).map((key) => (
-          <button key={key} className={`seg-btn ${filter === key ? "on" : ""}`} onClick={() => setFilter(key)}>
-            {key === "positions" ? "Open positions" : key[0].toUpperCase() + key.slice(1)} <span className="filter-count">{counts[key]}</span>
+        <div className="snipes-head-actions">
+          <button className="arm-plus-btn" onClick={onArm} title="Arm a new snipe" aria-label="Arm a new snipe">
+            <span aria-hidden="true">+</span><b>New snipe</b>
           </button>
-        ))}
+          <button
+            className="pause-all-btn"
+            onClick={togglePauseAll}
+            disabled={!canTogglePause || pauseBusy}
+            title={pauseMode === "pause" ? "Pause every armed snipe so they do not fire" : "Unpause every paused snipe and arm them again"}
+          >
+            {pauseBusy ? <span className="spin" /> : <><span className="pause-icon" aria-hidden="true"><AppIcon name={pauseMode === "pause" ? "pause" : "play"} /></span>{pauseMode === "pause" ? "Pause All" : "Unpause All"}</>}
+          </button>
+        </div>
       </div>
 
-      {visible.length === 0 && <div className="empty filter-empty">{snipes.length === 0 ? "No snipes yet. Arm one with a coin CA, wallet and SOL amount." : `Nothing in ${filter === "positions" ? "open positions" : filter} right now.`}</div>}
+      {snipes.length === 0 && <div className="empty filter-empty">No snipes yet. Press + to arm one with a coin CA, wallet and SOL amount.</div>}
 
-      {visible.map((s) => {
+      {snipes.map((s) => {
         const ui = snipeUiState(s);
         const open = details.has(s.id);
-        return <div className={`snipe snipe-clean ${ui.tone} ${exiting.has(s.id) ? "exiting" : ""}`} key={s.id}>
+        return <div className={`snipe snipe-clean ${ui.tone} snipe-status-${ui.glow} ${exiting.has(s.id) ? "exiting" : ""}`} key={s.id}>
           <div className="head">
             <div className="snipe-title-block">
               <span className="ticker">{s.ticker ? `$${s.ticker}` : short(s.mint)}</span>
@@ -2589,7 +2649,7 @@ function Snipes({
             {s.copySourceSnipeId ? <button className="ghost" disabled title="Managed by Copy Trading">Managed</button> : <button className="ghost" onClick={() => setEdit(s)}>Edit</button>}
             {s.status === "FILLED" && s.tpStatus === "PENDING" && (s.tpEnabled || s.slEnabled) && <button className="warning-btn" onClick={() => api.cancelExit(s.id).then(onChange).catch((e) => toast(friendlyError(e.message), "err"))}>Cancel TP/SL</button>}
             {(s.status === "ARMED" || s.status === "PAUSED") && <button className="snipe-pause-one" onClick={() => toggleOnePause(s)} disabled={pauseOneBusy.has(s.id)} title={s.status === "ARMED" ? "Pause this snipe" : "Unpause this snipe"} aria-label={s.status === "ARMED" ? "Pause this snipe" : "Unpause this snipe"}>{pauseOneBusy.has(s.id) ? <span className="spin" /> : <AppIcon name={s.status === "ARMED" ? "pause" : "play"} />}</button>}
-            {(s.status === "ARMED" || s.status === "PAUSED") ? <button className="warning-btn" onClick={() => remove(s.id)}>Disarm</button> : s.status === "TRIGGERED" ? <button className="warning-btn" disabled>Buying…</button> : <button className="danger" onClick={() => remove(s.id)}>Remove</button>}
+            {(s.status === "ARMED" || s.status === "PAUSED") ? <button className="warning-btn" onClick={() => void disarm(s)} disabled={discardBusy.has(s.id)}>{discardBusy.has(s.id) ? <span className="spin" /> : "Disarm"}</button> : s.status === "TRIGGERED" ? <button className="warning-btn" disabled>Buying…</button> : <button className="danger" onClick={() => void discard(s)} disabled={discardBusy.has(s.id) || s.tpStatus === "SELLING"}>{discardBusy.has(s.id) ? <span className="spin" /> : s.tpStatus === "SELLING" ? "Exit selling…" : "Discard"}</button>}
           </div>
         </div>;
       })}

@@ -893,6 +893,8 @@ export const api = {
     }),
   cancelSnipe: (id: string) =>
     req<{ ok: true }>(`/snipes/${id}/cancel`, { method: "POST" }),
+  deleteSnipe: (id: string) =>
+    req<{ ok: true }>(`/snipes/${id}`, { method: "DELETE" }),
   cancelExit: (id: string) =>
     req<{ snipe: Snipe }>(`/snipes/${id}/cancel-exit`, { method: "POST" }),
   claimScanner: (wallet: string) =>
