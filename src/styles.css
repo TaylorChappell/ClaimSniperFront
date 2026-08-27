@@ -1640,60 +1640,7 @@ button.danger:hover {
   word-break: break-all;
 }
 
-/* speed and execution mode selectors */
-.speed-mode-select {
-  margin: 14px 0;
-}
-.speed-mode-select > label {
-  display: block;
-  margin-bottom: 7px;
-  color: var(--muted);
-  font-size: 12px;
-  font-weight: 600;
-}
-.speed-mode-options {
-  display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: 8px;
-}
-.speed-mode-options button {
-  display: flex;
-  flex-direction: column;
-  align-items: flex-start;
-  gap: 4px;
-  min-width: 0;
-  padding: 12px;
-  color: var(--text);
-  text-align: left;
-  background: var(--surface-2);
-  border: 1px solid var(--line);
-  border-radius: 10px;
-  cursor: pointer;
-}
-.speed-mode-options button span {
-  color: var(--muted);
-  font-size: 11px;
-  line-height: 1.35;
-}
-.speed-mode-options button.on {
-  border-color: var(--green);
-  background: var(--green-soft);
-  box-shadow: 0 0 18px rgba(32, 224, 112, 0.12);
-}
-.speed-mode-options button.beta.on {
-  border-color: var(--blue-2);
-  background: var(--blue-soft);
-  box-shadow: 0 0 18px rgba(104, 216, 255, 0.14);
-}
-.speed-mode-options small {
-  margin-left: 5px;
-  color: var(--blue-2);
-  font-size: 9px;
-  letter-spacing: 0.08em;
-}
-.beta-mode-hint {
-  margin-top: 7px;
-}
+/* trigger mode selector */
 .exec-mode {
   margin: 12px 0;
 }
@@ -1729,19 +1676,10 @@ button.danger:hover {
   background: var(--green);
   color: #04110b;
 }
-.exec-mode .seg button:disabled {
-  cursor: not-allowed;
-  opacity: 0.65;
-}
 .exec-mode .hint {
   margin-top: 7px;
 }
 
-@media (max-width: 560px) {
-  .speed-mode-options {
-    grid-template-columns: 1fr;
-  }
-}
 
 /* small ghost button (admin copy) */
 button.ghost.mini {
@@ -2345,11 +2283,6 @@ button.ghost.mini {
   background: rgba(245, 158, 11, 0.14);
   color: #f59e0b;
   border: 1px solid rgba(245, 158, 11, 0.3);
-}
-.mode-tag.mode-beta {
-  background: var(--blue-soft);
-  color: var(--blue-2);
-  border: 1px solid rgba(104, 216, 255, 0.34);
 }
 
 /* Lock background scroll while any modal/overlay is open */
@@ -4493,6 +4426,7 @@ button.admin-metric:hover { border-color: var(--green-glow); transform: translat
 .admin-row-actions { display: flex; align-items: center; justify-content: flex-end; gap: 6px; flex-wrap: wrap; }
 .admin-user-main p { margin: 5px 0 0; color: var(--muted); font-size: 10px; }
 .admin-priority-chip { padding: 3px 6px; border-radius: 999px; color: var(--amber); background: rgba(255,206,77,.10); border: 1px solid rgba(255,206,77,.24); font-size: 8px; font-weight: 800; letter-spacing: .06em; }
+.admin-discarded-chip { padding: 3px 6px; border-radius: 999px; color: var(--muted); background: rgba(151,163,171,.10); border: 1px solid rgba(151,163,171,.24); font-size: 8px; font-weight: 800; letter-spacing: .06em; }
 .admin-user-pnl { display: flex; flex-direction: column; gap: 2px; min-width: 110px; text-align: right; font-size: 10px; color: var(--muted); }
 .admin-user-summary { display: flex; gap: 7px; flex-wrap: wrap; }
 .admin-user-summary > span { display: inline-flex; align-items: center; gap: 5px; border: 1px solid var(--line-soft); background: var(--surface); border-radius: 999px; padding: 6px 9px; color: var(--muted); font-size: 10px; }

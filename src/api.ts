@@ -175,7 +175,6 @@ export interface Snipe {
   priorityFee: number;
   bribe: number;
   execMode?: "PUMPPORTAL" | "LOCAL";
-  speedMode?: "DEFAULT" | "BETA";
   triggerMode?: "CLAIM" | "REDIRECT";
   claimMode?: "PROCESSED";
   ticker?: string | null;
@@ -187,6 +186,7 @@ export interface Snipe {
   createdAt: string;
   triggeredAt?: string | null;
   filledAt?: string | null;
+  discardedAt?: string | null;
   exitKind?: string | null;
   exitSubmittedAt?: string | null;
   wallet: { name: string; publicKey: string };
@@ -264,7 +264,7 @@ export interface AdminOverview {
     rpc: { ok: boolean; latencyMs: number; slot?: number | null; error?: string | null };
     marketFeed: { ok: boolean; connected: boolean; subscribed: number; cached: number; solUsd?: number | null };
     queue: { ok: boolean; queued: number; priorityQueued: number; limitPerSecond: number; maxDepth: number; maxWaitMs: number; draining: boolean };
-    engine: { creatorSubscriptions: number; creatorSnipeBindings: number; redirectSubscriptions: number; currentlyFiring: number; armingInFlight: number; seenSignatures: number; claimProcessingInFlight?: number; preparedExecutionPlans?: number; buyReconciliationsPending: number; processedCreatorSubscriptions?: number; processedRedirectSubscriptions?: number; backupRedirectSubscriptions?: number; backfillRuns?: number; backfilledSignatures?: number; globalClaimFeed?: { enabled: boolean; connected: boolean; activeRpc?: string | null; activeWs?: string | null; endpointCount: number; subscriptions: number; events: number; claimSignals: number; lastAnyEventAt?: string | null; lastClaimSignalAt?: string | null; reconnects: number; reconnecting: boolean; lastReconnectReason?: string | null; silenceMs?: number | null; silenceThresholdMs?: number }; fullTransactionFeed?: { enabled: boolean; connected: boolean; watchedWallets: number; subscriptions: number; events: number; claimFrames: number; reconnects: number; lastMessageAt?: string | null; lastError?: string | null; activeEndpoint?: "standard" | "gatekeeper" }; betaTransactionFeed?: { enabled: boolean; connected: boolean; watchedWallets: number; subscriptions: number; events: number; claimFrames: number; reconnects: number; lastMessageAt?: string | null; lastError?: string | null; activeEndpoint?: "standard" | "gatekeeper" }; latency?: Record<string, { count: number; p50Ms: number | null; p95Ms: number | null; maxMs: number | null }>; feeShareIndex?: { wallets: number; mappings: number }; lastClaimAt?: string | null; lastClaimSignature?: string | null; lastRedirectAt?: string | null; lastTriggerAt?: string | null; lastFillAt?: string | null };
+    engine: { creatorSubscriptions: number; creatorSnipeBindings: number; redirectSubscriptions: number; currentlyFiring: number; armingInFlight: number; seenSignatures: number; claimProcessingInFlight?: number; preparedExecutionPlans?: number; buyReconciliationsPending: number; processedCreatorSubscriptions?: number; processedRedirectSubscriptions?: number; backupRedirectSubscriptions?: number; backfillRuns?: number; backfilledSignatures?: number; globalClaimFeed?: { enabled: boolean; connected: boolean; activeRpc?: string | null; activeWs?: string | null; endpointCount: number; subscriptions: number; events: number; claimSignals: number; lastAnyEventAt?: string | null; lastClaimSignalAt?: string | null; reconnects: number; reconnecting: boolean; lastReconnectReason?: string | null; silenceMs?: number | null; silenceThresholdMs?: number }; fullTransactionFeed?: { enabled: boolean; connected: boolean; watchedWallets: number; subscriptions: number; events: number; claimFrames: number; reconnects: number; lastMessageAt?: string | null; lastError?: string | null; activeEndpoint?: "standard" | "gatekeeper" }; latency?: Record<string, { count: number; p50Ms: number | null; p95Ms: number | null; maxMs: number | null }>; feeShareIndex?: { wallets: number; mappings: number }; lastClaimAt?: string | null; lastClaimSignature?: string | null; lastRedirectAt?: string | null; lastTriggerAt?: string | null; lastFillAt?: string | null };
     balances: { cachedWallets: number; subscriptions: number; references: number };
     radar: { enabled: boolean; subscriptions: number; inFlight: number; enriching: number; marketQueueDepth: number; marketQueueRunning: boolean; queuedMarketMints: number; mainPumpWatcherEnabled: boolean };
     process: { uptimeSeconds: number; rssMb: number; heapUsedMb: number; heapTotalMb: number; node: string };
@@ -410,7 +410,6 @@ export interface PublicSnipe {
   triggerMode?: "CLAIM" | "REDIRECT";
   claimMode?: "PROCESSED";
   execMode?: "PUMPPORTAL" | "LOCAL";
-  speedMode?: "DEFAULT" | "BETA";
   slippagePct?: number;
   adaptiveSlippage?: boolean;
   maxSlippagePct?: number;
@@ -761,7 +760,6 @@ export const api = {
     priorityFee?: number;
     bribe?: number;
     execMode?: "PUMPPORTAL" | "LOCAL";
-    speedMode?: "DEFAULT" | "BETA";
     triggerMode?: "CLAIM" | "REDIRECT";
     onlyRedirected?: boolean;
     watchWallet?: string | null;
@@ -784,7 +782,6 @@ export const api = {
       priorityFee?: number;
       bribe?: number;
       execMode?: "PUMPPORTAL" | "LOCAL";
-      speedMode?: "DEFAULT" | "BETA";
       triggerMode?: "CLAIM" | "REDIRECT";
       onlyRedirected?: boolean;
       watchWallet?: string | null;
@@ -802,13 +799,14 @@ export const api = {
   adminApplyComputeTuning: () => req<{ ok: true; tuning: AdminComputeTuning }>("/admin/compute-tuning/apply", { method: "POST" }),
   adminResetComputeTuning: () => req<{ ok: true; tuning: AdminComputeTuning }>("/admin/compute-tuning/overrides", { method: "DELETE" }),
   adminRpcUsage: (range: "1h" | "24h" | "month" = "24h") => req<AdminRpcUsage>(`/admin/rpc-usage?range=${encodeURIComponent(range)}`),
-  adminSnipes: (filters: { status?: string; q?: string; limit?: number } = {}) => {
+  adminSnipes: (filters: { status?: string; q?: string; page?: number; pageSize?: number } = {}) => {
     const p = new URLSearchParams();
     if (filters.status) p.set("status", filters.status);
     if (filters.q) p.set("q", filters.q);
-    if (filters.limit) p.set("limit", String(filters.limit));
+    if (filters.page != null) p.set("page", String(filters.page));
+    if (filters.pageSize != null) p.set("pageSize", String(filters.pageSize));
     const qs = p.toString();
-    return req<{ snipes: AdminSnipe[] }>(`/admin/snipes${qs ? `?${qs}` : ""}`);
+    return req<{ snipes: AdminSnipe[]; total: number; page: number; pageSize: number }>(`/admin/snipes${qs ? `?${qs}` : ""}`);
   },
   adminSnipeDebug: (id: string) => req<AdminSnipeDebug>(`/admin/snipes/${id}/debug`),
   adminRecords: (filters: { userId?: string; type?: string; level?: string; q?: string; limit?: number } = {}) => {
@@ -927,7 +925,7 @@ export const api = {
     }),
   cancelSnipe: (id: string) =>
     req<{ ok: true }>(`/snipes/${id}/cancel`, { method: "POST" }),
-  deleteSnipe: (id: string) =>
+  discardSnipe: (id: string) =>
     req<{ ok: true }>(`/snipes/${id}`, { method: "DELETE" }),
   cancelExit: (id: string) =>
     req<{ snipe: Snipe }>(`/snipes/${id}/cancel-exit`, { method: "POST" }),

@@ -149,8 +149,6 @@ type ArmSnipePreset = {
   mcMaxUsd: string;
   onlyRedirected: boolean;
   watchWallet: string;
-  execMode: "PUMPPORTAL" | "LOCAL";
-  speedMode: "DEFAULT" | "BETA";
   triggerMode: "CLAIM" | "REDIRECT";
   exit: ExitPresetDraft;
 };
@@ -214,8 +212,6 @@ function presetFingerprint(preset?: Partial<ArmSnipePreset> | null) {
     mcMaxUsd: preset?.mcMaxUsd ?? "",
     onlyRedirected: !!preset?.onlyRedirected,
     watchWallet: preset?.watchWallet ?? "",
-    execMode: preset?.execMode === "PUMPPORTAL" ? "PUMPPORTAL" : "LOCAL",
-    speedMode: preset?.speedMode === "DEFAULT" ? "DEFAULT" : "BETA",
     triggerMode: preset?.triggerMode === "REDIRECT" ? "REDIRECT" : "CLAIM",
     exit: {
       tpOn: !!exit.tpOn,
@@ -1890,8 +1886,6 @@ function SnipeForm({
   const [mcMaxUsd, setMcMaxUsd] = useState("");
   const [onlyRedirected, setOnlyRedirected] = useState(initialOnlyRedirected ?? false);
   const [watchWallet, setWatchWallet] = useState(initialWatchWallet ?? "");
-  const [execMode, setExecMode] = useState<"PUMPPORTAL" | "LOCAL">("LOCAL");
-  const [speedMode, setSpeedMode] = useState<"DEFAULT" | "BETA">("BETA");
   const [triggerMode, setTriggerMode] = useState<"CLAIM" | "REDIRECT">("CLAIM");
   const [advancedOpen, setAdvancedOpen] = useState(false);
   const [exitOpen, setExitOpen] = useState(false);
@@ -1920,8 +1914,6 @@ function SnipeForm({
       mcMaxUsd,
       onlyRedirected,
       watchWallet,
-      execMode,
-      speedMode,
       triggerMode,
       exit: ex.snapshot(),
     };
@@ -1940,10 +1932,6 @@ function SnipeForm({
     setMcMaxUsd(preset.mcMaxUsd ?? "");
     setOnlyRedirected(!!preset.onlyRedirected);
     setWatchWallet(preset.watchWallet ?? "");
-    // Presets saved before speed modes existed inherit the new Beta default.
-    const nextSpeedMode = preset.speedMode === "DEFAULT" ? "DEFAULT" : "BETA";
-    setSpeedMode(nextSpeedMode);
-    setExecMode(nextSpeedMode === "BETA" ? "LOCAL" : preset.execMode === "PUMPPORTAL" ? "PUMPPORTAL" : "LOCAL");
     setTriggerMode(preset.triggerMode === "REDIRECT" ? "REDIRECT" : "CLAIM");
     ex.applyPreset(preset.exit);
   }
@@ -1975,11 +1963,6 @@ function SnipeForm({
   const activePresetDirty =
     !!activePreset && !!presetBaseline && !presetsEqual(buildPreset(), presetBaseline);
 
-  function selectSpeedMode(mode: "DEFAULT" | "BETA") {
-    setSpeedMode(mode);
-    if (mode === "BETA") setExecMode("LOCAL");
-  }
-
   useEffect(() => {
     if (!walletId && wallets.length === 1) setWalletId(wallets[0].id);
   }, [wallets, walletId]);
@@ -1990,8 +1973,7 @@ function SnipeForm({
     try {
       localStorage.setItem("cs.priority", priority);
       localStorage.setItem("cs.bribe", bribe);
-      const selectedExecMode = speedMode === "BETA" ? "LOCAL" : execMode;
-      saveChoice("cs.execMode", selectedExecMode);
+      saveChoice("cs.execMode", "LOCAL");
       await api.createSnipe({
         mint: mint.trim(),
         walletId,
@@ -2004,8 +1986,7 @@ function SnipeForm({
         bribe: Number(bribe),
         mcMinUsd: marketCapInputToNumber(mcMinUsd),
         mcMaxUsd: marketCapInputToNumber(mcMaxUsd),
-        execMode: selectedExecMode,
-        speedMode,
+        execMode: "LOCAL",
         triggerMode,
         onlyRedirected,
         watchWallet: onlyRedirected ? watchWallet.trim() : null,
@@ -2111,7 +2092,6 @@ function SnipeForm({
           <strong>Processed · exact signer</strong>
           <span>Prepares immediately, then buys only when this coin and the configured signing wallet both match.</span>
         </div>
-        <SpeedModeSelect value={speedMode} onChange={selectSpeedMode} />
         <div className="trigger-explain">
           <strong>{triggerMode === "REDIRECT" ? "Fee Redirect" : "Fee Claim"}</strong>
           <span>{triggerMode === "REDIRECT" ? "Buy when the creator fee recipient changes." : "Buy the moment this coin's creator fees are claimed."}</span>
@@ -2153,7 +2133,6 @@ function SnipeForm({
           </div>
           <label>Landing tip / extra priority (SOL) <InfoTip text="For direct local execution this can be sent as a real Helius Sender landing tip when Sender is enabled. Otherwise it remains additional compute priority. Keep it low." /></label>
           <input value={bribe} onChange={(e) => setBribe(e.target.value)} />
-          <ExecModeSelect value={execMode} onChange={setExecMode} disabled={speedMode === "BETA"} />
           <div className="market-filter-box compact">
             <div className="market-filter-head"><strong>Market cap filter</strong><span>Optional</span></div>
             <div className="row">
@@ -2183,8 +2162,7 @@ function SnipeForm({
         <div className="summary-line"><span>Take profit</span><strong>{tpSummary}</strong></div>
         <div className="summary-line"><span>Stop loss</span><strong>{slSummary}</strong></div>
         <div className="summary-line"><span>Detection</span><strong>Processed · exact signer</strong></div>
-        <div className="summary-line"><span>Speed</span><strong>{speedMode === "BETA" ? "Beta" : "Default"}</strong></div>
-        <div className="summary-line"><span>Execution</span><strong>{execMode === "LOCAL" ? "Local" : "PumpPortal"}</strong></div>
+        <div className="summary-line"><span>Execution</span><strong>Local</strong></div>
         <div className="summary-line"><span>Slippage</span><strong>{adaptiveSlippage ? `${slippage}% → max ${maxSlippage}% · ${maxBuyRetries} retries` : `${slippage}% fixed`}</strong></div>
         <div className="summary-line"><span>Market cap</span><strong>{mcSummary}</strong></div>
         <div className="summary-cost"><span>Configured buy + priority</span><strong>≈ {needed.toFixed(4)} SOL</strong></div>
@@ -2220,12 +2198,6 @@ function EditSnipeModal({
   const [mcMaxUsd, setMcMaxUsd] = useState(snipe.mcMaxUsd == null ? "" : String(snipe.mcMaxUsd));
   const [redir, setRedir] = useState(snipe.onlyRedirected);
   const [watchWallet, setWatchWallet] = useState(snipe.watchWallet ?? "");
-  const [execMode, setExecMode] = useState<"PUMPPORTAL" | "LOCAL">(
-    snipe.execMode === "LOCAL" ? "LOCAL" : "PUMPPORTAL",
-  );
-  const [speedMode, setSpeedMode] = useState<"DEFAULT" | "BETA">(
-    snipe.speedMode === "BETA" ? "BETA" : "DEFAULT",
-  );
   const [triggerMode, setTriggerMode] = useState<"CLAIM" | "REDIRECT">(
     snipe.triggerMode === "REDIRECT" ? "REDIRECT" : "CLAIM",
   );
@@ -2250,11 +2222,6 @@ function EditSnipeModal({
   const ready =
     Number(amount) > 0 && Number(slippage) > 0 && !mcFilterInvalid && !adaptiveInvalid && (!redir || watchWallet.trim().length >= 32);
 
-  function selectSpeedMode(mode: "DEFAULT" | "BETA") {
-    setSpeedMode(mode);
-    if (mode === "BETA") setExecMode("LOCAL");
-  }
-
   async function save() {
     setBusy(true);
     try {
@@ -2270,8 +2237,7 @@ function EditSnipeModal({
         mcMaxUsd: marketCapInputToNumber(mcMaxUsd),
         onlyRedirected: redir,
         watchWallet: redir ? watchWallet.trim() : null,
-        execMode: speedMode === "BETA" ? "LOCAL" : execMode,
-        speedMode,
+        execMode: "LOCAL",
         triggerMode,
         exit: ex.build(),
       });
@@ -2370,8 +2336,6 @@ function EditSnipeModal({
               )}
             </div>
 
-            <SpeedModeSelect value={speedMode} onChange={selectSpeedMode} />
-            <ExecModeSelect value={execMode} onChange={setExecMode} disabled={speedMode === "BETA"} />
             <TriggerModeSelect value={triggerMode} onChange={setTriggerMode} />
             <div className="trigger-explain processed-detection">
               <strong>Processed · exact signer</strong>
@@ -2551,7 +2515,7 @@ function Snipes({
       if (isOpenPosition && snipe.tpStatus !== "CANCELLED") {
         await api.cancelExit(snipe.id);
       }
-      await api.deleteSnipe(snipe.id);
+      await api.discardSnipe(snipe.id);
       setExiting((current) => new Set(current).add(snipe.id));
       toast(isOpenPosition ? "Position discarded and TP/SL cancelled" : "Snipe discarded");
       await new Promise<void>((resolve) => window.setTimeout(resolve, 280));
@@ -2621,7 +2585,6 @@ function Snipes({
             <div className="snipe-title-block">
               <span className="ticker">{s.ticker ? `$${s.ticker}` : short(s.mint)}</span>
               <span className={`mode-tag ${s.triggerMode === "REDIRECT" ? "mode-redirect" : "mode-claim"}`}>{s.triggerMode === "REDIRECT" ? "Fee redirect" : "Fee claim"}</span>
-              {s.speedMode === "BETA" && <span className="mode-tag mode-beta">Beta</span>}
               {s.copySourceSnipeId && <span className="mode-tag mode-copy">Copy · @{s.copyLeaderUsername ?? "trader"}</span>}
             </div>
             <div className="snipe-status-cluster">
@@ -2664,8 +2627,7 @@ function Snipes({
             {s.finalSlippagePct != null && s.buyAttempts && s.buyAttempts > 1 && <div><span>Last attempt</span><strong>{s.finalSlippagePct}% slippage</strong></div>}
             <div><span>Priority</span><strong>{s.priorityFee} SOL</strong></div>
             <div><span>Extra priority</span><strong>{s.bribe} SOL</strong></div>
-            <div><span>Execution</span><strong>{s.execMode === "LOCAL" ? "Local" : "PumpPortal"}</strong></div>
-            <div><span>Speed</span><strong>{s.speedMode === "BETA" ? "Beta" : "Default"}</strong></div>
+            <div><span>Execution</span><strong>Local</strong></div>
             <div><span>Detection</span><strong>Processed · exact signer</strong></div>
             {s.claimCheckInstruction && <div><span>Claim check</span><strong>{s.claimCheckInstruction}</strong></div>}
             {s.signature && <div><span>Entry transaction</span><a href={`https://solscan.io/tx/${s.signature}`} target="_blank" rel="noreferrer">Solscan ↗</a></div>}
@@ -3705,6 +3667,10 @@ function AdminPanel({ wallets }: { wallets: Wallet[] }) {
   const [tab, setTab] = useState<AdminTab>(() => initialAdminTabFromStorage());
   const [overview, setOverview] = useState<AdminOverview | null>(null);
   const [snipes, setSnipes] = useState<AdminSnipe[]>([]);
+  const [snipeTotal, setSnipeTotal] = useState(0);
+  const [snipePage, setSnipePage] = useState(0);
+  const [snipeLoading, setSnipeLoading] = useState(false);
+  const snipeRequestSeq = useRef(0);
   const [users, setUsers] = useState<AdminUser[]>([]);
   const [records, setRecords] = useState<AdminRecord[]>([]);
   const [rpcUsage, setRpcUsage] = useState<AdminRpcUsage | null>(null);
@@ -3747,14 +3713,26 @@ function AdminPanel({ wallets }: { wallets: Wallet[] }) {
     }
   }, [toast]);
 
-  const loadSnipes = useCallback(async (quiet = false) => {
+  const loadSnipes = useCallback(async (page: number, quiet = false) => {
+    const requestSeq = ++snipeRequestSeq.current;
+    if (!quiet) setSnipeLoading(true);
     try {
-      const res = await api.adminSnipes({ limit: 400 });
+      const res = await api.adminSnipes({
+        status: snipeStatus || undefined,
+        q: snipeQuery.trim() || undefined,
+        page,
+        pageSize: 25,
+      });
+      if (requestSeq !== snipeRequestSeq.current) return;
       setSnipes(res.snipes);
+      setSnipeTotal(res.total);
+      setSnipePage(res.page);
     } catch (e: any) {
       if (!quiet) toast(e.message, "err");
+    } finally {
+      if (!quiet && requestSeq === snipeRequestSeq.current) setSnipeLoading(false);
     }
-  }, [toast]);
+  }, [snipeStatus, snipeQuery, toast]);
 
   const loadUsers = useCallback(async (quiet = false) => {
     try {
@@ -3801,18 +3779,22 @@ function AdminPanel({ wallets }: { wallets: Wallet[] }) {
 
   const refreshAll = useCallback(async () => {
     setRefreshing(true);
-    await Promise.all([loadOverview(true), loadSnipes(true), loadUsers(true), loadFeatures(true)]);
+    await Promise.all([
+      loadOverview(true),
+      loadUsers(true),
+      loadFeatures(true),
+      ...(tab === "snipes" ? [loadSnipes(snipePage, true)] : []),
+    ]);
     if (tab === "records") await loadRecords(true);
     if (tab === "rpc") await loadRpcUsage(true);
     if (tab === "compute") await loadComputeTuning(true);
     setRefreshing(false);
-  }, [loadOverview, loadSnipes, loadUsers, loadFeatures, loadRecords, loadRpcUsage, loadComputeTuning, tab]);
+  }, [loadOverview, loadSnipes, loadUsers, loadFeatures, loadRecords, loadRpcUsage, loadComputeTuning, tab, snipePage]);
 
   useEffect(() => {
-    Promise.all([api.adminOverview(), api.adminSnipes({ limit: 400 }), api.adminUsers(), api.adminFeatures()])
-      .then(([o, s, u, f]) => {
+    Promise.all([api.adminOverview(), api.adminUsers(), api.adminFeatures()])
+      .then(([o, u, f]) => {
         setOverview(o);
-        setSnipes(s.snipes);
         setUsers(u.users);
         setFeatures(f);
       })
@@ -3824,6 +3806,12 @@ function AdminPanel({ wallets }: { wallets: Wallet[] }) {
   useEffect(() => {
     saveChoice(NAV_ADMIN_TAB_KEY, tab);
   }, [tab]);
+
+  useEffect(() => {
+    if (tab !== "snipes") return;
+    const timer = window.setTimeout(() => void loadSnipes(snipePage), 220);
+    return () => window.clearTimeout(timer);
+  }, [tab, snipePage, loadSnipes]);
 
   useEffect(() => {
     if (tab !== "records") return;
@@ -3844,12 +3832,12 @@ function AdminPanel({ wallets }: { wallets: Wallet[] }) {
   useEffect(() => {
     const timer = window.setInterval(() => {
       void loadOverview(true);
-      if (tab === "snipes") void loadSnipes(true);
+      if (tab === "snipes") void loadSnipes(snipePage, true);
       if (tab === "rpc") void loadRpcUsage(true);
       if (tab === "compute") void loadComputeTuning(true);
     }, 15_000);
     return () => window.clearInterval(timer);
-  }, [tab, loadOverview, loadSnipes, loadRpcUsage, loadComputeTuning]);
+  }, [tab, snipePage, loadOverview, loadSnipes, loadRpcUsage, loadComputeTuning]);
 
   async function applyComputeTuning() {
     if (computeBusy) return;
@@ -3950,17 +3938,6 @@ function AdminPanel({ wallets }: { wallets: Wallet[] }) {
     }
   }
 
-  const visibleSnipes = useMemo(() => {
-    const q = snipeQuery.trim().toLowerCase();
-    return snipes.filter((s) => {
-      if (snipeStatus && s.status !== snipeStatus) return false;
-      if (!q) return true;
-      return [s.ticker, s.mint, s.user.username, s.wallet.name, s.wallet.publicKey, s.signature, s.error]
-        .filter(Boolean)
-        .some((v) => String(v).toLowerCase().includes(q));
-    });
-  }, [snipes, snipeStatus, snipeQuery]);
-
   const visibleUsers = useMemo(() => {
     const q = userQuery.trim().toLowerCase();
     if (!q) return users;
@@ -3969,6 +3946,7 @@ function AdminPanel({ wallets }: { wallets: Wallet[] }) {
 
   function jumpToSnipes(status = "") {
     setSnipeStatus(status);
+    setSnipePage(0);
     setTab("snipes");
   }
 
@@ -4089,12 +4067,6 @@ function AdminPanel({ wallets }: { wallets: Wallet[] }) {
                 value={!health?.engine.fullTransactionFeed?.enabled ? "disabled" : health.engine.fullTransactionFeed.connected ? "connected" : health.engine.fullTransactionFeed.watchedWallets ? "fallback active" : "idle"}
                 detail={health?.engine.fullTransactionFeed?.enabled ? `${health.engine.fullTransactionFeed.watchedWallets} wallet filters · ${health.engine.fullTransactionFeed.claimFrames} full frames · ${health.engine.fullTransactionFeed.reconnects} reconnects` : "targeted processed log recovery remains active"}
               />
-              <AdminServiceRow
-                name="Beta Gatekeeper feed"
-                ok={!health?.engine.betaTransactionFeed?.enabled || !health.engine.betaTransactionFeed.watchedWallets || Boolean(health.engine.betaTransactionFeed.connected)}
-                value={!health?.engine.betaTransactionFeed?.enabled ? "disabled" : health.engine.betaTransactionFeed.connected ? (health.engine.betaTransactionFeed.activeEndpoint ?? "connected") : health.engine.betaTransactionFeed.watchedWallets ? "fallback active" : "idle"}
-                detail={health?.engine.betaTransactionFeed?.enabled ? `${health.engine.betaTransactionFeed.watchedWallets} Beta wallet filters · ${health.engine.betaTransactionFeed.claimFrames} full frames · ${health.engine.betaTransactionFeed.reconnects} reconnects` : "no Beta snipes armed"}
-              />
               <AdminServiceRow name="Market-cap feed" ok={health?.marketFeed.ok ?? false} value={health?.marketFeed.connected ? "connected" : (health?.marketFeed.subscribed ? "offline" : "idle")} detail={`${health?.marketFeed.subscribed ?? 0} subscribed · ${health?.marketFeed.cached ?? 0} cached`} />
               <AdminServiceRow name="Redirect radar" ok={!health?.radar.enabled || (health?.radar.subscriptions ?? 0) > 0} value={health?.radar.enabled ? `${health.radar.subscriptions} live` : "disabled"} detail={`${health?.radar.inFlight ?? 0} processing · ${health?.radar.marketQueueDepth ?? 0} enrichment queue`} />
               <div className="admin-queue-block">
@@ -4164,22 +4136,22 @@ function AdminPanel({ wallets }: { wallets: Wallet[] }) {
       ) : tab === "snipes" ? (
         <div className="admin-section">
           <div className="admin-toolbar">
-            <div className="admin-search"><span>⌕</span><input value={snipeQuery} onChange={(e) => setSnipeQuery(e.target.value)} placeholder="Search ticker, CA, user, wallet, signature or error…" /></div>
-            <select value={snipeStatus} onChange={(e) => setSnipeStatus(e.target.value)}>
+            <div className="admin-search"><span>⌕</span><input value={snipeQuery} onChange={(e) => { setSnipeQuery(e.target.value); setSnipePage(0); }} placeholder="Search ticker, CA, user, wallet, signature or error…" /></div>
+            <select value={snipeStatus} onChange={(e) => { setSnipeStatus(e.target.value); setSnipePage(0); }}>
               <option value="">All statuses</option><option>ARMED</option><option>PAUSED</option><option>TRIGGERED</option><option>FILLED</option><option>FAILED</option><option>CANCELLED</option>
             </select>
-            <button className="ghost mini" onClick={() => void loadSnipes()}>{visibleSnipes.length} shown · Refresh</button>
+            <button className="ghost mini" onClick={() => void loadSnipes(snipePage)} disabled={snipeLoading}>{snipeTotal} total · {snipeLoading ? "Loading…" : "Refresh"}</button>
           </div>
           <div className="admin-snipe-list">
-            {!visibleSnipes.length ? <div className="empty">No matching snipes.</div> : visibleSnipes.map((s) => (
+            {snipeLoading ? <div className="admin-loading"><span className="spin dark" /> Loading page…</div> : !snipes.length ? <div className="empty">No matching snipes.</div> : snipes.map((s) => (
               <div className={`admin-snipe-row ${s.status.toLowerCase()}`} key={s.id} onClick={() => void openSnipe(s.id)}>
                 <div className="admin-snipe-main">
-                  <div className="admin-snipe-title"><strong>{s.ticker ? `$${s.ticker}` : short(s.mint)}</strong><span className={`badge ${s.status}`}>{s.status}</span><span className="admin-user">@{s.user.username}</span></div>
+                  <div className="admin-snipe-title"><strong>{s.ticker ? `$${s.ticker}` : short(s.mint)}</strong><span className={`badge ${s.status}`}>{s.status}</span>{s.discardedAt && <span className="admin-discarded-chip">DISCARDED</span>}<span className="admin-user">@{s.user.username}</span></div>
                   <div className="admin-snipe-meta">
                     <span><b>{s.amountSol}</b> SOL</span>
                     <span>{s.wallet.name}</span>
                     <span>{s.triggerMode === "REDIRECT" ? "Redirect" : "Claim"}</span>
-                    <span>{s.execMode === "LOCAL" ? "Local" : "PumpPortal"}</span>
+                    <span>Local</span>
                     <span>MC {s.liveMarketCapUsd != null ? `$${compactNumber.format(s.liveMarketCapUsd)}` : "—"}</span>
                     <span>{s.buyAttempts || 0} attempt{s.buyAttempts === 1 ? "" : "s"} · {s.finalSlippagePct ?? s.slippagePct}%</span>
                     {s.triggerToFillMs != null && <span>fill {adminDurationMs(s.triggerToFillMs)}</span>}
@@ -4195,6 +4167,11 @@ function AdminPanel({ wallets }: { wallets: Wallet[] }) {
               </div>
             ))}
           </div>
+          {snipeTotal > 25 && <div className="pager">
+            <button className="ghost mini" disabled={snipePage === 0 || snipeLoading} onClick={() => setSnipePage((p) => Math.max(0, p - 1))}>Previous</button>
+            <span className="dim">Page {snipePage + 1} of {Math.max(1, Math.ceil(snipeTotal / 25))} · {snipeTotal} snipes</span>
+            <button className="ghost mini" disabled={snipePage >= Math.ceil(snipeTotal / 25) - 1 || snipeLoading} onClick={() => setSnipePage((p) => p + 1)}>Next</button>
+          </div>}
         </div>
       ) : tab === "users" ? (
         <div className="admin-section">
@@ -4262,7 +4239,7 @@ function AdminPanel({ wallets }: { wallets: Wallet[] }) {
       {userDetail && <AdminUserDetailModal data={userDetail} onClose={() => setUserDetail(null)} onOpenSnipe={(id) => { setUserDetail(null); void openSnipe(id); }} />}
 
       {copyFrom && (
-        <CopySnipeModal source={copyFrom} wallets={wallets} onClose={() => setCopyFrom(null)} onCopied={() => { setCopyFrom(null); void loadSnipes(); void loadOverview(true); }} />
+        <CopySnipeModal source={copyFrom} wallets={wallets} onClose={() => setCopyFrom(null)} onCopied={() => { setCopyFrom(null); void loadSnipes(snipePage); void loadOverview(true); }} />
       )}
     </div>
   );
@@ -4278,13 +4255,14 @@ function AdminSnipeDebugModal({ data, onClose }: { data: AdminSnipeDebug; onClos
     ["Created", s.createdAt],
     ["Triggered", s.triggeredAt],
     ["Filled", s.filledAt],
+    ["Discarded", s.discardedAt],
     ["Exit submitted", s.exitSubmittedAt],
   ].filter((x) => x[1]) as [string, string][];
   return (
     <div className="modal-overlay" onMouseDown={onClose}>
       <div className="modal admin-debug-modal" onMouseDown={(e) => e.stopPropagation()}>
         <div className="admin-modal-head"><div><span className="admin-eyebrow">SNIPE DEBUG</span><h3>{s.ticker ? `$${s.ticker}` : short(s.mint)}</h3><p>@{s.user.username} · {s.wallet.name}</p></div><button className="ghost mini" onClick={onClose}>Close</button></div>
-        <div className="admin-debug-status"><span className={`badge ${s.status}`}>{s.status}</span><span>{s.amountSol} SOL</span><span>{s.triggerMode}</span><span>{s.execMode}</span><span>MC {s.liveMarketCapUsd != null ? `$${compactNumber.format(s.liveMarketCapUsd)}` : "—"}</span></div>
+        <div className="admin-debug-status"><span className={`badge ${s.status}`}>{s.status}</span>{s.discardedAt && <span className="admin-discarded-chip">DISCARDED</span>}<span>{s.amountSol} SOL</span><span>{s.triggerMode}</span><span>LOCAL</span><span>MC {s.liveMarketCapUsd != null ? `$${compactNumber.format(s.liveMarketCapUsd)}` : "—"}</span></div>
         <div className="admin-timeline">{timeline.map(([label, value], i) => <div key={label}><i className={i === timeline.length - 1 ? "last" : ""} /><span>{label}</span><b>{new Date(value).toLocaleString()}</b>{i > 0 && <small>+{adminDurationMs(new Date(value).getTime() - new Date(timeline[i - 1][1]).getTime())}</small>}</div>)}</div>
         <div className="admin-debug-grid">
           <section><h4>Execution</h4><AdminDebugKV k="Snipe ID" v={s.id} mono /><AdminDebugKV k="Wallet" v={`${s.wallet.name} · ${s.wallet.publicKey}`} mono /><AdminDebugKV k="Amount" v={`${s.amountSol} SOL`} /><AdminDebugKV k="Base slippage" v={`${s.slippagePct}%`} /><AdminDebugKV k="Adaptive" v={s.adaptiveSlippage === false ? "Off" : `On · max ${s.maxSlippagePct ?? "—"}%`} /><AdminDebugKV k="Buy attempts" v={`${s.buyAttempts ?? 0} / ${(s.maxBuyRetries ?? 0) + 1}`} /><AdminDebugKV k="Final slippage" v={s.finalSlippagePct != null ? `${s.finalSlippagePct}%` : "—"} /><AdminDebugKV k="Priority / tip" v={`${s.priorityFee} / ${s.bribe} SOL`} /><AdminDebugKV k="Trigger → fill" v={adminDurationMs(s.triggerToFillMs)} /></section>
@@ -4888,88 +4866,6 @@ function ExitFields({ ex }: { ex: ReturnType<typeof useExit> }) {
   );
 }
 
-/* ---------------- speed / execution mode selectors ---------------- */
-function SpeedModeSelect({
-  value,
-  onChange,
-}: {
-  value: "DEFAULT" | "BETA";
-  onChange: (v: "DEFAULT" | "BETA") => void;
-}) {
-  return (
-    <div className="speed-mode-select">
-      <label>Sniper mode</label>
-      <div className="speed-mode-options">
-        <button
-          type="button"
-          className={value === "DEFAULT" ? "on" : ""}
-          onClick={() => onChange("DEFAULT")}
-        >
-          <strong>Default</strong>
-          <span>Current proven processed pipeline</span>
-        </button>
-        <button
-          type="button"
-          className={value === "BETA" ? "on beta" : "beta"}
-          onClick={() => onChange("BETA")}
-        >
-          <strong>Beta <small>FAST</small></strong>
-          <span>Gatekeeper + rolling signed LOCAL buy</span>
-        </button>
-      </div>
-      {value === "BETA" && (
-        <div className="hint beta-mode-hint">
-          Uses the experimental low-latency path. Validation remains strict and
-          fails closed if a required safety cache is not ready. Beta requires Local execution.
-        </div>
-      )}
-    </div>
-  );
-}
-
-function ExecModeSelect({
-  value,
-  onChange,
-  disabled = false,
-}: {
-  value: "PUMPPORTAL" | "LOCAL";
-  onChange: (v: "PUMPPORTAL" | "LOCAL") => void;
-  disabled?: boolean;
-}) {
-  return (
-    <div className="exec-mode">
-      <label>Execution</label>
-      <div className="seg">
-        <button
-          type="button"
-          disabled={disabled}
-          className={value === "PUMPPORTAL" ? "on" : ""}
-          onClick={() => onChange("PUMPPORTAL")}
-        >
-          PumpPortal
-        </button>
-        <button
-          type="button"
-          disabled={disabled}
-          className={value === "LOCAL" ? "on" : ""}
-          onClick={() => onChange("LOCAL")}
-        >
-          Local
-        </button>
-      </div>
-      {value === "LOCAL" && (
-        <div className="hint">
-          Uses Pump's current official Pump and PumpSwap transaction builders,
-          prepares the route before the claim confirms, and broadcasts directly.
-          PumpPortal is retained as a pre-sign fallback if a route cannot be built.
-          Take-profit and stop-loss sells still use PumpPortal.
-        </div>
-      )}
-      {disabled && <div className="hint">Beta locks execution to Local.</div>}
-    </div>
-  );
-}
-
 /* ---------------- admin copy-snipe modal ---------------- */
 function CopySnipeModal({
   source,
@@ -5008,7 +4904,7 @@ function CopySnipeModal({
         <h3>Copy {source.ticker ? `$${source.ticker}` : "snipe"}</h3>
         <p className="modal-sub">
           from @{source.user.username} · {source.amountSol} SOL ·{" "}
-          {source.execMode === "LOCAL" ? "local" : "PumpPortal"}
+          local
           {source.watchWallet ? ` · watch ${short(source.watchWallet)}` : ""}
         </p>
         <p className="modal-sub" style={{ marginTop: -4 }}>
@@ -6675,9 +6571,6 @@ function CopyPublicModal({
       ? String(source.bribe)
       : (localStorage.getItem("cs.bribe") ?? "0"),
   );
-  const [execMode, setExecMode] = useState<"PUMPPORTAL" | "LOCAL">(
-    source?.execMode === "LOCAL" ? "LOCAL" : "PUMPPORTAL",
-  );
   const [onlyWallet, setOnlyWallet] = useState(!!source?.watchWallet);
   const [watchWallet, setWatchWallet] = useState(source?.watchWallet ?? "");
   const ex = useExit(source as Partial<Snipe> | undefined);
@@ -6700,7 +6593,7 @@ function CopyPublicModal({
         slippagePct: Number(slippage),
         priorityFee: Number(priority),
         bribe: Number(bribe),
-        execMode,
+        execMode: "LOCAL",
         triggerMode,
         onlyRedirected: onlyWallet,
         watchWallet: onlyWallet ? watchWallet.trim() : null,
@@ -6763,7 +6656,6 @@ function CopyPublicModal({
             <input value={bribe} onChange={(e) => setBribe(e.target.value)} />
           </div>
         </div>
-        <ExecModeSelect value={execMode} onChange={setExecMode} />
         <div className="trigger-explain processed-detection">
           <strong>Processed · exact signer</strong>
           <span>Detection is fixed to the strict processed pipeline.</span>
