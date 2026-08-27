@@ -145,6 +145,8 @@ type ArmSnipePreset = {
   maxBuyRetries: string;
   priority: string;
   bribe: string;
+  highPriorityMode: boolean;
+  maxPriorityCost: string;
   mcMinUsd: string;
   mcMaxUsd: string;
   onlyRedirected: boolean;
@@ -208,6 +210,8 @@ function presetFingerprint(preset?: Partial<ArmSnipePreset> | null) {
     maxBuyRetries: preset?.maxBuyRetries ?? "2",
     priority: preset?.priority ?? "0.0005",
     bribe: preset?.bribe ?? "0",
+    highPriorityMode: !!preset?.highPriorityMode,
+    maxPriorityCost: preset?.maxPriorityCost ?? "0.01",
     mcMinUsd: preset?.mcMinUsd ?? "",
     mcMaxUsd: preset?.mcMaxUsd ?? "",
     onlyRedirected: !!preset?.onlyRedirected,
@@ -1882,6 +1886,12 @@ function SnipeForm({
   const [bribe, setBribe] = useState(
     () => localStorage.getItem("cs.bribe") ?? "0",
   );
+  const [highPriorityMode, setHighPriorityMode] = useState(
+    () => localStorage.getItem("cs.highPriorityMode") === "true",
+  );
+  const [maxPriorityCost, setMaxPriorityCost] = useState(
+    () => localStorage.getItem("cs.maxPriorityCost") ?? "0.01",
+  );
   const [mcMinUsd, setMcMinUsd] = useState("");
   const [mcMaxUsd, setMcMaxUsd] = useState("");
   const [onlyRedirected, setOnlyRedirected] = useState(initialOnlyRedirected ?? false);
@@ -1910,6 +1920,8 @@ function SnipeForm({
       maxBuyRetries,
       priority,
       bribe,
+      highPriorityMode,
+      maxPriorityCost,
       mcMinUsd,
       mcMaxUsd,
       onlyRedirected,
@@ -1928,6 +1940,8 @@ function SnipeForm({
     setMaxBuyRetries(preset.maxBuyRetries ?? "2");
     setPriority(preset.priority ?? "0.0005");
     setBribe(preset.bribe ?? "0");
+    setHighPriorityMode(!!preset.highPriorityMode);
+    setMaxPriorityCost(preset.maxPriorityCost ?? "0.01");
     setMcMinUsd(preset.mcMinUsd ?? "");
     setMcMaxUsd(preset.mcMaxUsd ?? "");
     setOnlyRedirected(!!preset.onlyRedirected);
@@ -1973,6 +1987,8 @@ function SnipeForm({
     try {
       localStorage.setItem("cs.priority", priority);
       localStorage.setItem("cs.bribe", bribe);
+      localStorage.setItem("cs.highPriorityMode", String(highPriorityMode));
+      localStorage.setItem("cs.maxPriorityCost", maxPriorityCost);
       saveChoice("cs.execMode", "LOCAL");
       await api.createSnipe({
         mint: mint.trim(),
@@ -1984,6 +2000,8 @@ function SnipeForm({
         maxBuyRetries: adaptiveSlippage ? Number(maxBuyRetries) : 0,
         priorityFee: Number(priority),
         bribe: Number(bribe),
+        highPriorityMode,
+        maxPriorityCostSol: highPriorityMode ? Number(maxPriorityCost) : null,
         mcMinUsd: marketCapInputToNumber(mcMinUsd),
         mcMaxUsd: marketCapInputToNumber(mcMaxUsd),
         execMode: "LOCAL",
@@ -2032,9 +2050,14 @@ function SnipeForm({
   }, [mint, snipes]);
 
   const selectedWallet = wallets.find((w) => w.id === walletId);
-  const ready = !!mint.trim() && !!walletId && Number(amount) > 0 && Number(slippage) > 0 && !mcFilterInvalid && !adaptiveInvalid && (!onlyRedirected || watchWallet.trim().length >= 32);
   const fees = Math.max(0, Number(priority) || 0) + Math.max(0, Number(bribe) || 0);
-  const needed = Math.max(0, Number(amount) || 0) + fees;
+  const priorityCapNumber = Number(maxPriorityCost);
+  const priorityCapInvalid = highPriorityMode && (
+    !Number.isFinite(priorityCapNumber) || priorityCapNumber <= 0 || priorityCapNumber < fees
+  );
+  const ready = !!mint.trim() && !!walletId && Number(amount) > 0 && Number(slippage) > 0 && !mcFilterInvalid && !adaptiveInvalid && !priorityCapInvalid && (!onlyRedirected || watchWallet.trim().length >= 32);
+  const priorityBudget = highPriorityMode && !priorityCapInvalid ? priorityCapNumber : fees;
+  const needed = Math.max(0, Number(amount) || 0) + priorityBudget;
   const insufficient = !!selectedWallet && selectedWallet.balanceSol != null && needed > 0 && selectedWallet.balanceSol < needed;
   const triggerSummary = triggerMode === "REDIRECT"
     ? onlyRedirected ? `when fees are redirected to ${watchWallet ? short(watchWallet) : "the selected wallet"}` : "when the creator fee recipient changes"
@@ -2129,6 +2152,21 @@ function SnipeForm({
           </div>
           <label>Landing tip / extra priority (SOL) <InfoTip text="For direct local execution this can be sent as a real Helius Sender landing tip when Sender is enabled. Otherwise it remains additional compute priority. Keep it low." /></label>
           <input value={bribe} onChange={(e) => setBribe(e.target.value)} />
+          <div className="adaptive-slip-box">
+            <label className="switch-row" onClick={() => setHighPriorityMode((v) => !v)}>
+              <span className={`switch ${highPriorityMode ? "on" : ""}`}><span className="knob" /></span>
+              <span><strong>Account-aware high priority</strong><small>Uses the warmed live fee estimate, never above your hard cap.</small></span>
+            </label>
+            {highPriorityMode && <>
+              <label>Maximum total priority cost (SOL) <InfoTip text="Hard ceiling for compute priority plus the Sender landing tip. The backend rejects any transaction that could exceed it." /></label>
+              <input value={maxPriorityCost} inputMode="decimal" onChange={(e) => setMaxPriorityCost(e.target.value)} />
+              <div className={`hint ${priorityCapInvalid ? "err-text" : ""}`}>
+                {priorityCapInvalid
+                  ? `Maximum must be at least the configured ${fees.toFixed(6)} SOL priority + tip.`
+                  : `Live priority can rise when the market is congested, capped at ${priorityCapNumber || 0} SOL total.`}
+              </div>
+            </>}
+          </div>
           <div className="market-filter-box compact">
             <div className="market-filter-head"><strong>Market cap filter</strong><span>Optional</span></div>
             <div className="row">
@@ -2158,9 +2196,10 @@ function SnipeForm({
         <div className="summary-line"><span>Take profit</span><strong>{tpSummary}</strong></div>
         <div className="summary-line"><span>Stop loss</span><strong>{slSummary}</strong></div>
         <div className="summary-line"><span>Execution</span><strong>Local</strong></div>
+        <div className="summary-line"><span>Priority mode</span><strong>{highPriorityMode ? `High · max ${maxPriorityCost || "?"} SOL` : "Configured fees"}</strong></div>
         <div className="summary-line"><span>Slippage</span><strong>{adaptiveSlippage ? `${slippage}% → max ${maxSlippage}% · ${maxBuyRetries} retries` : `${slippage}% fixed`}</strong></div>
         <div className="summary-line"><span>Market cap</span><strong>{mcSummary}</strong></div>
-        <div className="summary-cost"><span>Configured buy + priority</span><strong>≈ {needed.toFixed(4)} SOL</strong></div>
+        <div className="summary-cost"><span>Buy + maximum priority</span><strong>≈ {needed.toFixed(4)} SOL</strong></div>
         {insufficient && <div className="summary-warning">Selected wallet may not have enough SOL for this configuration.</div>}
         <button className="primary" onClick={arm} disabled={busy || !ready || insufficient}>{busy ? <span className="spin" /> : "Arm snipe"}</button>
         <p className="summary-foot">The buy is submitted immediately after the configured trigger is detected.</p>
@@ -2189,6 +2228,10 @@ function EditSnipeModal({
   const [maxBuyRetries, setMaxBuyRetries] = useState(String(snipe.maxBuyRetries ?? 2));
   const [priority, setPriority] = useState(String(snipe.priorityFee));
   const [bribe, setBribe] = useState(String(snipe.bribe));
+  const [highPriorityMode, setHighPriorityMode] = useState(!!snipe.highPriorityMode);
+  const [maxPriorityCost, setMaxPriorityCost] = useState(
+    String(snipe.maxPriorityCostSol ?? Math.max(0.01, snipe.priorityFee + snipe.bribe)),
+  );
   const [mcMinUsd, setMcMinUsd] = useState(snipe.mcMinUsd == null ? "" : String(snipe.mcMinUsd));
   const [mcMaxUsd, setMcMaxUsd] = useState(snipe.mcMaxUsd == null ? "" : String(snipe.mcMaxUsd));
   const [redir, setRedir] = useState(snipe.onlyRedirected);
@@ -2214,8 +2257,13 @@ function EditSnipeModal({
     maxSlipNumber > 100 ||
     !Number.isInteger(retryCountNumber) || retryCountNumber < 0 || retryCountNumber > 3
   );
+  const configuredPriorityTotal = Math.max(0, Number(priority) || 0) + Math.max(0, Number(bribe) || 0);
+  const priorityCapNumber = Number(maxPriorityCost);
+  const priorityCapInvalid = highPriorityMode && (
+    !Number.isFinite(priorityCapNumber) || priorityCapNumber <= 0 || priorityCapNumber < configuredPriorityTotal
+  );
   const ready =
-    Number(amount) > 0 && Number(slippage) > 0 && !mcFilterInvalid && !adaptiveInvalid && (!redir || watchWallet.trim().length >= 32);
+    Number(amount) > 0 && Number(slippage) > 0 && !mcFilterInvalid && !adaptiveInvalid && !priorityCapInvalid && (!redir || watchWallet.trim().length >= 32);
 
   async function save() {
     setBusy(true);
@@ -2228,6 +2276,8 @@ function EditSnipeModal({
         maxBuyRetries: adaptiveSlippage ? Number(maxBuyRetries) : 0,
         priorityFee: Number(priority),
         bribe: Number(bribe),
+        highPriorityMode,
+        maxPriorityCostSol: highPriorityMode ? priorityCapNumber : null,
         mcMinUsd: marketCapInputToNumber(mcMinUsd),
         mcMaxUsd: marketCapInputToNumber(mcMaxUsd),
         onlyRedirected: redir,
@@ -2271,6 +2321,17 @@ function EditSnipeModal({
                   onChange={(e) => setSlippage(e.target.value)}
                 />
               </div>
+            </div>
+            <div className="adaptive-slip-box modal-adaptive">
+              <label className="switch-row" onClick={() => setHighPriorityMode((v) => !v)}>
+                <span className={`switch ${highPriorityMode ? "on" : ""}`}><span className="knob" /></span>
+                <span><strong>Account-aware high priority</strong><small>Use the warmed fee estimate within a hard total-cost ceiling.</small></span>
+              </label>
+              {highPriorityMode && <>
+                <label>Maximum total priority cost (SOL)</label>
+                <input value={maxPriorityCost} onChange={(e) => setMaxPriorityCost(e.target.value)} />
+                {priorityCapInvalid && <div className="hint err-text">Maximum must be at least {configuredPriorityTotal.toFixed(6)} SOL.</div>}
+              </>}
             </div>
             <div className="adaptive-slip-box modal-adaptive">
               <label className="switch-row" onClick={() => setAdaptiveSlippage((v) => !v)}>
@@ -3607,7 +3668,7 @@ function AdminComputeTuningView({
       <div className="admin-record-info">
         <div>
           <strong>LOCAL compute tuning</strong>
-          <p>Confirmed fills are sampled after execution. Recommendations stay separate for Pump/PumpSwap and ATA-existing/ATA-create branches.</p>
+          <p>Confirmed fills and warm loaded-account measurements stay separate for Pump/PumpSwap and each token-account branch.</p>
         </div>
         <div className="admin-row-actions">
           <button className="ghost mini" onClick={onRefresh} disabled={busy}>Refresh</button>
@@ -3618,30 +3679,31 @@ function AdminComputeTuningView({
 
       {!tuning ? <div className="admin-loading"><span className="spin dark" /> Loading compute telemetry…</div> : <>
         <div className="admin-metric-grid compute-metrics">
-          <div className="admin-metric"><span>Profiles ready</span><strong>{tuning.readyProfiles}/4</strong><small>{tuning.requiredSamples} fills required per profile</small></div>
+          <div className="admin-metric"><span>Profiles ready</span><strong>{tuning.readyProfiles}/{tuning.profiles.length}</strong><small>{tuning.requiredSamples} fills required per profile</small></div>
           <div className="admin-metric"><span>Runtime overrides</span><strong>{tuning.activeOverrides}</strong><small>cached in memory · no hot-path DB read</small></div>
           <div className="admin-metric"><span>Candidate starts</span><strong>{tuning.candidateSamples}</strong><small>visible early, not yet applicable</small></div>
           <div className="admin-metric"><span>Telemetry</span><strong>{tuning.enabled ? "ON" : "OFF"}</strong><small>confirmed LOCAL buys only</small></div>
         </div>
 
         <section className="admin-card compute-policy-note">
-          <div><strong>Guarded tuning</strong><span>Each suggested limit covers the larger of p95 + 20%, the worst fill + 12%, or the worst fill + 15k CU, rounded up to 10k. Lower limits are never applied automatically.</span></div>
-          <div><strong>Why four profiles?</strong><span>Creating an associated token account consumes materially more compute. Mixing it with the common ATA-existing path either wastes priority or risks failed first buys.</span></div>
+          <div><strong>Guarded tuning</strong><span>Each suggested limit covers p99 + 15%, worst + 10%, and at least 8k CU absolute headroom. It is never applied before 50 confirmed fills.</span></div>
+          <div><strong>Why six profiles?</strong><span>Pump/PumpSwap and ATA-existing/ATA-create/deterministic-account branches consume different compute. Keeping them separate avoids paying for the worst branch on every buy.</span></div>
         </section>
 
         <section className="admin-card">
           <div className="admin-card-head"><div><h3>Observed compute</h3><p>Applying updates all ready rows at once. Existing environment defaults remain the fallback.</p></div><span className="admin-updated">{adminAgo(tuning.generatedAt)}</span></div>
-          <div className="rpc-table-wrap"><table className="rpc-table compute-table"><thead><tr><th>Execution profile</th><th>Status</th><th>Samples</th><th>p50</th><th>p95</th><th>Worst</th><th>Current limit</th><th>Suggested</th><th>Worst headroom</th></tr></thead><tbody>
+          <div className="rpc-table-wrap"><table className="rpc-table compute-table"><thead><tr><th>Execution profile</th><th>Status</th><th>Samples</th><th>p50</th><th>p99</th><th>Worst</th><th>Current CU</th><th>Suggested</th><th>Loaded-data cap</th><th>Worst headroom</th></tr></thead><tbody>
             {tuning.profiles.map((row) => (
               <tr key={row.profile}>
                 <td><strong>{row.label}</strong><small>{row.profile}</small></td>
                 <td><span className={`compute-status ${row.status}`}>{row.status === "raise-needed" ? "RAISE NEEDED" : row.status.toUpperCase()}</span></td>
                 <td>{row.sampleCount}/{tuning.requiredSamples}</td>
                 <td>{computeUnits(row.p50Consumed)}</td>
-                <td>{computeUnits(row.p95Consumed)}</td>
+                <td>{computeUnits(row.p99Consumed)}</td>
                 <td>{computeUnits(row.maxConsumed)}</td>
                 <td><strong>{computeUnits(row.activeLimit)}</strong>{row.approvedLimit != null && <small>approved override</small>}</td>
                 <td className={row.canApply ? "green" : ""}>{computeUnits(row.recommendedLimit)}</td>
+                <td>{row.loadedAccountSampleCount ? `${(row.activeLoadedAccountsLimit / 1_048_576).toFixed(1)} MiB` : "collecting"}<small>{row.loadedAccountSampleCount} samples</small></td>
                 <td className={(row.headroomPct ?? 100) < 12 ? "red" : ""}>{row.headroomPct == null ? "—" : `${row.headroomPct.toFixed(1)}%`}</td>
               </tr>
             ))}

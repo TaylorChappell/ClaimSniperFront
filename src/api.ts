@@ -174,6 +174,8 @@ export interface Snipe {
   finalSlippagePct?: number | null;
   priorityFee: number;
   bribe: number;
+  highPriorityMode?: boolean;
+  maxPriorityCostSol?: number | null;
   execMode?: "PUMPPORTAL" | "LOCAL";
   triggerMode?: "CLAIM" | "REDIRECT";
   claimMode?: "PROCESSED";
@@ -285,13 +287,16 @@ export interface AdminComputeTuning {
   readyProfiles: number;
   activeOverrides: number;
   profiles: Array<{
-    profile: "pump:ata-exists" | "pump:ata-create" | "pump-amm:ata-exists" | "pump-amm:ata-create";
+    profile: "pump:ata-exists" | "pump:ata-create" | "pump:seeded-create" | "pump-amm:ata-exists" | "pump-amm:ata-create" | "pump-amm:seeded-create";
     label: string;
     routeKind: "pump" | "pump-amm";
-    ataMode: "exists" | "create";
+    ataMode: "exists" | "create" | "seeded";
+    loadedAccountSampleCount: number;
+    activeLoadedAccountsLimit: number;
     sampleCount: number;
     p50Consumed: number | null;
     p95Consumed: number | null;
+    p99Consumed: number | null;
     maxConsumed: number | null;
     defaultLimit: number;
     approvedLimit: number | null;
@@ -416,6 +421,8 @@ export interface PublicSnipe {
   maxBuyRetries?: number;
   priorityFee?: number;
   bribe?: number;
+  highPriorityMode?: boolean;
+  maxPriorityCostSol?: number | null;
   watchWallet?: string | null;
   onlyRedirected?: boolean;
   tpEnabled: boolean;
@@ -759,6 +766,8 @@ export const api = {
     maxBuyRetries?: number;
     priorityFee?: number;
     bribe?: number;
+    highPriorityMode?: boolean;
+    maxPriorityCostSol?: number | null;
     execMode?: "PUMPPORTAL" | "LOCAL";
     triggerMode?: "CLAIM" | "REDIRECT";
     onlyRedirected?: boolean;
@@ -781,6 +790,8 @@ export const api = {
       maxBuyRetries?: number;
       priorityFee?: number;
       bribe?: number;
+      highPriorityMode?: boolean;
+      maxPriorityCostSol?: number | null;
       execMode?: "PUMPPORTAL" | "LOCAL";
       triggerMode?: "CLAIM" | "REDIRECT";
       onlyRedirected?: boolean;
