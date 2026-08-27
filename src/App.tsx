@@ -2088,10 +2088,6 @@ function SnipeForm({
 
         <div className="form-step"><span>2</span><strong>Trigger</strong></div>
         <TriggerModeSelect value={triggerMode} onChange={setTriggerMode} />
-        <div className="trigger-explain processed-detection">
-          <strong>Processed · exact signer</strong>
-          <span>Prepares immediately, then buys only when this coin and the configured signing wallet both match.</span>
-        </div>
         <div className="trigger-explain">
           <strong>{triggerMode === "REDIRECT" ? "Fee Redirect" : "Fee Claim"}</strong>
           <span>{triggerMode === "REDIRECT" ? "Buy when the creator fee recipient changes." : "Buy the moment this coin's creator fees are claimed."}</span>
@@ -2161,7 +2157,6 @@ function SnipeForm({
         <div className="summary-block"><span>Trigger</span><p>{triggerSummary}</p></div>
         <div className="summary-line"><span>Take profit</span><strong>{tpSummary}</strong></div>
         <div className="summary-line"><span>Stop loss</span><strong>{slSummary}</strong></div>
-        <div className="summary-line"><span>Detection</span><strong>Processed · exact signer</strong></div>
         <div className="summary-line"><span>Execution</span><strong>Local</strong></div>
         <div className="summary-line"><span>Slippage</span><strong>{adaptiveSlippage ? `${slippage}% → max ${maxSlippage}% · ${maxBuyRetries} retries` : `${slippage}% fixed`}</strong></div>
         <div className="summary-line"><span>Market cap</span><strong>{mcSummary}</strong></div>
@@ -2337,10 +2332,6 @@ function EditSnipeModal({
             </div>
 
             <TriggerModeSelect value={triggerMode} onChange={setTriggerMode} />
-            <div className="trigger-explain processed-detection">
-              <strong>Processed · exact signer</strong>
-              <span>Detection is fixed to the lowest-latency strict wallet-and-coin match.</span>
-            </div>
             <label className="switch-row" onClick={() => setRedir((v) => !v)}>
               <span className={`switch ${redir ? "on" : ""}`}>
                 <span className="knob" />
@@ -2628,7 +2619,6 @@ function Snipes({
             <div><span>Priority</span><strong>{s.priorityFee} SOL</strong></div>
             <div><span>Extra priority</span><strong>{s.bribe} SOL</strong></div>
             <div><span>Execution</span><strong>Local</strong></div>
-            <div><span>Detection</span><strong>Processed · exact signer</strong></div>
             {s.claimCheckInstruction && <div><span>Claim check</span><strong>{s.claimCheckInstruction}</strong></div>}
             {s.signature && <div><span>Entry transaction</span><a href={`https://solscan.io/tx/${s.signature}`} target="_blank" rel="noreferrer">Solscan ↗</a></div>}
           </div>}
@@ -6655,10 +6645,6 @@ function CopyPublicModal({
             <label>Landing tip (SOL)</label>
             <input value={bribe} onChange={(e) => setBribe(e.target.value)} />
           </div>
-        </div>
-        <div className="trigger-explain processed-detection">
-          <strong>Processed · exact signer</strong>
-          <span>Detection is fixed to the strict processed pipeline.</span>
         </div>
         <label className="switch-row" onClick={() => setOnlyWallet((v) => !v)}>
           <span className={`switch ${onlyWallet ? "on" : ""}`}>
