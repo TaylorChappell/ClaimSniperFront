@@ -4244,6 +4244,23 @@ body.chat-view-active .topbar {
   cursor: pointer;
 }
 .admin-tabs button.on { background: rgba(255,206,77,.14); color: var(--amber); }
+.compute-metrics .admin-metric { cursor: default; }
+.compute-policy-note { display: grid; grid-template-columns: repeat(2, minmax(0,1fr)); gap: 18px; }
+.compute-policy-note > div { display: grid; grid-template-columns: auto 1fr; align-items: start; gap: 10px; }
+.compute-policy-note strong { color: var(--amber); font-size: 11px; white-space: nowrap; }
+.compute-policy-note span { color: var(--muted); font-size: 10px; line-height: 1.55; }
+.compute-table { min-width: 1020px; }
+.compute-table td:first-child strong,
+.compute-table td:first-child small,
+.compute-table td:nth-child(7) strong,
+.compute-table td:nth-child(7) small { display: block; }
+.compute-table td small { color: var(--muted); font-size: 7px; margin-top: 3px; }
+.compute-table td.green { color: var(--green); font-weight: 700; }
+.compute-table td.red { color: var(--red); }
+.compute-status { display: inline-flex; border: 1px solid var(--line-soft); border-radius: 5px; padding: 3px 5px; font-size: 7px; letter-spacing: .05em; color: var(--muted); }
+.compute-status.candidate { color: var(--amber); border-color: rgba(255,206,77,.25); }
+.compute-status.ready { color: var(--green); border-color: rgba(32,224,112,.25); }
+.compute-status.raise-needed { color: var(--red); border-color: rgba(255,84,104,.25); }
 .admin-loading,
 .admin-detail-loading {
   display: flex;
@@ -4790,3 +4807,4 @@ body.chat-view-active .topbar,
 .rpc-estimate-note{display:grid;grid-template-columns:auto 1fr;gap:10px;padding:10px 12px;border:1px solid rgba(240,185,76,.13);border-radius:9px;background:rgba(240,185,76,.025);font-size:9px;line-height:1.45}.rpc-estimate-note strong{color:#d2bb80}.rpc-estimate-note span{color:var(--muted)}
 @media(max-width:900px){.rpc-grid{grid-template-columns:1fr}.rpc-usage-head{align-items:flex-start;flex-direction:column}.rpc-range-actions{width:100%}.rpc-timeline{height:92px}}
 @media(max-width:620px){.rpc-budget-meta{display:grid;grid-template-columns:1fr 1fr}.rpc-budget-meta span:last-child{grid-column:1/-1}.rpc-estimate-note{grid-template-columns:1fr}.rpc-table{min-width:600px}}
+@media(max-width:620px){.compute-policy-note{grid-template-columns:1fr}.compute-tuning-page .admin-record-info{align-items:flex-start;flex-direction:column}.compute-tuning-page .admin-row-actions{width:100%;flex-wrap:wrap}.compute-tuning-page .admin-row-actions button{flex:1}}

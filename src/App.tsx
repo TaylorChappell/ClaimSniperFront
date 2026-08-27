@@ -22,6 +22,7 @@ import {
   type TrendingCoin,
   type ChatMessage,
   type AdminOverview,
+  type AdminComputeTuning,
   type AdminRpcUsage,
   type AdminRecord,
   type AdminUserDetail,
@@ -133,7 +134,7 @@ type TradeOpenTarget = {
 type AppView = "dashboard" | "discovery" | "history" | "social" | "claims" | "settings" | "admin";
 type DashTab = "arm" | "snipes" | "wallets";
 type SocialTab = "trending" | "traders" | "chat";
-type AdminTab = "overview" | "snipes" | "users" | "rpc" | "records" | "notify";
+type AdminTab = "overview" | "snipes" | "users" | "compute" | "rpc" | "records" | "notify";
 type PresetSlot = "1" | "2" | "3";
 type ArmSnipePreset = {
   walletId: string;
@@ -367,7 +368,7 @@ function initialAdminTabFromStorage(): AdminTab {
   const saved = localStorage.getItem(NAV_ADMIN_TAB_KEY);
   if (saved === "armed") return "snipes";
   if (saved === "logs") return "records";
-  if (["overview", "snipes", "users", "rpc", "records", "notify"].includes(saved ?? "")) return saved as AdminTab;
+  if (["overview", "snipes", "users", "compute", "rpc", "records", "notify"].includes(saved ?? "")) return saved as AdminTab;
   return "overview";
 }
 
@@ -3606,6 +3607,73 @@ function AdminRpcUsageView({
   );
 }
 
+function computeUnits(value: number | null | undefined) {
+  return value == null ? "—" : `${Math.round(value).toLocaleString()} CU`;
+}
+
+function AdminComputeTuningView({
+  tuning,
+  busy,
+  onRefresh,
+  onApply,
+  onReset,
+}: {
+  tuning: AdminComputeTuning | null;
+  busy: boolean;
+  onRefresh: () => void;
+  onApply: () => void;
+  onReset: () => void;
+}) {
+  return (
+    <div className="admin-section compute-tuning-page">
+      <div className="admin-record-info">
+        <div>
+          <strong>LOCAL compute tuning</strong>
+          <p>Confirmed fills are sampled after execution. Recommendations stay separate for Pump/PumpSwap and ATA-existing/ATA-create branches.</p>
+        </div>
+        <div className="admin-row-actions">
+          <button className="ghost mini" onClick={onRefresh} disabled={busy}>Refresh</button>
+          <button className="ghost mini" onClick={onReset} disabled={busy || !tuning?.activeOverrides}>Reset defaults</button>
+          <button className="primary mini" onClick={onApply} disabled={busy || !tuning?.readyProfiles}>{busy ? "Applying…" : "Apply safe recommendations"}</button>
+        </div>
+      </div>
+
+      {!tuning ? <div className="admin-loading"><span className="spin dark" /> Loading compute telemetry…</div> : <>
+        <div className="admin-metric-grid compute-metrics">
+          <div className="admin-metric"><span>Profiles ready</span><strong>{tuning.readyProfiles}/4</strong><small>{tuning.requiredSamples} fills required per profile</small></div>
+          <div className="admin-metric"><span>Runtime overrides</span><strong>{tuning.activeOverrides}</strong><small>cached in memory · no hot-path DB read</small></div>
+          <div className="admin-metric"><span>Candidate starts</span><strong>{tuning.candidateSamples}</strong><small>visible early, not yet applicable</small></div>
+          <div className="admin-metric"><span>Telemetry</span><strong>{tuning.enabled ? "ON" : "OFF"}</strong><small>confirmed LOCAL buys only</small></div>
+        </div>
+
+        <section className="admin-card compute-policy-note">
+          <div><strong>Guarded tuning</strong><span>Each suggested limit covers the larger of p95 + 20%, the worst fill + 12%, or the worst fill + 15k CU, rounded up to 10k. Lower limits are never applied automatically.</span></div>
+          <div><strong>Why four profiles?</strong><span>Creating an associated token account consumes materially more compute. Mixing it with the common ATA-existing path either wastes priority or risks failed first buys.</span></div>
+        </section>
+
+        <section className="admin-card">
+          <div className="admin-card-head"><div><h3>Observed compute</h3><p>Applying updates all ready rows at once. Existing environment defaults remain the fallback.</p></div><span className="admin-updated">{adminAgo(tuning.generatedAt)}</span></div>
+          <div className="rpc-table-wrap"><table className="rpc-table compute-table"><thead><tr><th>Execution profile</th><th>Status</th><th>Samples</th><th>p50</th><th>p95</th><th>Worst</th><th>Current limit</th><th>Suggested</th><th>Worst headroom</th></tr></thead><tbody>
+            {tuning.profiles.map((row) => (
+              <tr key={row.profile}>
+                <td><strong>{row.label}</strong><small>{row.profile}</small></td>
+                <td><span className={`compute-status ${row.status}`}>{row.status === "raise-needed" ? "RAISE NEEDED" : row.status.toUpperCase()}</span></td>
+                <td>{row.sampleCount}/{tuning.requiredSamples}</td>
+                <td>{computeUnits(row.p50Consumed)}</td>
+                <td>{computeUnits(row.p95Consumed)}</td>
+                <td>{computeUnits(row.maxConsumed)}</td>
+                <td><strong>{computeUnits(row.activeLimit)}</strong>{row.approvedLimit != null && <small>approved override</small>}</td>
+                <td className={row.canApply ? "green" : ""}>{computeUnits(row.recommendedLimit)}</td>
+                <td className={(row.headroomPct ?? 100) < 12 ? "red" : ""}>{row.headroomPct == null ? "—" : `${row.headroomPct.toFixed(1)}%`}</td>
+              </tr>
+            ))}
+          </tbody></table></div>
+        </section>
+      </>}
+    </div>
+  );
+}
+
 function AdminPanel({ wallets }: { wallets: Wallet[] }) {
   const toast = useToast();
   const [tab, setTab] = useState<AdminTab>(() => initialAdminTabFromStorage());
@@ -3614,6 +3682,8 @@ function AdminPanel({ wallets }: { wallets: Wallet[] }) {
   const [users, setUsers] = useState<AdminUser[]>([]);
   const [records, setRecords] = useState<AdminRecord[]>([]);
   const [rpcUsage, setRpcUsage] = useState<AdminRpcUsage | null>(null);
+  const [computeTuning, setComputeTuning] = useState<AdminComputeTuning | null>(null);
+  const [computeBusy, setComputeBusy] = useState(false);
   const [rpcRange, setRpcRange] = useState<"1h" | "24h" | "month">("24h");
   const [features, setFeatures] = useState<AdminFeatureState | null>(null);
   const [featureBusy, setFeatureBusy] = useState(false);
@@ -3677,6 +3747,17 @@ function AdminPanel({ wallets }: { wallets: Wallet[] }) {
     }
   }, [rpcRange, toast]);
 
+  const loadComputeTuning = useCallback(async (quiet = false) => {
+    if (!quiet) setComputeBusy(true);
+    try {
+      setComputeTuning(await api.adminComputeTuning());
+    } catch (e: any) {
+      if (!quiet) toast(e.message, "err");
+    } finally {
+      if (!quiet) setComputeBusy(false);
+    }
+  }, [toast]);
+
   const loadRecords = useCallback(async (quiet = false) => {
     try {
       const res = await api.adminRecords({
@@ -3697,8 +3778,9 @@ function AdminPanel({ wallets }: { wallets: Wallet[] }) {
     await Promise.all([loadOverview(true), loadSnipes(true), loadUsers(true), loadFeatures(true)]);
     if (tab === "records") await loadRecords(true);
     if (tab === "rpc") await loadRpcUsage(true);
+    if (tab === "compute") await loadComputeTuning(true);
     setRefreshing(false);
-  }, [loadOverview, loadSnipes, loadUsers, loadFeatures, loadRecords, loadRpcUsage, tab]);
+  }, [loadOverview, loadSnipes, loadUsers, loadFeatures, loadRecords, loadRpcUsage, loadComputeTuning, tab]);
 
   useEffect(() => {
     Promise.all([api.adminOverview(), api.adminSnipes({ limit: 400 }), api.adminUsers(), api.adminFeatures()])
@@ -3729,13 +3811,50 @@ function AdminPanel({ wallets }: { wallets: Wallet[] }) {
   }, [tab, rpcRange, loadRpcUsage]);
 
   useEffect(() => {
+    if (tab !== "compute") return;
+    void loadComputeTuning(true);
+  }, [tab, loadComputeTuning]);
+
+  useEffect(() => {
     const timer = window.setInterval(() => {
       void loadOverview(true);
       if (tab === "snipes") void loadSnipes(true);
       if (tab === "rpc") void loadRpcUsage(true);
+      if (tab === "compute") void loadComputeTuning(true);
     }, 15_000);
     return () => window.clearInterval(timer);
-  }, [tab, loadOverview, loadSnipes, loadRpcUsage]);
+  }, [tab, loadOverview, loadSnipes, loadRpcUsage, loadComputeTuning]);
+
+  async function applyComputeTuning() {
+    if (computeBusy) return;
+    setComputeBusy(true);
+    try {
+      const res = await api.adminApplyComputeTuning();
+      setComputeTuning(res.tuning);
+      toast(`Applied compute limits for ${res.tuning.readyProfiles} profile${res.tuning.readyProfiles === 1 ? "" : "s"}`);
+      void loadOverview(true);
+    } catch (e: any) {
+      toast(friendlyError(e?.message ?? "Could not apply compute limits"), "err");
+    } finally {
+      setComputeBusy(false);
+    }
+  }
+
+  async function resetComputeTuning() {
+    if (computeBusy || !computeTuning?.activeOverrides) return;
+    if (!window.confirm("Reset every approved LOCAL compute override to the environment defaults? Telemetry samples will be kept.")) return;
+    setComputeBusy(true);
+    try {
+      const res = await api.adminResetComputeTuning();
+      setComputeTuning(res.tuning);
+      toast("Compute limits reset to environment defaults");
+      void loadOverview(true);
+    } catch (e: any) {
+      toast(friendlyError(e?.message ?? "Could not reset compute limits"), "err");
+    } finally {
+      setComputeBusy(false);
+    }
+  }
 
   async function toggleDiscoveryFeature() {
     if (!features?.discovery.available || featureBusy) return;
@@ -3855,6 +3974,7 @@ function AdminPanel({ wallets }: { wallets: Wallet[] }) {
           ["overview", "Overview"],
           ["snipes", `Snipes${overview ? ` (${overview.snipes.armed + overview.snipes.paused + overview.snipes.triggered})` : ""}`],
           ["users", `Users${users.length ? ` (${users.length})` : ""}`],
+          ["compute", "Compute"],
           ["rpc", "RPC Usage"],
           ["records", "Records"],
           ["notify", "Notification"],
@@ -4070,6 +4190,8 @@ function AdminPanel({ wallets }: { wallets: Wallet[] }) {
             ))}
           </div>
         </div>
+      ) : tab === "compute" ? (
+        <AdminComputeTuningView tuning={computeTuning} busy={computeBusy} onRefresh={() => void loadComputeTuning()} onApply={() => void applyComputeTuning()} onReset={() => void resetComputeTuning()} />
       ) : tab === "rpc" ? (
         <AdminRpcUsageView usage={rpcUsage} range={rpcRange} onRange={setRpcRange} onRefresh={() => void loadRpcUsage()} />
       ) : tab === "records" ? (

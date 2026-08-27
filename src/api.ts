@@ -276,6 +276,33 @@ export interface AdminOverview {
   recentFailures: { id: string; userId: string; username: string; snipeId?: string | null; message: string; createdAt: string }[];
 }
 
+export interface AdminComputeTuning {
+  enabled: boolean;
+  generatedAt: string;
+  candidateSamples: number;
+  requiredSamples: number;
+  readyProfiles: number;
+  activeOverrides: number;
+  profiles: Array<{
+    profile: "pump:ata-exists" | "pump:ata-create" | "pump-amm:ata-exists" | "pump-amm:ata-create";
+    label: string;
+    routeKind: "pump" | "pump-amm";
+    ataMode: "exists" | "create";
+    sampleCount: number;
+    p50Consumed: number | null;
+    p95Consumed: number | null;
+    maxConsumed: number | null;
+    defaultLimit: number;
+    approvedLimit: number | null;
+    activeLimit: number;
+    recommendedLimit: number | null;
+    headroomPct: number | null;
+    status: "collecting" | "candidate" | "ready" | "raise-needed";
+    canApply: boolean;
+    lastSampleAt: string | null;
+  }>;
+}
+
 
 export interface AdminRpcUsage {
   generatedAt: string;
@@ -767,6 +794,9 @@ export const api = {
       body: JSON.stringify(body),
     }),
   adminOverview: () => req<AdminOverview>("/admin/overview"),
+  adminComputeTuning: () => req<AdminComputeTuning>("/admin/compute-tuning"),
+  adminApplyComputeTuning: () => req<{ ok: true; tuning: AdminComputeTuning }>("/admin/compute-tuning/apply", { method: "POST" }),
+  adminResetComputeTuning: () => req<{ ok: true; tuning: AdminComputeTuning }>("/admin/compute-tuning/overrides", { method: "DELETE" }),
   adminRpcUsage: (range: "1h" | "24h" | "month" = "24h") => req<AdminRpcUsage>(`/admin/rpc-usage?range=${encodeURIComponent(range)}`),
   adminSnipes: (filters: { status?: string; q?: string; limit?: number } = {}) => {
     const p = new URLSearchParams();
