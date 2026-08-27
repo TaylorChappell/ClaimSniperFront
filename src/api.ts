@@ -175,6 +175,7 @@ export interface Snipe {
   priorityFee: number;
   bribe: number;
   execMode?: "PUMPPORTAL" | "LOCAL";
+  speedMode?: "DEFAULT" | "BETA";
   triggerMode?: "CLAIM" | "REDIRECT";
   claimMode?: "PROCESSED";
   ticker?: string | null;
@@ -263,7 +264,7 @@ export interface AdminOverview {
     rpc: { ok: boolean; latencyMs: number; slot?: number | null; error?: string | null };
     marketFeed: { ok: boolean; connected: boolean; subscribed: number; cached: number; solUsd?: number | null };
     queue: { ok: boolean; queued: number; priorityQueued: number; limitPerSecond: number; maxDepth: number; maxWaitMs: number; draining: boolean };
-    engine: { creatorSubscriptions: number; creatorSnipeBindings: number; redirectSubscriptions: number; currentlyFiring: number; armingInFlight: number; seenSignatures: number; claimProcessingInFlight?: number; preparedExecutionPlans?: number; buyReconciliationsPending: number; processedCreatorSubscriptions?: number; processedRedirectSubscriptions?: number; backupRedirectSubscriptions?: number; backfillRuns?: number; backfilledSignatures?: number; globalClaimFeed?: { enabled: boolean; connected: boolean; activeRpc?: string | null; activeWs?: string | null; endpointCount: number; subscriptions: number; events: number; claimSignals: number; lastAnyEventAt?: string | null; lastClaimSignalAt?: string | null; reconnects: number; reconnecting: boolean; lastReconnectReason?: string | null; silenceMs?: number | null; silenceThresholdMs?: number }; fullTransactionFeed?: { enabled: boolean; connected: boolean; watchedWallets: number; subscriptions: number; events: number; claimFrames: number; reconnects: number; lastMessageAt?: string | null; lastError?: string | null }; latency?: Record<string, { count: number; p50Ms: number | null; p95Ms: number | null; maxMs: number | null }>; feeShareIndex?: { wallets: number; mappings: number }; lastClaimAt?: string | null; lastClaimSignature?: string | null; lastRedirectAt?: string | null; lastTriggerAt?: string | null; lastFillAt?: string | null };
+    engine: { creatorSubscriptions: number; creatorSnipeBindings: number; redirectSubscriptions: number; currentlyFiring: number; armingInFlight: number; seenSignatures: number; claimProcessingInFlight?: number; preparedExecutionPlans?: number; buyReconciliationsPending: number; processedCreatorSubscriptions?: number; processedRedirectSubscriptions?: number; backupRedirectSubscriptions?: number; backfillRuns?: number; backfilledSignatures?: number; globalClaimFeed?: { enabled: boolean; connected: boolean; activeRpc?: string | null; activeWs?: string | null; endpointCount: number; subscriptions: number; events: number; claimSignals: number; lastAnyEventAt?: string | null; lastClaimSignalAt?: string | null; reconnects: number; reconnecting: boolean; lastReconnectReason?: string | null; silenceMs?: number | null; silenceThresholdMs?: number }; fullTransactionFeed?: { enabled: boolean; connected: boolean; watchedWallets: number; subscriptions: number; events: number; claimFrames: number; reconnects: number; lastMessageAt?: string | null; lastError?: string | null; activeEndpoint?: "standard" | "gatekeeper" }; betaTransactionFeed?: { enabled: boolean; connected: boolean; watchedWallets: number; subscriptions: number; events: number; claimFrames: number; reconnects: number; lastMessageAt?: string | null; lastError?: string | null; activeEndpoint?: "standard" | "gatekeeper" }; latency?: Record<string, { count: number; p50Ms: number | null; p95Ms: number | null; maxMs: number | null }>; feeShareIndex?: { wallets: number; mappings: number }; lastClaimAt?: string | null; lastClaimSignature?: string | null; lastRedirectAt?: string | null; lastTriggerAt?: string | null; lastFillAt?: string | null };
     balances: { cachedWallets: number; subscriptions: number; references: number };
     radar: { enabled: boolean; subscriptions: number; inFlight: number; enriching: number; marketQueueDepth: number; marketQueueRunning: boolean; queuedMarketMints: number; mainPumpWatcherEnabled: boolean };
     process: { uptimeSeconds: number; rssMb: number; heapUsedMb: number; heapTotalMb: number; node: string };
@@ -409,6 +410,7 @@ export interface PublicSnipe {
   triggerMode?: "CLAIM" | "REDIRECT";
   claimMode?: "PROCESSED";
   execMode?: "PUMPPORTAL" | "LOCAL";
+  speedMode?: "DEFAULT" | "BETA";
   slippagePct?: number;
   adaptiveSlippage?: boolean;
   maxSlippagePct?: number;
@@ -759,6 +761,7 @@ export const api = {
     priorityFee?: number;
     bribe?: number;
     execMode?: "PUMPPORTAL" | "LOCAL";
+    speedMode?: "DEFAULT" | "BETA";
     triggerMode?: "CLAIM" | "REDIRECT";
     onlyRedirected?: boolean;
     watchWallet?: string | null;
@@ -781,6 +784,7 @@ export const api = {
       priorityFee?: number;
       bribe?: number;
       execMode?: "PUMPPORTAL" | "LOCAL";
+      speedMode?: "DEFAULT" | "BETA";
       triggerMode?: "CLAIM" | "REDIRECT";
       onlyRedirected?: boolean;
       watchWallet?: string | null;

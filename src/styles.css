@@ -1640,7 +1640,60 @@ button.danger:hover {
   word-break: break-all;
 }
 
-/* execution mode selector */
+/* speed and execution mode selectors */
+.speed-mode-select {
+  margin: 14px 0;
+}
+.speed-mode-select > label {
+  display: block;
+  margin-bottom: 7px;
+  color: var(--muted);
+  font-size: 12px;
+  font-weight: 600;
+}
+.speed-mode-options {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 8px;
+}
+.speed-mode-options button {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 4px;
+  min-width: 0;
+  padding: 12px;
+  color: var(--text);
+  text-align: left;
+  background: var(--surface-2);
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  cursor: pointer;
+}
+.speed-mode-options button span {
+  color: var(--muted);
+  font-size: 11px;
+  line-height: 1.35;
+}
+.speed-mode-options button.on {
+  border-color: var(--green);
+  background: var(--green-soft);
+  box-shadow: 0 0 18px rgba(32, 224, 112, 0.12);
+}
+.speed-mode-options button.beta.on {
+  border-color: var(--blue-2);
+  background: var(--blue-soft);
+  box-shadow: 0 0 18px rgba(104, 216, 255, 0.14);
+}
+.speed-mode-options small {
+  margin-left: 5px;
+  color: var(--blue-2);
+  font-size: 9px;
+  letter-spacing: 0.08em;
+}
+.beta-mode-hint {
+  margin-top: 7px;
+}
 .exec-mode {
   margin: 12px 0;
 }
@@ -1676,8 +1729,18 @@ button.danger:hover {
   background: var(--green);
   color: #04110b;
 }
+.exec-mode .seg button:disabled {
+  cursor: not-allowed;
+  opacity: 0.65;
+}
 .exec-mode .hint {
   margin-top: 7px;
+}
+
+@media (max-width: 560px) {
+  .speed-mode-options {
+    grid-template-columns: 1fr;
+  }
 }
 
 /* small ghost button (admin copy) */
@@ -2282,6 +2345,11 @@ button.ghost.mini {
   background: rgba(245, 158, 11, 0.14);
   color: #f59e0b;
   border: 1px solid rgba(245, 158, 11, 0.3);
+}
+.mode-tag.mode-beta {
+  background: var(--blue-soft);
+  color: var(--blue-2);
+  border: 1px solid rgba(104, 216, 255, 0.34);
 }
 
 /* Lock background scroll while any modal/overlay is open */

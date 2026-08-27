@@ -150,6 +150,7 @@ type ArmSnipePreset = {
   onlyRedirected: boolean;
   watchWallet: string;
   execMode: "PUMPPORTAL" | "LOCAL";
+  speedMode: "DEFAULT" | "BETA";
   triggerMode: "CLAIM" | "REDIRECT";
   exit: ExitPresetDraft;
 };
@@ -214,6 +215,7 @@ function presetFingerprint(preset?: Partial<ArmSnipePreset> | null) {
     onlyRedirected: !!preset?.onlyRedirected,
     watchWallet: preset?.watchWallet ?? "",
     execMode: preset?.execMode === "PUMPPORTAL" ? "PUMPPORTAL" : "LOCAL",
+    speedMode: preset?.speedMode === "BETA" ? "BETA" : "DEFAULT",
     triggerMode: preset?.triggerMode === "REDIRECT" ? "REDIRECT" : "CLAIM",
     exit: {
       tpOn: !!exit.tpOn,
@@ -1891,6 +1893,7 @@ function SnipeForm({
   const [execMode, setExecMode] = useState<"PUMPPORTAL" | "LOCAL">(
     () => readSavedChoice("cs.execMode", ["LOCAL", "PUMPPORTAL"] as const, "LOCAL"),
   );
+  const [speedMode, setSpeedMode] = useState<"DEFAULT" | "BETA">("DEFAULT");
   const [triggerMode, setTriggerMode] = useState<"CLAIM" | "REDIRECT">("CLAIM");
   const [advancedOpen, setAdvancedOpen] = useState(false);
   const [exitOpen, setExitOpen] = useState(false);
@@ -1920,6 +1923,7 @@ function SnipeForm({
       onlyRedirected,
       watchWallet,
       execMode,
+      speedMode,
       triggerMode,
       exit: ex.snapshot(),
     };
@@ -1938,7 +1942,9 @@ function SnipeForm({
     setMcMaxUsd(preset.mcMaxUsd ?? "");
     setOnlyRedirected(!!preset.onlyRedirected);
     setWatchWallet(preset.watchWallet ?? "");
-    setExecMode(preset.execMode === "PUMPPORTAL" ? "PUMPPORTAL" : "LOCAL");
+    const nextSpeedMode = preset.speedMode === "BETA" ? "BETA" : "DEFAULT";
+    setSpeedMode(nextSpeedMode);
+    setExecMode(nextSpeedMode === "BETA" ? "LOCAL" : preset.execMode === "PUMPPORTAL" ? "PUMPPORTAL" : "LOCAL");
     setTriggerMode(preset.triggerMode === "REDIRECT" ? "REDIRECT" : "CLAIM");
     ex.applyPreset(preset.exit);
   }
@@ -1970,6 +1976,11 @@ function SnipeForm({
   const activePresetDirty =
     !!activePreset && !!presetBaseline && !presetsEqual(buildPreset(), presetBaseline);
 
+  function selectSpeedMode(mode: "DEFAULT" | "BETA") {
+    setSpeedMode(mode);
+    if (mode === "BETA") setExecMode("LOCAL");
+  }
+
   useEffect(() => {
     if (!walletId && wallets.length === 1) setWalletId(wallets[0].id);
   }, [wallets, walletId]);
@@ -1980,7 +1991,8 @@ function SnipeForm({
     try {
       localStorage.setItem("cs.priority", priority);
       localStorage.setItem("cs.bribe", bribe);
-      saveChoice("cs.execMode", execMode);
+      const selectedExecMode = speedMode === "BETA" ? "LOCAL" : execMode;
+      saveChoice("cs.execMode", selectedExecMode);
       await api.createSnipe({
         mint: mint.trim(),
         walletId,
@@ -1993,7 +2005,8 @@ function SnipeForm({
         bribe: Number(bribe),
         mcMinUsd: marketCapInputToNumber(mcMinUsd),
         mcMaxUsd: marketCapInputToNumber(mcMaxUsd),
-        execMode,
+        execMode: selectedExecMode,
+        speedMode,
         triggerMode,
         onlyRedirected,
         watchWallet: onlyRedirected ? watchWallet.trim() : null,
@@ -2099,6 +2112,7 @@ function SnipeForm({
           <strong>Processed · exact signer</strong>
           <span>Prepares immediately, then buys only when this coin and the configured signing wallet both match.</span>
         </div>
+        <SpeedModeSelect value={speedMode} onChange={selectSpeedMode} />
         <div className="trigger-explain">
           <strong>{triggerMode === "REDIRECT" ? "Fee Redirect" : "Fee Claim"}</strong>
           <span>{triggerMode === "REDIRECT" ? "Buy when the creator fee recipient changes." : "Buy the moment this coin's creator fees are claimed."}</span>
@@ -2140,7 +2154,7 @@ function SnipeForm({
           </div>
           <label>Landing tip / extra priority (SOL) <InfoTip text="For direct local execution this can be sent as a real Helius Sender landing tip when Sender is enabled. Otherwise it remains additional compute priority. Keep it low." /></label>
           <input value={bribe} onChange={(e) => setBribe(e.target.value)} />
-          <ExecModeSelect value={execMode} onChange={setExecMode} />
+          <ExecModeSelect value={execMode} onChange={setExecMode} disabled={speedMode === "BETA"} />
           <div className="market-filter-box compact">
             <div className="market-filter-head"><strong>Market cap filter</strong><span>Optional</span></div>
             <div className="row">
@@ -2170,6 +2184,7 @@ function SnipeForm({
         <div className="summary-line"><span>Take profit</span><strong>{tpSummary}</strong></div>
         <div className="summary-line"><span>Stop loss</span><strong>{slSummary}</strong></div>
         <div className="summary-line"><span>Detection</span><strong>Processed · exact signer</strong></div>
+        <div className="summary-line"><span>Speed</span><strong>{speedMode === "BETA" ? "Beta" : "Default"}</strong></div>
         <div className="summary-line"><span>Execution</span><strong>{execMode === "LOCAL" ? "Local" : "PumpPortal"}</strong></div>
         <div className="summary-line"><span>Slippage</span><strong>{adaptiveSlippage ? `${slippage}% → max ${maxSlippage}% · ${maxBuyRetries} retries` : `${slippage}% fixed`}</strong></div>
         <div className="summary-line"><span>Market cap</span><strong>{mcSummary}</strong></div>
@@ -2209,6 +2224,9 @@ function EditSnipeModal({
   const [execMode, setExecMode] = useState<"PUMPPORTAL" | "LOCAL">(
     snipe.execMode === "LOCAL" ? "LOCAL" : "PUMPPORTAL",
   );
+  const [speedMode, setSpeedMode] = useState<"DEFAULT" | "BETA">(
+    snipe.speedMode === "BETA" ? "BETA" : "DEFAULT",
+  );
   const [triggerMode, setTriggerMode] = useState<"CLAIM" | "REDIRECT">(
     snipe.triggerMode === "REDIRECT" ? "REDIRECT" : "CLAIM",
   );
@@ -2233,6 +2251,11 @@ function EditSnipeModal({
   const ready =
     Number(amount) > 0 && Number(slippage) > 0 && !mcFilterInvalid && !adaptiveInvalid && (!redir || watchWallet.trim().length >= 32);
 
+  function selectSpeedMode(mode: "DEFAULT" | "BETA") {
+    setSpeedMode(mode);
+    if (mode === "BETA") setExecMode("LOCAL");
+  }
+
   async function save() {
     setBusy(true);
     try {
@@ -2248,7 +2271,8 @@ function EditSnipeModal({
         mcMaxUsd: marketCapInputToNumber(mcMaxUsd),
         onlyRedirected: redir,
         watchWallet: redir ? watchWallet.trim() : null,
-        execMode,
+        execMode: speedMode === "BETA" ? "LOCAL" : execMode,
+        speedMode,
         triggerMode,
         exit: ex.build(),
       });
@@ -2347,7 +2371,8 @@ function EditSnipeModal({
               )}
             </div>
 
-            <ExecModeSelect value={execMode} onChange={setExecMode} />
+            <SpeedModeSelect value={speedMode} onChange={selectSpeedMode} />
+            <ExecModeSelect value={execMode} onChange={setExecMode} disabled={speedMode === "BETA"} />
             <TriggerModeSelect value={triggerMode} onChange={setTriggerMode} />
             <div className="trigger-explain processed-detection">
               <strong>Processed · exact signer</strong>
@@ -2597,6 +2622,7 @@ function Snipes({
             <div className="snipe-title-block">
               <span className="ticker">{s.ticker ? `$${s.ticker}` : short(s.mint)}</span>
               <span className={`mode-tag ${s.triggerMode === "REDIRECT" ? "mode-redirect" : "mode-claim"}`}>{s.triggerMode === "REDIRECT" ? "Fee redirect" : "Fee claim"}</span>
+              {s.speedMode === "BETA" && <span className="mode-tag mode-beta">Beta</span>}
               {s.copySourceSnipeId && <span className="mode-tag mode-copy">Copy · @{s.copyLeaderUsername ?? "trader"}</span>}
             </div>
             <div className="snipe-status-cluster">
@@ -2640,6 +2666,7 @@ function Snipes({
             <div><span>Priority</span><strong>{s.priorityFee} SOL</strong></div>
             <div><span>Extra priority</span><strong>{s.bribe} SOL</strong></div>
             <div><span>Execution</span><strong>{s.execMode === "LOCAL" ? "Local" : "PumpPortal"}</strong></div>
+            <div><span>Speed</span><strong>{s.speedMode === "BETA" ? "Beta" : "Default"}</strong></div>
             <div><span>Detection</span><strong>Processed · exact signer</strong></div>
             {s.claimCheckInstruction && <div><span>Claim check</span><strong>{s.claimCheckInstruction}</strong></div>}
             {s.signature && <div><span>Entry transaction</span><a href={`https://solscan.io/tx/${s.signature}`} target="_blank" rel="noreferrer">Solscan ↗</a></div>}
@@ -4063,6 +4090,12 @@ function AdminPanel({ wallets }: { wallets: Wallet[] }) {
                 value={!health?.engine.fullTransactionFeed?.enabled ? "disabled" : health.engine.fullTransactionFeed.connected ? "connected" : health.engine.fullTransactionFeed.watchedWallets ? "fallback active" : "idle"}
                 detail={health?.engine.fullTransactionFeed?.enabled ? `${health.engine.fullTransactionFeed.watchedWallets} wallet filters · ${health.engine.fullTransactionFeed.claimFrames} full frames · ${health.engine.fullTransactionFeed.reconnects} reconnects` : "targeted processed log recovery remains active"}
               />
+              <AdminServiceRow
+                name="Beta Gatekeeper feed"
+                ok={!health?.engine.betaTransactionFeed?.enabled || !health.engine.betaTransactionFeed.watchedWallets || Boolean(health.engine.betaTransactionFeed.connected)}
+                value={!health?.engine.betaTransactionFeed?.enabled ? "disabled" : health.engine.betaTransactionFeed.connected ? (health.engine.betaTransactionFeed.activeEndpoint ?? "connected") : health.engine.betaTransactionFeed.watchedWallets ? "fallback active" : "idle"}
+                detail={health?.engine.betaTransactionFeed?.enabled ? `${health.engine.betaTransactionFeed.watchedWallets} Beta wallet filters · ${health.engine.betaTransactionFeed.claimFrames} full frames · ${health.engine.betaTransactionFeed.reconnects} reconnects` : "no Beta snipes armed"}
+              />
               <AdminServiceRow name="Market-cap feed" ok={health?.marketFeed.ok ?? false} value={health?.marketFeed.connected ? "connected" : (health?.marketFeed.subscribed ? "offline" : "idle")} detail={`${health?.marketFeed.subscribed ?? 0} subscribed · ${health?.marketFeed.cached ?? 0} cached`} />
               <AdminServiceRow name="Redirect radar" ok={!health?.radar.enabled || (health?.radar.subscriptions ?? 0) > 0} value={health?.radar.enabled ? `${health.radar.subscriptions} live` : "disabled"} detail={`${health?.radar.inFlight ?? 0} processing · ${health?.radar.marketQueueDepth ?? 0} enrichment queue`} />
               <div className="admin-queue-block">
@@ -4856,25 +4889,69 @@ function ExitFields({ ex }: { ex: ReturnType<typeof useExit> }) {
   );
 }
 
-/* ---------------- execution mode selector ---------------- */
-function ExecModeSelect({
+/* ---------------- speed / execution mode selectors ---------------- */
+function SpeedModeSelect({
   value,
   onChange,
 }: {
+  value: "DEFAULT" | "BETA";
+  onChange: (v: "DEFAULT" | "BETA") => void;
+}) {
+  return (
+    <div className="speed-mode-select">
+      <label>Sniper mode</label>
+      <div className="speed-mode-options">
+        <button
+          type="button"
+          className={value === "DEFAULT" ? "on" : ""}
+          onClick={() => onChange("DEFAULT")}
+        >
+          <strong>Default</strong>
+          <span>Current proven processed pipeline</span>
+        </button>
+        <button
+          type="button"
+          className={value === "BETA" ? "on beta" : "beta"}
+          onClick={() => onChange("BETA")}
+        >
+          <strong>Beta <small>FAST</small></strong>
+          <span>Gatekeeper + rolling signed LOCAL buy</span>
+        </button>
+      </div>
+      {value === "BETA" && (
+        <div className="hint beta-mode-hint">
+          Uses the experimental low-latency path. Validation remains strict and
+          fails closed if a required safety cache is not ready. Beta requires Local execution.
+        </div>
+      )}
+    </div>
+  );
+}
+
+function ExecModeSelect({
+  value,
+  onChange,
+  disabled = false,
+}: {
   value: "PUMPPORTAL" | "LOCAL";
   onChange: (v: "PUMPPORTAL" | "LOCAL") => void;
+  disabled?: boolean;
 }) {
   return (
     <div className="exec-mode">
       <label>Execution</label>
       <div className="seg">
         <button
+          type="button"
+          disabled={disabled}
           className={value === "PUMPPORTAL" ? "on" : ""}
           onClick={() => onChange("PUMPPORTAL")}
         >
           PumpPortal
         </button>
         <button
+          type="button"
+          disabled={disabled}
           className={value === "LOCAL" ? "on" : ""}
           onClick={() => onChange("LOCAL")}
         >
@@ -4889,6 +4966,7 @@ function ExecModeSelect({
           Take-profit and stop-loss sells still use PumpPortal.
         </div>
       )}
+      {disabled && <div className="hint">Beta locks execution to Local.</div>}
     </div>
   );
 }
