@@ -215,7 +215,7 @@ function presetFingerprint(preset?: Partial<ArmSnipePreset> | null) {
     onlyRedirected: !!preset?.onlyRedirected,
     watchWallet: preset?.watchWallet ?? "",
     execMode: preset?.execMode === "PUMPPORTAL" ? "PUMPPORTAL" : "LOCAL",
-    speedMode: preset?.speedMode === "BETA" ? "BETA" : "DEFAULT",
+    speedMode: preset?.speedMode === "DEFAULT" ? "DEFAULT" : "BETA",
     triggerMode: preset?.triggerMode === "REDIRECT" ? "REDIRECT" : "CLAIM",
     exit: {
       tpOn: !!exit.tpOn,
@@ -1890,10 +1890,8 @@ function SnipeForm({
   const [mcMaxUsd, setMcMaxUsd] = useState("");
   const [onlyRedirected, setOnlyRedirected] = useState(initialOnlyRedirected ?? false);
   const [watchWallet, setWatchWallet] = useState(initialWatchWallet ?? "");
-  const [execMode, setExecMode] = useState<"PUMPPORTAL" | "LOCAL">(
-    () => readSavedChoice("cs.execMode", ["LOCAL", "PUMPPORTAL"] as const, "LOCAL"),
-  );
-  const [speedMode, setSpeedMode] = useState<"DEFAULT" | "BETA">("DEFAULT");
+  const [execMode, setExecMode] = useState<"PUMPPORTAL" | "LOCAL">("LOCAL");
+  const [speedMode, setSpeedMode] = useState<"DEFAULT" | "BETA">("BETA");
   const [triggerMode, setTriggerMode] = useState<"CLAIM" | "REDIRECT">("CLAIM");
   const [advancedOpen, setAdvancedOpen] = useState(false);
   const [exitOpen, setExitOpen] = useState(false);
@@ -1942,7 +1940,8 @@ function SnipeForm({
     setMcMaxUsd(preset.mcMaxUsd ?? "");
     setOnlyRedirected(!!preset.onlyRedirected);
     setWatchWallet(preset.watchWallet ?? "");
-    const nextSpeedMode = preset.speedMode === "BETA" ? "BETA" : "DEFAULT";
+    // Presets saved before speed modes existed inherit the new Beta default.
+    const nextSpeedMode = preset.speedMode === "DEFAULT" ? "DEFAULT" : "BETA";
     setSpeedMode(nextSpeedMode);
     setExecMode(nextSpeedMode === "BETA" ? "LOCAL" : preset.execMode === "PUMPPORTAL" ? "PUMPPORTAL" : "LOCAL");
     setTriggerMode(preset.triggerMode === "REDIRECT" ? "REDIRECT" : "CLAIM");
