@@ -1,3 +1,6 @@
+self.addEventListener('install', () => self.skipWaiting());
+self.addEventListener('activate', (event) => event.waitUntil(self.clients.claim()));
+
 self.addEventListener('push', (event) => {
   let data = {};
   try {
@@ -17,26 +20,43 @@ self.addEventListener('push', (event) => {
     },
     icon: '/sniper.png',
     badge: '/sniper.png',
-    requireInteraction: kind === 'fill' || kind === 'fail',
+    requireInteraction: kind === 'fill' || kind === 'fail' || kind === 'dex',
     silent: false,
   };
 
   async function showWhenAllowed() {
-    // Chat push notifications are only useful when the app is not already open.
-    // If any Claim Sniper window/PWA client exists, skip the OS notification.
+    const openClients = await clients.matchAll({
+      type: 'window',
+      includeUncontrolled: true,
+    });
+    const appClients = openClients.filter((client) => {
+      try {
+        return new URL(client.url).origin === self.location.origin;
+      } catch {
+        return false;
+      }
+    });
+
+    // Tell every open tab to draw its unread favicon dot. This works even when
+    // the page is background-throttled because the service worker owns push.
+    for (const client of appClients) {
+      client.postMessage({
+        type: 'claim-sniper-notification',
+        kind,
+        title,
+        body: options.body,
+        url: options.data.url,
+        tag: options.tag,
+      });
+    }
+
+    // Suppress only a chat alert that the user is genuinely looking at. A
+    // hidden/background tab must not silence the desktop notification.
     if (kind === 'chat' || options.tag === 'claim-sniper-chat') {
-      const openClients = await clients.matchAll({
-        type: 'window',
-        includeUncontrolled: true,
-      });
-      const appOpen = openClients.some((client) => {
-        try {
-          return new URL(client.url).origin === self.location.origin;
-        } catch {
-          return false;
-        }
-      });
-      if (appOpen) return;
+      const activelyViewed = appClients.some(
+        (client) => client.visibilityState === 'visible' && client.focused,
+      );
+      if (activelyViewed) return;
     }
 
     await self.registration.showNotification(title, options);
@@ -54,6 +74,7 @@ self.addEventListener('notificationclick', (event) => {
       for (const client of clientList) {
         if (new URL(client.url).origin === self.location.origin) {
           if ('navigate' in client) client.navigate(targetUrl).catch(() => {});
+          client.postMessage({ type: 'claim-sniper-notification-opened' });
           return client.focus();
         }
       }

@@ -163,6 +163,11 @@ export interface Snipe {
   livePriceUsd?: number | null;
   liveMarketCapUpdatedAt?: string | null;
   liveMarketCapSource?: "pumpdev" | "rpc" | "unknown" | null;
+  dexPaid?: boolean | null;
+  dexPaidCheckedAt?: string | null;
+  dexPaidAt?: string | null;
+  dexPaidOrderType?: string | null;
+  dexPaidOrderStatus?: string | null;
   mcMinUsd?: number | null;
   mcMaxUsd?: number | null;
   amountSol: number;

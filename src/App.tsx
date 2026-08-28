@@ -41,6 +41,7 @@ import {
 } from "./api";
 import { useLeaderPolling } from "./sync";
 import { EMOJIS } from "./emojiData";
+import { clearTabNotifications, signalTabNotification } from "./tab-notifications";
 
 const BRAND_IMG = `${import.meta.env.BASE_URL}sniper.png`;
 const SNIPE_SOUND = `${import.meta.env.BASE_URL}sniper.mp3`;
@@ -1382,14 +1383,24 @@ function Dashboard({
         if (prev && prev !== "FILLED" && sn.status === "FILLED") {
           toast(`Order filled: ${sn.amountSol} SOL of ${short(sn.mint)}`, "fill");
           playChime("fill");
+          signalTabNotification({ kind: "fill", title: "Order filled", body: `${sn.amountSol} SOL of ${short(sn.mint)}` });
         } else if (prev && prev !== "FAILED" && sn.status === "FAILED") {
           toast(`Snipe failed: ${short(sn.mint)}`, "err");
           playChime("fail");
+          signalTabNotification({ kind: "fail", title: "Snipe failed", body: short(sn.mint) });
         }
         const prevTp = prevStatus.current[`tp:${sn.id}`];
         if (prevTp && prevTp !== "SOLD" && sn.tpStatus === "SOLD") {
           toast(`Take-profit hit on ${sn.ticker ? "$" + sn.ticker : short(sn.mint)}`, "fill");
           playChime("fill");
+          signalTabNotification({ kind: "fill", title: "Take-profit hit", body: sn.ticker ? `$${sn.ticker}` : short(sn.mint) });
+        }
+        const prevDex = prevStatus.current[`dex:${sn.id}`];
+        if (prevDex === "UNPAID" && sn.dexPaid === true) {
+          const coin = sn.ticker ? `$${sn.ticker}` : short(sn.mint);
+          toast(`DEX is now paid for ${coin}`, "fill");
+          playChime("fill");
+          signalTabNotification({ kind: "dex", title: "DEX paid", body: `${coin} now has a paid DEX order.` });
         }
       }
     }
@@ -1397,6 +1408,7 @@ function Dashboard({
     for (const sn of list) {
       map[sn.id] = sn.status;
       map[`tp:${sn.id}`] = sn.tpStatus;
+      map[`dex:${sn.id}`] = sn.dexPaid === true ? "PAID" : sn.dexPaid === false ? "UNPAID" : "UNKNOWN";
     }
     prevStatus.current = map;
     initialized.current = true;
@@ -1527,6 +1539,7 @@ function Dashboard({
 
   // Unread-chat dot on the Social tab.
   const [chatUnread, setChatUnread] = useState(false);
+  const lastChatNotification = useRef<string | null>(null);
   const viewRef = useRef(view);
   useEffect(() => { viewRef.current = view; }, [view]);
   useEffect(() => {
@@ -1538,7 +1551,13 @@ function Dashboard({
         return;
       }
       const seen = localStorage.getItem("cs.chatSeen");
-      if (!seen || new Date(r.latest) > new Date(seen)) setChatUnread(true);
+      if (!seen || new Date(r.latest) > new Date(seen)) {
+        setChatUnread(true);
+        if (lastChatNotification.current !== r.latest) {
+          lastChatNotification.current = r.latest;
+          signalTabNotification({ kind: "chat", title: "New chat message", url: "/?view=social" });
+        }
+      }
     }).catch(() => {});
     check();
     const t = setInterval(check, 20000);
@@ -1548,6 +1567,8 @@ function Dashboard({
     if (view === "social") {
       localStorage.setItem("cs.chatSeen", new Date().toISOString());
       setChatUnread(false);
+      lastChatNotification.current = null;
+      clearTabNotifications();
     }
   }, [view]);
 
@@ -2664,6 +2685,12 @@ function Snipes({
             <div className="snipe-title-block">
               <span className="ticker">{s.ticker ? `$${s.ticker}` : short(s.mint)}</span>
               <span className={`mode-tag ${s.triggerMode === "REDIRECT" ? "mode-redirect" : "mode-claim"}`}>{s.triggerMode === "REDIRECT" ? "Fee redirect" : "Fee claim"}</span>
+              <span
+                className={`dex-paid-state ${s.dexPaid === true ? "paid" : s.dexPaid === false ? "unpaid" : "checking"}`}
+                title={s.dexPaidCheckedAt ? `DEX paid status checked ${new Date(s.dexPaidCheckedAt).toLocaleString()}` : "Waiting for the first DEX paid-status check"}
+              >
+                <i aria-hidden="true" />DEX {s.dexPaid === true ? "Paid" : s.dexPaid === false ? "Unpaid" : "Checking"}
+              </span>
               {s.copySourceSnipeId && <span className="mode-tag mode-copy">Copy · @{s.copyLeaderUsername ?? "trader"}</span>}
             </div>
             <div className="snipe-status-cluster">
