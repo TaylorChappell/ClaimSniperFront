@@ -137,7 +137,6 @@ type DashTab = "arm" | "snipes" | "wallets";
 type SocialTab = "trending" | "traders" | "chat";
 type AdminTab = "overview" | "snipes" | "users" | "compute" | "rpc" | "records" | "notify";
 type PresetSlot = "1" | "2" | "3";
-type PriorityMode = "DEFAULT" | "AGGRESSIVE";
 type ArmSnipePreset = {
   walletId: string;
   amount: string;
@@ -146,10 +145,10 @@ type ArmSnipePreset = {
   maxSlippage: string;
   maxBuyRetries: string;
   priority: string;
-  maxPriority: string;
   bribe: string;
-  priorityMode: PriorityMode;
   // Legacy preset fields remain readable during the transition.
+  maxPriority?: string;
+  priorityMode?: "DEFAULT" | "AGGRESSIVE";
   highPriorityMode?: boolean;
   maxPriorityCost?: string;
   mcMinUsd: string;
@@ -204,25 +203,6 @@ function writeArmPreset(slot: PresetSlot, preset: ArmSnipePreset) {
   return next;
 }
 
-function storedMaximumPriority(
-  minimum: string,
-  landingTip: string,
-  maximum?: string | null,
-  legacyTotalMaximum?: string | null,
-) {
-  const min = Math.max(0, Number(minimum) || 0);
-  const direct = Number(maximum);
-  if (maximum != null && maximum !== "" && Number.isFinite(direct) && direct >= min) {
-    return String(direct);
-  }
-  const legacy = Number(legacyTotalMaximum);
-  const tip = Math.max(0, Number(landingTip) || 0);
-  if (legacyTotalMaximum != null && legacyTotalMaximum !== "" && Number.isFinite(legacy)) {
-    return String(Math.max(min, legacy - tip));
-  }
-  return String(Math.max(min, 0.01));
-}
-
 function presetFingerprint(preset?: Partial<ArmSnipePreset> | null) {
   const exit = (preset?.exit ?? {}) as Partial<ExitPresetDraft>;
   return JSON.stringify({
@@ -233,14 +213,7 @@ function presetFingerprint(preset?: Partial<ArmSnipePreset> | null) {
     maxSlippage: preset?.maxSlippage ?? "30",
     maxBuyRetries: preset?.maxBuyRetries ?? "2",
     priority: preset?.priority ?? "0.0005",
-    maxPriority: storedMaximumPriority(
-      preset?.priority ?? "0.0005",
-      preset?.bribe ?? "0",
-      preset?.maxPriority,
-      preset?.maxPriorityCost,
-    ),
     bribe: preset?.bribe ?? "0",
-    priorityMode: preset?.priorityMode === "AGGRESSIVE" ? "AGGRESSIVE" : "DEFAULT",
     mcMinUsd: preset?.mcMinUsd ?? "",
     mcMaxUsd: preset?.mcMaxUsd ?? "",
     onlyRedirected: !!preset?.onlyRedirected,
@@ -1928,23 +1901,12 @@ function SnipeForm({
   const [adaptiveSlippage, setAdaptiveSlippage] = useState(true);
   const [maxSlippage, setMaxSlippage] = useState("30");
   const [maxBuyRetries, setMaxBuyRetries] = useState("2");
-  // Priority + bribe default to the last values used (saved locally).
+  // Fixed priority + Sender landing tip default to the last values used.
   const [priority, setPriority] = useState(
     () => localStorage.getItem("cs.priority") ?? "0.0005",
   );
   const [bribe, setBribe] = useState(
     () => localStorage.getItem("cs.bribe") ?? "0",
-  );
-  const [maxPriority, setMaxPriority] = useState(
-    () => storedMaximumPriority(
-      localStorage.getItem("cs.priority") ?? "0.0005",
-      localStorage.getItem("cs.bribe") ?? "0",
-      localStorage.getItem("cs.maxPriority"),
-      localStorage.getItem("cs.maxPriorityCost"),
-    ),
-  );
-  const [priorityMode, setPriorityMode] = useState<PriorityMode>(
-    () => localStorage.getItem("cs.priorityMode") === "AGGRESSIVE" ? "AGGRESSIVE" : "DEFAULT",
   );
   const [mcMinUsd, setMcMinUsd] = useState("");
   const [mcMaxUsd, setMcMaxUsd] = useState("");
@@ -1973,9 +1935,7 @@ function SnipeForm({
       maxSlippage,
       maxBuyRetries,
       priority,
-      maxPriority,
       bribe,
-      priorityMode,
       mcMinUsd,
       mcMaxUsd,
       onlyRedirected,
@@ -1994,13 +1954,6 @@ function SnipeForm({
     setMaxBuyRetries(preset.maxBuyRetries ?? "2");
     setPriority(preset.priority ?? "0.0005");
     setBribe(preset.bribe ?? "0");
-    setMaxPriority(storedMaximumPriority(
-      preset.priority ?? "0.0005",
-      preset.bribe ?? "0",
-      preset.maxPriority,
-      preset.maxPriorityCost,
-    ));
-    setPriorityMode(preset.priorityMode === "AGGRESSIVE" ? "AGGRESSIVE" : "DEFAULT");
     setMcMinUsd(preset.mcMinUsd ?? "");
     setMcMaxUsd(preset.mcMaxUsd ?? "");
     setOnlyRedirected(!!preset.onlyRedirected);
@@ -2046,11 +1999,6 @@ function SnipeForm({
     try {
       localStorage.setItem("cs.priority", priority);
       localStorage.setItem("cs.bribe", bribe);
-      localStorage.setItem("cs.maxPriority", maxPriority);
-      localStorage.setItem("cs.priorityMode", priorityMode);
-      // Keep rolling deployments safe when the frontend reaches an older backend first.
-      localStorage.setItem("cs.highPriorityMode", "true");
-      localStorage.setItem("cs.maxPriorityCost", String(Number(maxPriority) + Number(bribe)));
       saveChoice("cs.execMode", "LOCAL");
       await api.createSnipe({
         mint: mint.trim(),
@@ -2060,13 +2008,8 @@ function SnipeForm({
         adaptiveSlippage: true,
         maxSlippagePct: Number(maxSlippage),
         maxBuyRetries: Number(maxBuyRetries),
-        minPriorityFee: Number(priority),
-        maxPriorityFee: Number(maxPriority),
         priorityFee: Number(priority),
         bribe: Number(bribe),
-        highPriorityMode: true,
-        priorityMode,
-        maxPriorityCostSol: Number(maxPriority) + Number(bribe),
         mcMinUsd: marketCapInputToNumber(mcMinUsd),
         mcMaxUsd: marketCapInputToNumber(mcMaxUsd),
         execMode: "LOCAL",
@@ -2115,16 +2058,14 @@ function SnipeForm({
   }, [mint, snipes]);
 
   const selectedWallet = wallets.find((w) => w.id === walletId);
-  const minimumPriorityNumber = Number(priority);
-  const maximumPriorityNumber = Number(maxPriority);
+  const priorityNumber = Number(priority);
   const landingTipNumber = Number(bribe);
-  const priorityRangeInvalid = (
-    !Number.isFinite(minimumPriorityNumber) || minimumPriorityNumber < 0 || minimumPriorityNumber > 1 ||
-    !Number.isFinite(maximumPriorityNumber) || maximumPriorityNumber < minimumPriorityNumber || maximumPriorityNumber > 1 ||
+  const priorityInvalid = (
+    !Number.isFinite(priorityNumber) || priorityNumber < 0 || priorityNumber > 1 ||
     !Number.isFinite(landingTipNumber) || landingTipNumber < 0 || landingTipNumber > 1
   );
-  const ready = !!mint.trim() && !!walletId && Number(amount) > 0 && Number(slippage) > 0 && !mcFilterInvalid && !adaptiveInvalid && !priorityRangeInvalid && (!onlyRedirected || watchWallet.trim().length >= 32);
-  const priorityBudget = priorityRangeInvalid ? 0 : maximumPriorityNumber + landingTipNumber;
+  const ready = !!mint.trim() && !!walletId && Number(amount) > 0 && Number(slippage) > 0 && !mcFilterInvalid && !adaptiveInvalid && !priorityInvalid && (!onlyRedirected || watchWallet.trim().length >= 32);
+  const priorityBudget = priorityInvalid ? 0 : priorityNumber + landingTipNumber;
   const needed = Math.max(0, Number(amount) || 0) + priorityBudget;
   const insufficient = !!selectedWallet && selectedWallet.balanceSol != null && needed > 0 && selectedWallet.balanceSol < needed;
   const triggerSummary = triggerMode === "REDIRECT"
@@ -2206,17 +2147,12 @@ function SnipeForm({
           <div className={`hint ${adaptiveInvalid ? "err-text" : ""}`}>
             {adaptiveInvalid ? "Maximum slippage must be at least minimum slippage (max 100%), with 0–3 retries." : `Adaptive slippage starts at ${Number(slippage) || 0}% and can rise to ${Number(maxSlippage) || 0}% across ${Number(maxBuyRetries) || 0} retries.`}
           </div>
-          <div className="row">
-            <div><label>Minimum priority fee (SOL) <InfoTip text="The transaction always bids at least this much native compute priority." /></label><input value={priority} inputMode="decimal" onChange={(e) => setPriority(e.target.value)} /></div>
-            <div><label>Maximum priority fee (SOL) <InfoTip text="Account-aware priority can increase the native fee to this hard limit." /></label><input value={maxPriority} inputMode="decimal" onChange={(e) => setMaxPriority(e.target.value)} /></div>
+          <label>Priority fee (SOL) <InfoTip text="The exact native compute priority paid by the transaction. It is never changed by an estimate or mode." /></label>
+          <input value={priority} inputMode="decimal" onChange={(e) => setPriority(e.target.value)} />
+          <div className={`hint ${priorityInvalid ? "err-text" : ""}`}>
+            {priorityInvalid ? "Priority and landing tip must each be between 0 and 1 SOL." : `The transaction will pay exactly ${priorityNumber || 0} SOL in compute priority.`}
           </div>
-          <div className={`hint ${priorityRangeInvalid ? "err-text" : ""}`}>
-            {priorityRangeInvalid
-              ? "Maximum priority must be equal to or greater than minimum priority. Both must be between 0 and 1 SOL."
-              : `Account-aware priority is always active and can bid between ${minimumPriorityNumber || 0} and ${maximumPriorityNumber || 0} SOL.`}
-          </div>
-          <PriorityModeSelect value={priorityMode} onChange={setPriorityMode} />
-          <label>Landing tip (SOL) <InfoTip text="Required for Helius Sender Max routing. This is separate from the priority-fee range and is only sent as a real tip when Sender is enabled." /></label>
+          <label>Landing tip (SOL) <InfoTip text="Required for Helius Sender Max routing. This remains separate from the fixed priority fee and is only sent as a real tip when Sender is enabled." /></label>
           <input value={bribe} inputMode="decimal" onChange={(e) => setBribe(e.target.value)} />
           <div className="market-filter-box compact">
             <div className="market-filter-head"><strong>Market cap filter</strong><span>Optional</span></div>
@@ -2247,10 +2183,10 @@ function SnipeForm({
         <div className="summary-line"><span>Take profit</span><strong>{tpSummary}</strong></div>
         <div className="summary-line"><span>Stop loss</span><strong>{slSummary}</strong></div>
         <div className="summary-line"><span>Execution</span><strong>Local</strong></div>
-        <div className="summary-line"><span>Priority</span><strong>{priorityMode === "AGGRESSIVE" ? "Aggressive" : "Default"} · {priority}–{maxPriority} SOL</strong></div>
+        <div className="summary-line"><span>Priority</span><strong>{priority} SOL fixed</strong></div>
         <div className="summary-line"><span>Slippage</span><strong>{slippage}% → max {maxSlippage}% · {maxBuyRetries} retries</strong></div>
         <div className="summary-line"><span>Market cap</span><strong>{mcSummary}</strong></div>
-        <div className="summary-cost"><span>Buy + maximum priority</span><strong>≈ {needed.toFixed(4)} SOL</strong></div>
+        <div className="summary-cost"><span>Buy + fixed priority + tip</span><strong>≈ {needed.toFixed(4)} SOL</strong></div>
         {insufficient && <div className="summary-warning">Selected wallet may not have enough SOL for this configuration.</div>}
         <button className="primary" onClick={arm} disabled={busy || !ready || insufficient}>{busy ? <span className="spin" /> : "Arm snipe"}</button>
         <p className="summary-foot">The buy is submitted immediately after the configured trigger is detected.</p>
@@ -2279,17 +2215,6 @@ function EditSnipeModal({
   const [maxBuyRetries, setMaxBuyRetries] = useState(String(snipe.maxBuyRetries ?? 2));
   const [priority, setPriority] = useState(String(snipe.priorityFee));
   const [bribe, setBribe] = useState(String(snipe.bribe));
-  const [maxPriority, setMaxPriority] = useState(
-    storedMaximumPriority(
-      String(snipe.priorityFee),
-      String(snipe.bribe),
-      null,
-      snipe.maxPriorityCostSol == null ? null : String(snipe.maxPriorityCostSol),
-    ),
-  );
-  const [priorityMode, setPriorityMode] = useState<PriorityMode>(
-    snipe.priorityMode === "AGGRESSIVE" ? "AGGRESSIVE" : "DEFAULT",
-  );
   const [mcMinUsd, setMcMinUsd] = useState(snipe.mcMinUsd == null ? "" : String(snipe.mcMinUsd));
   const [mcMaxUsd, setMcMaxUsd] = useState(snipe.mcMaxUsd == null ? "" : String(snipe.mcMaxUsd));
   const [redir, setRedir] = useState(snipe.onlyRedirected);
@@ -2315,16 +2240,14 @@ function EditSnipeModal({
     maxSlipNumber > 100 ||
     !Number.isInteger(retryCountNumber) || retryCountNumber < 0 || retryCountNumber > 3
   );
-  const minimumPriorityNumber = Number(priority);
-  const maximumPriorityNumber = Number(maxPriority);
+  const priorityNumber = Number(priority);
   const landingTipNumber = Number(bribe);
-  const priorityRangeInvalid = (
-    !Number.isFinite(minimumPriorityNumber) || minimumPriorityNumber < 0 || minimumPriorityNumber > 1 ||
-    !Number.isFinite(maximumPriorityNumber) || maximumPriorityNumber < minimumPriorityNumber || maximumPriorityNumber > 1 ||
+  const priorityInvalid = (
+    !Number.isFinite(priorityNumber) || priorityNumber < 0 || priorityNumber > 1 ||
     !Number.isFinite(landingTipNumber) || landingTipNumber < 0 || landingTipNumber > 1
   );
   const ready =
-    Number(amount) > 0 && Number(slippage) > 0 && !mcFilterInvalid && !adaptiveInvalid && !priorityRangeInvalid && (!redir || watchWallet.trim().length >= 32);
+    Number(amount) > 0 && Number(slippage) > 0 && !mcFilterInvalid && !adaptiveInvalid && !priorityInvalid && (!redir || watchWallet.trim().length >= 32);
 
   async function save() {
     setBusy(true);
@@ -2335,13 +2258,8 @@ function EditSnipeModal({
         adaptiveSlippage: true,
         maxSlippagePct: Number(maxSlippage),
         maxBuyRetries: Number(maxBuyRetries),
-        minPriorityFee: Number(priority),
-        maxPriorityFee: Number(maxPriority),
         priorityFee: Number(priority),
         bribe: Number(bribe),
-        highPriorityMode: true,
-        priorityMode,
-        maxPriorityCostSol: Number(maxPriority) + Number(bribe),
         mcMinUsd: marketCapInputToNumber(mcMinUsd),
         mcMaxUsd: marketCapInputToNumber(mcMaxUsd),
         onlyRedirected: redir,
@@ -2394,18 +2312,9 @@ function EditSnipeModal({
             <label>Slippage retries</label>
             <input value={maxBuyRetries} onChange={(e) => setMaxBuyRetries(e.target.value)} />
             {adaptiveInvalid && <div className="hint err-text">Maximum slippage must be at least minimum slippage, with 0–3 retries.</div>}
-            <div className="row">
-              <div>
-                <label>Minimum priority fee (SOL)</label>
-                <input value={priority} onChange={(e) => setPriority(e.target.value)} />
-              </div>
-              <div>
-                <label>Maximum priority fee (SOL)</label>
-                <input value={maxPriority} onChange={(e) => setMaxPriority(e.target.value)} />
-              </div>
-            </div>
-            {priorityRangeInvalid && <div className="hint err-text">Maximum priority must be equal to or greater than minimum priority. Both must be between 0 and 1 SOL.</div>}
-            <PriorityModeSelect value={priorityMode} onChange={setPriorityMode} />
+            <label>Priority fee (SOL)</label>
+            <input value={priority} onChange={(e) => setPriority(e.target.value)} />
+            {priorityInvalid && <div className="hint err-text">Priority and landing tip must each be between 0 and 1 SOL.</div>}
             <label>Landing tip (SOL)</label>
             <input value={bribe} onChange={(e) => setBribe(e.target.value)} />
             <div className="market-filter-box compact">
@@ -5082,41 +4991,6 @@ function TriggerModeSelect({
           when a specific wallet claims).
         </div>
       )}
-    </div>
-  );
-}
-
-function PriorityModeSelect({
-  value,
-  onChange,
-}: {
-  value: PriorityMode;
-  onChange: (value: PriorityMode) => void;
-}) {
-  return (
-    <div className="exec-mode priority-mode-select">
-      <label>Mode</label>
-      <div className="seg">
-        <button
-          type="button"
-          className={value === "DEFAULT" ? "on" : ""}
-          onClick={() => onChange("DEFAULT")}
-        >
-          Default
-        </button>
-        <button
-          type="button"
-          className={value === "AGGRESSIVE" ? "on" : ""}
-          onClick={() => onChange("AGGRESSIVE")}
-        >
-          Aggressive
-        </button>
-      </div>
-      <div className="hint">
-        {value === "AGGRESSIVE"
-          ? "Bids 25% above the live account estimate, never above your maximum."
-          : "Uses the live account estimate directly, never above your maximum."}
-      </div>
     </div>
   );
 }
