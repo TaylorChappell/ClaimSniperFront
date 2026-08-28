@@ -180,7 +180,7 @@ export interface Snipe {
   priorityFee: number;
   bribe: number;
   highPriorityMode?: boolean;
-  priorityMode?: "DEFAULT" | "AGGRESSIVE";
+  priorityMode?: "DEFAULT" | "AGGRESSIVE" | "FIXED";
   maxPriorityCostSol?: number | null;
   execMode?: "PUMPPORTAL" | "LOCAL";
   triggerMode?: "CLAIM" | "REDIRECT";
@@ -428,7 +428,7 @@ export interface PublicSnipe {
   priorityFee?: number;
   bribe?: number;
   highPriorityMode?: boolean;
-  priorityMode?: "DEFAULT" | "AGGRESSIVE";
+  priorityMode?: "DEFAULT" | "AGGRESSIVE" | "FIXED";
   maxPriorityCostSol?: number | null;
   watchWallet?: string | null;
   onlyRedirected?: boolean;
@@ -771,13 +771,8 @@ export const api = {
     adaptiveSlippage?: boolean;
     maxSlippagePct?: number;
     maxBuyRetries?: number;
-    minPriorityFee?: number;
-    maxPriorityFee?: number;
     priorityFee?: number;
     bribe?: number;
-    highPriorityMode?: boolean;
-    priorityMode?: "DEFAULT" | "AGGRESSIVE";
-    maxPriorityCostSol?: number | null;
     execMode?: "PUMPPORTAL" | "LOCAL";
     triggerMode?: "CLAIM" | "REDIRECT";
     onlyRedirected?: boolean;
@@ -798,13 +793,8 @@ export const api = {
       adaptiveSlippage?: boolean;
       maxSlippagePct?: number;
       maxBuyRetries?: number;
-      minPriorityFee?: number;
-      maxPriorityFee?: number;
       priorityFee?: number;
       bribe?: number;
-      highPriorityMode?: boolean;
-      priorityMode?: "DEFAULT" | "AGGRESSIVE";
-      maxPriorityCostSol?: number | null;
       execMode?: "PUMPPORTAL" | "LOCAL";
       triggerMode?: "CLAIM" | "REDIRECT";
       onlyRedirected?: boolean;
