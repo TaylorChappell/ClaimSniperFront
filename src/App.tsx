@@ -406,8 +406,11 @@ function snipeUiState(s: Snipe) {
   if (s.status === "TRIGGERED") return { label: "BUYING", tone: "TRIGGERED", group: "active" as const, glow: "active" as const };
   if (s.status === "ARMED") return { label: "ARMED", tone: "ARMED", group: "active" as const, glow: "active" as const };
   if (s.status === "PAUSED") return { label: "PAUSED", tone: "PAUSED", group: "active" as const, glow: "active" as const };
+  const trackedPositionOpen = s.positionStatus != null
+    ? s.positionStatus === "OPEN" && BigInt(s.positionRemainingTokenRaw ?? "0") > 0n
+    : null;
   const exitDone = s.tpStatus === "SOLD" || s.tpStatus === "STOPPED";
-  if (s.status === "FILLED" && !exitDone)
+  if (s.status === "FILLED" && (trackedPositionOpen ?? !exitDone))
     return { label: "POSITION OPEN", tone: "OPEN", group: "positions" as const, glow: "open" as const };
   return { label: "CLOSED", tone: "CLOSED", group: "finished" as const, glow: "finished" as const };
 }
@@ -1689,16 +1692,16 @@ function ProfitSection({ stats }: { stats: Stats | null }) {
       <h2>Real profit</h2>
       <div className="stats">
         <Stat
-          label="Spent"
+          label="Realized cost"
           value={`${(stats?.spentSol ?? 0).toFixed(3)} SOL`}
         />
         <Stat
-          label="Realized"
+          label="Sale proceeds"
           value={`${(stats?.madeSol ?? 0).toFixed(3)} SOL`}
           accent="green"
         />
         <Stat
-          label="Net"
+          label="Realized P&L"
           value={`${net >= 0 ? "+" : ""}${net.toFixed(3)} SOL`}
           accent={net >= 0 ? "green" : "red"}
         />
@@ -5800,8 +5803,12 @@ function Social({
                 <div className={`trader-card ${followed?.enabled ? "copying" : ""}`} key={u.id}>
                   <button className="trader-card-main" onClick={() => setOpenUserId(u.id)}>
                     <AvatarBubble username={u.username} avatarDataUrl={u.avatarDataUrl ?? null} size="sm" />
-                    <div className="trader-main"><strong>@{u.username}</strong><span>{u.filledCount} filled · {u.snipeCount} snipes</span></div>
-                    <Pnl net={u.netSol} />
+                    <div className="trader-main"><strong>@{u.username}</strong><span>{u.filledCount} filled · {u.openPositionCount} open · {u.snipeCount} snipes</span></div>
+                    <div className="trader-profit-periods">
+                      <span><small>Daily</small><Pnl net={u.dailyProfitSol} /></span>
+                      <span><small>Weekly</small><Pnl net={u.weeklyProfitSol} /></span>
+                      <span><small>All time</small><Pnl net={u.allTimeProfitSol} /></span>
+                    </div>
                   </button>
                   <button className={`copytrade-action ${followed?.enabled ? "on" : ""}`} disabled={isSelf} onClick={() => !isSelf && setCopyTrader(u)}>
                     {isSelf ? "You" : followed?.enabled ? "Copying" : "Copy trade"}
@@ -6384,7 +6391,9 @@ function CopyTraderModal({
         <div className="copytrader-summary">
           <div><span>Trader activity</span><strong>{trader.snipeCount} snipes</strong></div>
           <div><span>Filled</span><strong>{trader.filledCount}</strong></div>
-          <div><span>Net P&amp;L</span><Pnl net={trader.netSol} /></div>
+          <div><span>Daily P&amp;L</span><Pnl net={trader.dailyProfitSol} /></div>
+          <div><span>Weekly P&amp;L</span><Pnl net={trader.weeklyProfitSol} /></div>
+          <div><span>All-time P&amp;L</span><Pnl net={trader.allTimeProfitSol} /></div>
         </div>
 
         <div className="copytrader-explainer">

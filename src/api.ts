@@ -153,6 +153,11 @@ export interface LiveMarketCapSnapshot {
 
 export interface Snipe {
   id: string;
+  positionStatus?: "OPEN" | "CLOSED" | "CLOSED_TRANSFERRED" | "CLOSED_EXPIRED" | null;
+  positionRemainingTokenRaw?: string | null;
+  positionRealizedSol?: number;
+  positionRealizedProfitSol?: number;
+  positionClosedAt?: string | null;
   mint: string;
   pairAddress?: string | null;
   pairDexId?: string | null;
@@ -399,6 +404,10 @@ export interface SocialUser {
   spentSol: number;
   madeSol: number;
   netSol: number;
+  dailyProfitSol: number;
+  weeklyProfitSol: number;
+  allTimeProfitSol: number;
+  openPositionCount: number;
 }
 export interface PublicSnipe {
   id: string;
