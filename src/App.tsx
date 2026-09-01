@@ -4097,7 +4097,7 @@ function AdminPanel({ wallets }: { wallets: Wallet[] }) {
               <span>Open positions</span><strong>{overview?.positions.open ?? 0}</strong><small>{(overview?.snipes.soldVolume24hSol ?? 0).toFixed(2)} SOL sold · 24h</small>
             </div>
             <div className="admin-metric">
-              <span>Trigger → fill</span><strong>{adminDurationMs(overview?.snipes.avgTriggerToFillMs)}</strong><small>average confirmed fill · 24h</small>
+              <span>Claim → processed</span><strong>{adminDurationMs(overview?.snipes.avgClaimToProcessedMs)}</strong><small>submit {adminDurationMs(overview?.snipes.avgClaimToSubmitMs)} · landing {adminDurationMs(overview?.snipes.avgSubmitToProcessedMs)} · 24h</small>
             </div>
             <div className="admin-metric">
               <span>TX queue</span><strong>{health?.queue.queued ?? 0}</strong><small>{health?.queue.limitPerSecond ?? 0}/s limit · {health?.queue.priorityQueued ?? 0} priority</small>
@@ -4240,7 +4240,7 @@ function AdminPanel({ wallets }: { wallets: Wallet[] }) {
                     <span>Local</span>
                     <span>MC {s.liveMarketCapUsd != null ? `$${compactNumber.format(s.liveMarketCapUsd)}` : "—"}</span>
                     <span>{s.buyAttempts || 0} attempt{s.buyAttempts === 1 ? "" : "s"} · {s.finalSlippagePct ?? s.slippagePct}%</span>
-                    {s.triggerToFillMs != null && <span>fill {adminDurationMs(s.triggerToFillMs)}</span>}
+                    {s.claimToProcessedMs != null ? <span>processed {adminDurationMs(s.claimToProcessedMs)}</span> : s.triggerToFillMs != null && <span>fill {adminDurationMs(s.triggerToFillMs)}</span>}
                   </div>
                   {s.position && <div className="admin-position-line"><span>{s.position.status} position</span><span>{s.position.realizedSol.toFixed(4)} SOL realized</span><Pnl net={s.position.realizedProfitSol} /></div>}
                   {s.error && <div className="admin-error-preview">{s.error}</div>}
@@ -4339,7 +4339,11 @@ function AdminSnipeDebugModal({ data, onClose }: { data: AdminSnipeDebug; onClos
   const s = data.snipe;
   const timeline = [
     ["Created", s.createdAt],
-    ["Triggered", s.triggeredAt],
+    ["Claim observed", s.claimObservedAt],
+    ["Execution lock", s.executionLockedAt],
+    ["Submitted", s.submittedAt],
+    ["Processed", s.processedAt],
+    ["Confirmed", s.confirmedAt],
     ["Filled", s.filledAt],
     ["Discarded", s.discardedAt],
     ["Exit submitted", s.exitSubmittedAt],
@@ -4351,7 +4355,7 @@ function AdminSnipeDebugModal({ data, onClose }: { data: AdminSnipeDebug; onClos
         <div className="admin-debug-status"><span className={`badge ${s.status}`}>{s.status}</span>{s.discardedAt && <span className="admin-discarded-chip">DISCARDED</span>}<span>{s.amountSol} SOL</span><span>{s.triggerMode}</span><span>LOCAL</span><span>MC {s.liveMarketCapUsd != null ? `$${compactNumber.format(s.liveMarketCapUsd)}` : "—"}</span></div>
         <div className="admin-timeline">{timeline.map(([label, value], i) => <div key={label}><i className={i === timeline.length - 1 ? "last" : ""} /><span>{label}</span><b>{new Date(value).toLocaleString()}</b>{i > 0 && <small>+{adminDurationMs(new Date(value).getTime() - new Date(timeline[i - 1][1]).getTime())}</small>}</div>)}</div>
         <div className="admin-debug-grid">
-          <section><h4>Execution</h4><AdminDebugKV k="Snipe ID" v={s.id} mono /><AdminDebugKV k="Wallet" v={`${s.wallet.name} · ${s.wallet.publicKey}`} mono /><AdminDebugKV k="Amount" v={`${s.amountSol} SOL`} /><AdminDebugKV k="Base slippage" v={`${s.slippagePct}%`} /><AdminDebugKV k="Adaptive" v={s.adaptiveSlippage === false ? "Off" : `On · max ${s.maxSlippagePct ?? "—"}%`} /><AdminDebugKV k="Buy attempts" v={`${s.buyAttempts ?? 0} / ${(s.maxBuyRetries ?? 0) + 1}`} /><AdminDebugKV k="Final slippage" v={s.finalSlippagePct != null ? `${s.finalSlippagePct}%` : "—"} /><AdminDebugKV k="Priority / tip" v={`${s.priorityFee} / ${s.bribe} SOL`} /><AdminDebugKV k="Trigger → fill" v={adminDurationMs(s.triggerToFillMs)} /></section>
+          <section><h4>Execution</h4><AdminDebugKV k="Snipe ID" v={s.id} mono /><AdminDebugKV k="Wallet" v={`${s.wallet.name} · ${s.wallet.publicKey}`} mono /><AdminDebugKV k="Amount" v={`${s.amountSol} SOL`} /><AdminDebugKV k="Base slippage" v={`${s.slippagePct}%`} /><AdminDebugKV k="Adaptive" v={s.adaptiveSlippage === false ? "Off" : `On · max ${s.maxSlippagePct ?? "—"}%`} /><AdminDebugKV k="Buy attempts" v={`${s.buyAttempts ?? 0} / ${(s.maxBuyRetries ?? 0) + 1}`} /><AdminDebugKV k="Final slippage" v={s.finalSlippagePct != null ? `${s.finalSlippagePct}%` : "—"} /><AdminDebugKV k="Priority / tip" v={`${s.priorityFee} / ${s.bribe} SOL`} /><AdminDebugKV k="Claim → lock" v={adminDurationMs(s.claimToLockMs)} /><AdminDebugKV k="Lock → submit" v={adminDurationMs(s.lockToSubmitMs)} /><AdminDebugKV k="Claim → submit" v={adminDurationMs(s.claimToSubmitMs)} /><AdminDebugKV k="Submit → processed" v={adminDurationMs(s.submitToProcessedMs)} /><AdminDebugKV k="Claim → processed" v={adminDurationMs(s.claimToProcessedMs)} /><AdminDebugKV k="Processed → confirmed" v={adminDurationMs(s.processedToConfirmedMs)} /><AdminDebugKV k="Claim → confirmed" v={adminDurationMs(s.claimToConfirmedMs)} /><AdminDebugKV k="Legacy trigger → fill" v={adminDurationMs(s.triggerToFillMs)} /></section>
           <section><h4>Trigger / filters</h4><AdminDebugKV k="Mode" v={s.triggerMode ?? "CLAIM"} /><AdminDebugKV k="Claim detection" v="PROCESSED · signer/social proof" /><AdminDebugKV k="Watch wallet" v={s.watchWallet ?? "default creator"} mono /><AdminDebugKV k="MC min" v={s.mcMinUsd != null ? `$${compactNumber.format(s.mcMinUsd)}` : "none"} /><AdminDebugKV k="MC max" v={s.mcMaxUsd != null ? `$${compactNumber.format(s.mcMaxUsd)}` : "none"} /><AdminDebugKV k="Claim check" v={s.claimCheckStatus ?? "—"} /><AdminDebugKV k="Claim signer" v={s.claimCheckSigner ? "yes" : s.claimCheckInstruction?.startsWith("claim_social_fee_pda") ? "protocol-authorized social claim" : "no"} /><AdminDebugKV k="Claim tx" v={s.claimCheckTx ?? "—"} mono /></section>
           <section><h4>Exit / position</h4><AdminDebugKV k="TP status" v={s.tpStatus ?? "NONE"} /><AdminDebugKV k="Exit kind" v={s.exitKind ?? "—"} /><AdminDebugKV k="Entry MC" v={s.entryMcSol != null ? `${s.entryMcSol.toFixed(2)} SOL` : "—"} /><AdminDebugKV k="Peak MC" v={s.peakMcSol != null ? `${s.peakMcSol.toFixed(2)} SOL` : "—"} /><AdminDebugKV k="Position" v={data.position?.status ?? "none"} /><AdminDebugKV k="Realized" v={data.position ? `${data.position.realizedSol.toFixed(6)} SOL` : "—"} /><AdminDebugKV k="Realized P&L" v={data.position ? `${data.position.realizedProfitSol >= 0 ? "+" : ""}${data.position.realizedProfitSol.toFixed(6)} SOL` : "—"} /></section>
         </div>

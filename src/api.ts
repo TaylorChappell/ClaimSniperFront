@@ -197,6 +197,11 @@ export interface Snipe {
   signature?: string | null;
   error?: string | null;
   createdAt: string;
+  claimObservedAt?: string | null;
+  executionLockedAt?: string | null;
+  submittedAt?: string | null;
+  processedAt?: string | null;
+  confirmedAt?: string | null;
   triggeredAt?: string | null;
   filledAt?: string | null;
   discardedAt?: string | null;
@@ -256,6 +261,13 @@ export interface AdminSnipe extends Snipe {
   liveMarketCapSol?: number | null;
   liveMarketCapUpdatedAt?: string | null;
   triggerToFillMs?: number | null;
+  claimToLockMs?: number | null;
+  lockToSubmitMs?: number | null;
+  claimToSubmitMs?: number | null;
+  submitToProcessedMs?: number | null;
+  claimToProcessedMs?: number | null;
+  processedToConfirmedMs?: number | null;
+  claimToConfirmedMs?: number | null;
   position?: {
     snipeId?: string | null;
     status: string;
@@ -283,7 +295,7 @@ export interface AdminOverview {
     process: { uptimeSeconds: number; rssMb: number; heapUsedMb: number; heapTotalMb: number; node: string };
   };
   users: { total: number; active: number; whitelisted: number; priority: number; new24h: number };
-  snipes: { total: number; armed: number; paused: number; triggered: number; filled: number; failed: number; cancelled: number; failures24h: number; fills24h: number; recoveredRetries24h: number; avgTriggerToFillMs: number | null; buyVolume24hSol: number; soldVolume24hSol: number };
+  snipes: { total: number; armed: number; paused: number; triggered: number; filled: number; failed: number; cancelled: number; failures24h: number; fills24h: number; recoveredRetries24h: number; avgTriggerToFillMs: number | null; avgClaimToSubmitMs: number | null; avgClaimToProcessedMs: number | null; avgSubmitToProcessedMs: number | null; buyVolume24hSol: number; soldVolume24hSol: number };
   positions: { open: number };
   billing: Record<string, number>;
   social: { messages24h: number };
