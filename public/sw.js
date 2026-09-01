@@ -50,6 +50,25 @@ self.addEventListener('push', (event) => {
       });
     }
 
+    // Custom audio must be played by a window, not by the service worker. Send
+    // it to exactly one tab so multiple open tabs cannot all play sniper.mp3.
+    // The normal notification message above still reaches every tab for state
+    // refresh / favicon handling.
+    const realtimeEntryAlert =
+      (kind === 'fill' && String(options.tag).startsWith('snipe-filled-')) ||
+      (kind === 'fail' && String(options.tag).startsWith('snipe-failed-'));
+    if (realtimeEntryAlert && appClients.length) {
+      const audioClient =
+        appClients.find((client) => client.visibilityState === 'visible' && client.focused) ||
+        appClients.find((client) => client.visibilityState === 'visible') ||
+        appClients[0];
+      audioClient?.postMessage({
+        type: 'claim-sniper-audio',
+        kind,
+        tag: options.tag,
+      });
+    }
+
     // Suppress only a chat alert that the user is genuinely looking at. A
     // hidden/background tab must not silence the desktop notification.
     if (kind === 'chat' || options.tag === 'claim-sniper-chat') {

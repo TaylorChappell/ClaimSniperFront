@@ -45,6 +45,32 @@ import { clearTabNotifications, signalTabNotification } from "./tab-notification
 
 const BRAND_IMG = `${import.meta.env.BASE_URL}sniper.png`;
 const SNIPE_SOUND = `${import.meta.env.BASE_URL}sniper.mp3`;
+const REALTIME_PUSH_PREFIX = "cs.realtimePush.";
+const REALTIME_PUSH_TTL_MS = 60_000;
+
+function markRealtimePush(tag: string | null | undefined) {
+  if (!tag) return;
+  try {
+    localStorage.setItem(`${REALTIME_PUSH_PREFIX}${tag}`, String(Date.now()));
+  } catch {
+    /* cross-tab dedupe is best-effort when storage is blocked */
+  }
+}
+
+function hadRecentRealtimePush(tag: string, ttlMs = REALTIME_PUSH_TTL_MS) {
+  try {
+    const raw = localStorage.getItem(`${REALTIME_PUSH_PREFIX}${tag}`);
+    if (!raw) return false;
+    const at = Number(raw);
+    if (!Number.isFinite(at) || Date.now() - at > ttlMs) {
+      localStorage.removeItem(`${REALTIME_PUSH_PREFIX}${tag}`);
+      return false;
+    }
+    return true;
+  } catch {
+    return false;
+  }
+}
 const DEFAULT_CHAT_COLOR = "#20e070";
 const DEFAULT_PLATFORM: TradingPlatform = "AXIOM";
 const short = (s: string) => `${s.slice(0, 4)}…${s.slice(-4)}`;
@@ -445,6 +471,33 @@ export default function App() {
       window.removeEventListener("pointerdown", unlock);
       window.removeEventListener("keydown", unlock);
     };
+  }, []);
+
+  // Web Push is delivered by the service worker even when a desktop tab is
+  // background-throttled. Record every push for cross-tab/poll dedupe and let
+  // exactly one tab play the custom sound through the dedicated audio message.
+  useEffect(() => {
+    if (!("serviceWorker" in navigator)) return;
+    const onMessage = (event: MessageEvent) => {
+      const message = event.data;
+      if (!message || typeof message !== "object") return;
+
+      if (message.type === "claim-sniper-notification") {
+        markRealtimePush(typeof message.tag === "string" ? message.tag : null);
+        return;
+      }
+
+      if (message.type === "claim-sniper-audio") {
+        if (message.kind === "fill") playChime("fill");
+        else if (message.kind === "fail") playChime("fail");
+        // Only the single service-worker-selected audio tab requests a refresh;
+        // useLeaderPolling forwards that request to the elected leader and then
+        // broadcasts the fresh dashboard payload to every other tab.
+        window.dispatchEvent(new CustomEvent("claimsnipe:push", { detail: message }));
+      }
+    };
+    navigator.serviceWorker.addEventListener("message", onMessage);
+    return () => navigator.serviceWorker.removeEventListener("message", onMessage);
   }, []);
 
   // Always ask the server on startup. The session JWT lives only in an HttpOnly
@@ -1358,12 +1411,16 @@ function Dashboard({
         const prev = prevStatus.current[sn.id];
         if (prev && prev !== "FILLED" && sn.status === "FILLED") {
           toast(`Order filled: ${sn.amountSol} SOL of ${short(sn.mint)}`, "fill");
-          playChime("fill");
-          signalTabNotification({ kind: "fill", title: "Order filled", body: `${sn.amountSol} SOL of ${short(sn.mint)}` });
+          if (!hadRecentRealtimePush(`snipe-filled-${sn.id}`)) {
+            playChime("fill");
+            signalTabNotification({ kind: "fill", title: "Order filled", body: `${sn.amountSol} SOL of ${short(sn.mint)}` });
+          }
         } else if (prev && prev !== "FAILED" && sn.status === "FAILED") {
           toast(`Snipe failed: ${short(sn.mint)}`, "err");
-          playChime("fail");
-          signalTabNotification({ kind: "fail", title: "Snipe failed", body: short(sn.mint) });
+          if (!hadRecentRealtimePush(`snipe-failed-${sn.id}`)) {
+            playChime("fail");
+            signalTabNotification({ kind: "fail", title: "Snipe failed", body: short(sn.mint) });
+          }
         }
         const prevTp = prevStatus.current[`tp:${sn.id}`];
         if (prevTp && prevTp !== "SOLD" && sn.tpStatus === "SOLD") {
@@ -1392,6 +1449,17 @@ function Dashboard({
   }, [toast]);
 
   const { data, refresh, error: dashboardError } = useLeaderPolling("dash", fetchAll, 30000, username);
+
+  useEffect(() => {
+    const onPush = (event: Event) => {
+      const detail = (event as CustomEvent<any>).detail;
+      if (!detail) return;
+      if (detail.kind === "fill" || detail.kind === "fail" || detail.kind === "dex") refresh();
+    };
+    window.addEventListener("claimsnipe:push", onPush);
+    return () => window.removeEventListener("claimsnipe:push", onPush);
+  }, [refresh]);
+
   const { data: discoveryStatus } = useLeaderPolling(
     "discovery-status",
     () => api.discoveryStatus(),
